@@ -142,15 +142,11 @@ def fetch_elements():
         rest = [r[0] for r in cur.fetchall() if r[0] not in seen]
     for norad in rest:
         try:
-            r = requests.get(CELESTRAK_BASE,
-                             params={"CATNR": norad, "FORMAT": "TLE"},
-                             headers=UA, timeout=30)
-            r.raise_for_status()
-            lines = [ln for ln in r.text.strip().splitlines() if ln.strip()]
-            if len(lines) < 2:
-                log.warning("No elements returned for %s", norad)
+            tle = _tle_from_celestrak(norad) or _tle_from_satnogs(norad)
+            if not tle:
+                log.warning("No elements found for %s (CelesTrak + SatNOGS)", norad)
                 continue
-            tle1, tle2 = lines[-2], lines[-1]
+            tle1, tle2 = tle
             with db() as conn, conn.cursor() as cur:
                 cur.execute(
                     """INSERT INTO elements (norad, epoch, tle1, tle2)
@@ -162,6 +158,39 @@ def fetch_elements():
         except Exception as e:
             log.warning("Element fetch failed for %s: %s", norad, e)
         time.sleep(1)
+
+
+def _tle_from_celestrak(norad):
+    try:
+        r = requests.get(CELESTRAK_BASE,
+                         params={"CATNR": norad, "FORMAT": "TLE"},
+                         headers=UA, timeout=30)
+        r.raise_for_status()
+        lines = [ln for ln in r.text.strip().splitlines() if ln.strip()]
+        if len(lines) >= 2 and lines[-2].startswith("1 "):
+            return lines[-2], lines[-1]
+    except Exception:
+        pass
+    return None
+
+
+def _tle_from_satnogs(norad):
+    """Fallback: SatNOGS keeps TLEs for satellites CelesTrak drops from GP
+    (e.g. LAPAN-A2). Needs the same free token as telemetry."""
+    if not SATNOGS_TOKEN:
+        return None
+    try:
+        headers = dict(UA); headers["Authorization"] = f"Token {SATNOGS_TOKEN}"
+        r = requests.get(f"{SATNOGS_BASE}/tle/",
+                         params={"norad_cat_id": norad},
+                         headers=headers, timeout=30)
+        r.raise_for_status()
+        data = r.json()
+        if data:
+            return data[0]["tle1"], data[0]["tle2"]
+    except Exception as e:
+        log.debug("SatNOGS TLE fallback failed for %s: %s", norad, e)
+    return None
 
 
 def _parse_tle_file(text):
