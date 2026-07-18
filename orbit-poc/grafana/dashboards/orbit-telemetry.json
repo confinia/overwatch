@@ -4,7 +4,7 @@
   "tags": ["orbit-poc"],
   "timezone": "utc",
   "schemaVersion": 39,
-  "version": 3,
+  "version": 4,
   "refresh": "30s",
   "time": { "from": "now-7d", "to": "now" },
   "templating": {
@@ -82,6 +82,33 @@
         {
           "format": "table",
           "rawSql": "SELECT DISTINCT ON (field) field, COALESCE(value_num::text, value_txt) AS value, ts FROM telemetry WHERE norad = $norad ORDER BY field, ts DESC"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Battery charge",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 21 },
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100 } },
+      "targets": [
+        {
+          "format": "time_series",
+          "rawSql": "SELECT ts AS time, value_num AS value FROM telemetry WHERE norad = $norad AND field = 'battery_pct' ORDER BY ts"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Frames received per hour (link activity)",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 21 },
+      "fieldConfig": { "defaults": {
+        "custom": { "drawStyle": "bars", "fillOpacity": 60 } } },
+      "targets": [
+        {
+          "format": "time_series",
+          "rawSql": "SELECT date_trunc('hour', ts) AS time, count(DISTINCT ts)::float AS frames FROM telemetry WHERE norad = $norad GROUP BY 1 ORDER BY 1"
         }
       ]
     }

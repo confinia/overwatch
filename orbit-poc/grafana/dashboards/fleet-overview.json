@@ -1,0 +1,53 @@
+{
+  "uid": "fleet-overview",
+  "title": "Fleet Overview",
+  "tags": ["orbit-poc"],
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "1m",
+  "time": { "from": "now-7d", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Battery voltage — whole fleet (normalized battery_v)",
+      "type": "timeseries",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "volt",
+        "custom": { "drawStyle": "points", "pointSize": 4 } } },
+      "targets": [
+        {
+          "format": "time_series",
+          "rawSql": "SELECT t.ts AS time, s.name AS metric, t.value_num AS value FROM telemetry t JOIN satellite s USING (norad) WHERE t.field = 'battery_v' ORDER BY t.ts"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Frames received per hour, by satellite",
+      "type": "timeseries",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 0 },
+      "fieldConfig": { "defaults": {
+        "custom": { "drawStyle": "bars", "fillOpacity": 60, "stacking": { "mode": "normal" } } } },
+      "targets": [
+        {
+          "format": "time_series",
+          "rawSql": "SELECT date_trunc('hour', t.ts) AS time, s.name AS metric, count(DISTINCT t.ts)::float AS value FROM telemetry t JOIN satellite s USING (norad) GROUP BY 1, 2 ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Link status — last frame, coverage, battery",
+      "type": "table",
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 9 },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT s.name AS satellite, s.norad, max(t.ts) AS last_frame, round(extract(epoch FROM now() - max(t.ts)) / 3600, 1) AS hours_silent, count(DISTINCT t.ts) AS frames_7d, round(avg(t.value_num) FILTER (WHERE t.field = 'battery_v')::numeric, 2) AS avg_battery_v, round(avg(t.value_num) FILTER (WHERE t.field = 'battery_pct')::numeric, 0) AS avg_battery_pct FROM satellite s LEFT JOIN telemetry t USING (norad) GROUP BY s.name, s.norad ORDER BY max(t.ts) DESC NULLS LAST"
+        }
+      ]
+    }
+  ]
+}
