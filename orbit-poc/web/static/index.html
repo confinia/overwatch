@@ -12,12 +12,14 @@
   * { box-sizing:border-box; }
   html,body { margin:0; height:100%; background:var(--bg); color:var(--text);
     font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
-  /* Split layout: top half = globe + list, bottom half = Grafana dashboards */
-  #app { display:grid; grid-template-rows: 50vh 50vh; height:100vh; }
-  #top { display:grid; grid-template-columns: 1fr 420px; min-height:0; }
-  #map { height:100%; }
+  /* Layout: left column = globe (top half) over Grafana dashboards (bottom
+     half); right column = full-height satellite list with search. */
+  #app { display:grid; grid-template-columns: 1fr 420px;
+    grid-template-rows: 100vh; height:100vh; overflow:hidden; }
+  #left { display:grid; grid-template-rows: 50vh 1fr; min-width:0; min-height:0; }
+  #map { height:100%; min-height:0; }
   #side { border-left:1px solid var(--line); background:var(--panel);
-    display:flex; flex-direction:column; min-width:0; }
+    display:flex; flex-direction:column; min-width:0; min-height:0; }
   header { padding:14px 16px; border-bottom:1px solid var(--line); }
   header h1 { font-size:15px; margin:0 0 2px; letter-spacing:.2px; }
   header p { margin:0; font-size:12px; color:var(--dim); }
@@ -50,25 +52,25 @@
 </head>
 <body>
 <div id="app">
-  <div id="top">
+  <div id="left">
     <div id="map"></div>
-    <div id="side">
-      <header>
-        <h1><span class="dot"></span>Orbit POC — live positions + deep telemetry</h1>
-        <p>Positions cached from CelesTrak · health from SatNOGS · sovereign-hostable</p>
-      </header>
-      <input id="search" type="search" placeholder="Search satellites (name or NORAD id)…"/>
-      <div id="list"></div>
+    <div id="panel">
+      <div class="head" id="panelHead">Select a satellite to inspect its telemetry</div>
+      <div id="panelBody">
+        <div class="empty">The map and orbit tracks work with <b>zero accounts</b>.
+          Telemetry dashboards light up once a free SatNOGS token is set in the
+          ingest service. Satellites marked <span class="badge pos">position-only</span>
+          have encrypted or absent downlinks — shown honestly rather than hidden.</div>
+      </div>
     </div>
   </div>
-  <div id="panel">
-    <div class="head" id="panelHead">Select a satellite to inspect its telemetry</div>
-    <div id="panelBody">
-      <div class="empty">The map and orbit tracks work with <b>zero accounts</b>.
-        Telemetry dashboards light up once a free SatNOGS token is set in the
-        ingest service. Satellites marked <span class="badge pos">position-only</span>
-        have encrypted or absent downlinks — shown honestly rather than hidden.</div>
-    </div>
+  <div id="side">
+    <header>
+      <h1><span class="dot"></span>Orbit POC — live positions + deep telemetry</h1>
+      <p>Positions cached from CelesTrak · health from SatNOGS · sovereign-hostable</p>
+    </header>
+    <input id="search" type="search" placeholder="Search satellites (name or NORAD id)…"/>
+    <div id="list"></div>
   </div>
 </div>
 <script>

@@ -32,8 +32,14 @@ SHOWCASE = [
      "note": "Same Fox DUV beacon family as AO-85."},
     {"norad": 60237, "name": "GRBBeta", "telemetry": True, "decoder": "grbbeta",
      "note": "European (Slovak/Hungarian) gamma-ray CubeSat; very active."},
-    {"norad": 53385, "name": "Geoscan-Edelveis", "telemetry": True, "decoder": "geoscan",
-     "note": "Active 3U with open beacon; dense volunteer coverage."},
+    {"norad": 57175, "name": "CUBEBEL-2", "telemetry": True, "decoder": "cubebel2",
+     "note": "Belarusian 3U; richest live beacon found (70 decoded fields)."},
+    {"norad": 55104, "name": "Sharjahsat-1", "telemetry": True, "decoder": "sharjahsat1",
+     "note": "UAE 3U; heard hourly by volunteer stations."},
+    {"norad": 60246, "name": "CatSat", "telemetry": True, "decoder": "catsat",
+     "note": "University of Arizona 6U; active beacon."},
+    {"norad": 40931, "name": "LAPAN-A2 (IO-86)", "telemetry": True, "decoder": "io86",
+     "note": "Indonesian microsat, amateur payload; frequent passes."},
 
     # Position-only anchors - shown honestly as such
     {"norad": 46277, "name": "NEMO-HD", "telemetry": False, "decoder": None,
