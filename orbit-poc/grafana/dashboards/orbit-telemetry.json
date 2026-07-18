@@ -4,7 +4,7 @@
   "tags": ["orbit-poc"],
   "timezone": "utc",
   "schemaVersion": 39,
-  "version": 2,
+  "version": 3,
   "refresh": "30s",
   "time": { "from": "now-7d", "to": "now" },
   "templating": {
@@ -43,7 +43,7 @@
       "targets": [
         {
           "format": "time_series",
-          "rawSql": "SELECT ts AS time, field AS metric, value_num AS value FROM telemetry WHERE norad = $norad AND field ~* '(volt|vbat|v_bat|bat[a-z_]*_v$|panel_v$)' AND value_num IS NOT NULL ORDER BY ts"
+          "rawSql": "SELECT ts AS time, field AS metric, value_num AS value FROM telemetry WHERE norad = $norad AND (field = 'battery_v' OR field ~* '(volt|vbat|v_bat|bat[a-z_]*_v$|panel_v$)') AND value_num BETWEEN 0 AND 60 ORDER BY ts"
         }
       ]
     },
@@ -69,7 +69,7 @@
       "targets": [
         {
           "format": "time_series",
-          "rawSql": "SELECT ts AS time, field AS metric, value_num AS value FROM telemetry WHERE norad = $norad AND field ~* '(current|curr|_i_|amp)' AND value_num IS NOT NULL ORDER BY ts"
+          "rawSql": "SELECT ts AS time, field AS metric, value_num AS value FROM telemetry WHERE norad = $norad AND (field = 'battery_i' OR field ~* '(current|curr|_i_|amp)') AND value_num BETWEEN -20 AND 20 ORDER BY ts"
         }
       ]
     },

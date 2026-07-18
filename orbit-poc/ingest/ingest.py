@@ -21,6 +21,7 @@ clear log line; the map + orbit half runs fully without any account.
 """
 
 import os
+import re
 import time
 import logging
 import importlib
@@ -297,7 +298,13 @@ def fetch_telemetry():
 
     for norad, sat_id, decoder in targets:
         try:
-            frames = _get_frames(sat_id)
+            with db() as conn, conn.cursor() as cur:
+                cur.execute("SELECT max(ts) FROM telemetry WHERE norad=%s", (norad,))
+                last_ts = cur.fetchone()[0]
+            # First sight of a satellite: backfill ~a week of frames so the
+            # 7-day dashboards are dense. Afterwards: fetch only what's new.
+            frames = _get_frames(sat_id, pages=12 if last_ts is None else 3,
+                                 until=last_ts)
             if frames is None:
                 return  # token invalid — logged in _get_frames
             n = _store_frames(norad, frames, decoder)
@@ -308,10 +315,11 @@ def fetch_telemetry():
         time.sleep(5)  # stay well under SatNOGS rate limits
 
 
-def _get_frames(sat_id, pages=2):
+def _get_frames(sat_id, pages=2, until=None):
     """Fetch recent frames. The endpoint is cursor-paginated since 2026
     ({next, previous, results}); older deployments returned a bare list.
-    Honors 429 Retry-After — SatNOGS throttles aggressively."""
+    Honors 429 Retry-After — SatNOGS throttles aggressively. Stops paginating
+    once frames get older than `until` (our newest stored frame)."""
     headers = dict(UA); headers["Authorization"] = f"Token {SATNOGS_TOKEN}"
     frames, url, params = [], f"{SATNOGS_BASE}/telemetry/", {"sat_id": sat_id}
     for _ in range(pages):
@@ -328,15 +336,47 @@ def _get_frames(sat_id, pages=2):
             r.raise_for_status()
             break
         data = r.json()
-        if isinstance(data, dict):
-            frames += data.get("results", [])
-            url, params = data.get("next"), None
-            if not url:
-                break
-        else:
-            frames += data
+        page = data.get("results", []) if isinstance(data, dict) else data
+        frames += page
+        if until is not None and page:
+            try:
+                oldest = datetime.fromisoformat(
+                    page[-1]["timestamp"].replace("Z", "+00:00"))
+                if oldest <= until:
+                    break  # reached already-stored history
+            except (KeyError, ValueError):
+                pass
+        url, params = (data.get("next"), None) if isinstance(data, dict) else (None, None)
+        if not url:
             break
+        time.sleep(1)
     return frames
+
+
+# Protocol/framing noise — true for every AX.25-based decoder. Filtering at
+# ingest keeps the "Latest decoded fields" panel meaningful.
+JUNK_FIELD_RE = re.compile(
+    r"(ax25_header|ssid|hbit|_ctl$|_pid$|mask|_raw$|callsign|crc|_magic)", re.I)
+
+
+def _canonical(field, v):
+    """Derive normalized health fields (battery_v/battery_i/battery_pct) from
+    decoder-specific names+units, so the dashboards work for every satellite
+    without per-decoder panel queries. Heuristic mV/mA scaling on purpose."""
+    f = field.lower()
+    out = []
+    if re.search(r"(vbat|v_bat|volt|bat[a-z0-9_]*_v$)", f):
+        val = v / 1000.0 if 100 <= v <= 60000 else v
+        if 0.5 <= val <= 60:
+            out.append(("battery_v", val))
+    elif re.search(r"(bat[a-z0-9_]*_i$|i_batt|charging_current|battery_current)", f):
+        val = v / 1000.0 if 100 <= abs(v) <= 20000 else v
+        if 0 < abs(val) <= 20:
+            out.append(("battery_i", val))
+    elif re.search(r"(state_of_charge|battery_percent|_soc$)", f):
+        if 0 <= v <= 100:
+            out.append(("battery_pct", float(v)))
+    return out
 
 
 def _decode_frame(decoder, frame_hex):
@@ -396,11 +436,18 @@ def _store_frames(norad, frames, decoder):
             continue
         decoded_n += 1
         for k, v in fields.items():
+            if JUNK_FIELD_RE.search(k):
+                continue
             if isinstance(v, (int, float)) and not isinstance(v, bool):
                 rows.append((norad, ts, k, float(v), None))
+                for ck, cv in _canonical(k, v):
+                    rows.append((norad, ts, ck, cv, None))
             elif isinstance(v, str):
                 rows.append((norad, ts, k, None, v))
     if rows:
+        # dedupe on the PK — same canonical field can derive from several
+        # source fields in one frame, and ON CONFLICT rejects in-batch dups
+        rows = list({(r[0], r[1], r[2]): r for r in rows}.values())
         with db() as conn, conn.cursor() as cur:
             execute_values(cur,
                 """INSERT INTO telemetry (norad, ts, field, value_num, value_txt)

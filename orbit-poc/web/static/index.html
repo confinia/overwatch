@@ -101,6 +101,13 @@ let satsByNorad = {};
 
 async function j(u){ const r = await fetch(API_BASE + u); return r.json(); }
 
+function age(ts){
+  const h = (Date.now() - Date.parse(ts)) / 3.6e6;
+  if (h < 1) return `${Math.max(1, Math.round(h * 60))}min ago`;
+  if (h < 48) return `${Math.round(h)}h ago`;
+  return `${Math.round(h / 24)}d ago`;
+}
+
 document.getElementById("search").addEventListener("input", () => renderList(allSats));
 
 // Satellites render as a GeoJSON circle layer (scales to thousands —
@@ -138,9 +145,11 @@ function renderList(sats){
       : `<span class="badge pos">position-only</span>`;
     const pos = s.lat==null ? "acquiring…"
       : `${s.lat.toFixed(1)}°, ${s.lon.toFixed(1)}° · ${Math.round(s.alt_km)} km`;
+    const heard = !s.has_telemetry ? "" : " · " + (s.last_frame
+      ? "heard " + age(s.last_frame) : "no frames yet");
     div.innerHTML =
       `<div class="row"><span class="name">${s.name}</span>${badge}</div>
-       <div class="meta">NORAD ${s.norad} · ${pos}</div>`;
+       <div class="meta">NORAD ${s.norad} · ${pos}${heard}</div>`;
     div.onclick = () => select(s);
     list.appendChild(div);
   }

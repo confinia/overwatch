@@ -22,12 +22,16 @@ def satellites():
     with db() as conn, conn.cursor() as cur:
         cur.execute("""
             SELECT s.norad, s.name, s.has_telemetry, s.note,
-                   p.lat, p.lon, p.alt_km, p.ts
+                   p.lat, p.lon, p.alt_km, p.ts, tf.last_frame
             FROM satellite s
             LEFT JOIN LATERAL (
                 SELECT lat, lon, alt_km, ts FROM position
                 WHERE norad = s.norad ORDER BY ts DESC LIMIT 1
             ) p ON true
+            LEFT JOIN LATERAL (
+                SELECT max(ts) AS last_frame FROM telemetry
+                WHERE norad = s.norad
+            ) tf ON true
             ORDER BY s.name""")
         return jsonify(cur.fetchall())
 
