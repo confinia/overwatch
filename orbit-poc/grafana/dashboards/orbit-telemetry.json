@@ -1,0 +1,89 @@
+{
+  "uid": "orbit-telemetry",
+  "title": "Orbit Telemetry",
+  "tags": ["orbit-poc"],
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "version": 2,
+  "refresh": "30s",
+  "time": { "from": "now-7d", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "norad",
+        "type": "query",
+        "datasource": { "type": "postgres", "uid": "orbitcache" },
+        "query": "SELECT norad::text FROM satellite ORDER BY norad",
+        "refresh": 1,
+        "includeAll": false,
+        "current": {}
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 5,
+      "title": "Orbit altitude (from position cache — live for every satellite)",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "lengthkm" } },
+      "targets": [
+        {
+          "format": "time_series",
+          "rawSql": "SELECT ts AS time, alt_km AS altitude FROM position WHERE norad = $norad ORDER BY ts"
+        }
+      ]
+    },
+    {
+      "id": 1,
+      "title": "Battery voltage",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "fieldConfig": { "defaults": { "unit": "volt" } },
+      "targets": [
+        {
+          "format": "time_series",
+          "rawSql": "SELECT ts AS time, value_num AS value FROM telemetry WHERE norad = $norad AND field ILIKE '%volt%' AND value_num IS NOT NULL ORDER BY ts"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Temperatures",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "fieldConfig": { "defaults": { "unit": "celsius" } },
+      "targets": [
+        {
+          "format": "time_series",
+          "rawSql": "SELECT ts AS time, field AS metric, value_num AS value FROM telemetry WHERE norad = $norad AND field ILIKE '%temp%' AND value_num IS NOT NULL ORDER BY ts"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Current consumption",
+      "type": "timeseries",
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 14 },
+      "fieldConfig": { "defaults": { "unit": "amp" } },
+      "targets": [
+        {
+          "format": "time_series",
+          "rawSql": "SELECT ts AS time, value_num AS value FROM telemetry WHERE norad = $norad AND (field ILIKE '%current%' OR field ILIKE '%curr%') AND value_num IS NOT NULL ORDER BY ts"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Latest decoded fields",
+      "type": "table",
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 14 },
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT DISTINCT ON (field) field, COALESCE(value_num::text, value_txt) AS value, ts FROM telemetry WHERE norad = $norad ORDER BY field, ts DESC"
+        }
+      ]
+    }
+  ]
+}

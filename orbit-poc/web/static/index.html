@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Orbit POC — positions + deep telemetry</title>
+<link href="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.css" rel="stylesheet"/>
+<script src="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.js"></script>
+<style>
+  :root { --bg:#0a0e17; --panel:#121826; --line:#1f2a3d; --text:#dfe7f5;
+          --accent:#5aa9ff; --live:#39d98a; --dim:#7c8aa5; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--text);
+    font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+  #app { display:grid; grid-template-columns: 1fr 420px; height:100vh; }
+  #map { height:100%; }
+  #side { border-left:1px solid var(--line); background:var(--panel);
+    display:flex; flex-direction:column; min-width:0; }
+  header { padding:14px 16px; border-bottom:1px solid var(--line); }
+  header h1 { font-size:15px; margin:0 0 2px; letter-spacing:.2px; }
+  header p { margin:0; font-size:12px; color:var(--dim); }
+  #list { overflow:auto; }
+  .sat { padding:11px 16px; border-bottom:1px solid var(--line); cursor:pointer; }
+  .sat:hover { background:#0e1420; }
+  .sat.active { background:#0e1a2e; box-shadow: inset 3px 0 0 var(--accent); }
+  .sat .row { display:flex; justify-content:space-between; align-items:baseline; }
+  .sat .name { font-size:13px; font-weight:600; }
+  .badge { font-size:10px; padding:2px 6px; border-radius:999px; }
+  .badge.tel { background:rgba(57,217,138,.12); color:var(--live); }
+  .badge.pos { background:rgba(124,138,165,.14); color:var(--dim); }
+  .sat .meta { font-size:11px; color:var(--dim); margin-top:3px; }
+  #panel { flex:0 0 auto; border-top:1px solid var(--line); }
+  #panel .head { padding:10px 16px; font-size:12px; color:var(--dim); }
+  iframe { width:100%; height:340px; border:0; background:#0d1117; }
+  .empty { padding:22px 16px; font-size:12px; color:var(--dim); line-height:1.5; }
+  .dot { display:inline-block; width:7px; height:7px; border-radius:50%;
+    background:var(--live); margin-right:6px; vertical-align:middle;
+    animation:pulse 1.6s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="map"></div>
+  <div id="side">
+    <header>
+      <h1><span class="dot"></span>Orbit POC — live positions + deep telemetry</h1>
+      <p>Positions cached from CelesTrak · health from SatNOGS · sovereign-hostable</p>
+    </header>
+    <div id="list"></div>
+    <div id="panel">
+      <div class="head" id="panelHead">Select a satellite to inspect its telemetry</div>
+      <div id="panelBody">
+        <div class="empty">The map and orbit tracks work with <b>zero accounts</b>.
+          Telemetry dashboards light up once a free SatNOGS token is set in the
+          ingest service. Satellites marked <span class="badge pos">position-only</span>
+          have encrypted or absent downlinks — shown honestly rather than hidden.</div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+// Grafana base + dashboard uid. Kiosk mode strips chrome for clean embedding;
+// the cookie/auth-proxy layer (production) would sit in front of this.
+// Grafana serves from the /grafana sub-path (GF_SERVER_SERVE_FROM_SUB_PATH):
+// same-origin behind caddy in production, direct published port locally.
+const GRAFANA = ["localhost", "127.0.0.1"].includes(location.hostname)
+  ? "http://localhost:3001/grafana"
+  : "/grafana";
+const DASH_UID = "orbit-telemetry";
+
+const map = new maplibregl.Map({
+  container: "map",
+  style: "https://demotiles.maplibre.org/style.json", // sovereign tiles swappable
+  center: [0, 20], zoom: 1.4, attributionControl: true
+});
+
+// Native globe projection (MapLibre GL >= 5) — the right canvas for orbits.
+map.on("style.load", () => map.setProjection({ type: "globe" }));
+
+const markers = {};
+let activeNorad = null;
+
+async function j(u){ const r = await fetch(u); return r.json(); }
+
+async function refresh(){
+  const sats = await j("/api/satellites");
+  renderList(sats);
+  for (const s of sats){
+    if (s.lat == null) continue;
+    if (markers[s.norad]) {
+      markers[s.norad].setLngLat([s.lon, s.lat]);
+    } else {
+      const el = document.createElement("div");
+      el.style.cssText =
+        `width:10px;height:10px;border-radius:50%;cursor:pointer;`+
+        `background:${s.has_telemetry?'#39d98a':'#7c8aa5'};`+
+        `box-shadow:0 0 0 3px rgba(90,169,255,.25);`;
+      el.title = s.name;
+      el.onclick = () => select(s);
+      markers[s.norad] = new maplibregl.Marker({element:el})
+        .setLngLat([s.lon, s.lat]).addTo(map);
+    }
+  }
+}
+
+function renderList(sats){
+  const list = document.getElementById("list");
+  list.innerHTML = "";
+  for (const s of sats){
+    const div = document.createElement("div");
+    div.className = "sat" + (s.norad===activeNorad?" active":"");
+    const badge = s.has_telemetry
+      ? `<span class="badge tel">telemetry</span>`
+      : `<span class="badge pos">position-only</span>`;
+    const pos = s.lat==null ? "acquiring…"
+      : `${s.lat.toFixed(1)}°, ${s.lon.toFixed(1)}° · ${Math.round(s.alt_km)} km`;
+    div.innerHTML =
+      `<div class="row"><span class="name">${s.name}</span>${badge}</div>
+       <div class="meta">NORAD ${s.norad} · ${pos}</div>`;
+    div.onclick = () => select(s);
+    list.appendChild(div);
+  }
+}
+
+async function select(s){
+  activeNorad = s.norad;
+  document.querySelectorAll(".sat").forEach(e=>e.classList.remove("active"));
+  const head = document.getElementById("panelHead");
+  const body = document.getElementById("panelBody");
+  head.textContent = `${s.name} — NORAD ${s.norad}`;
+
+  // draw recent ground track
+  await drawTrack(s.norad);
+
+  if (s.has_telemetry){
+    // Grafana panel, filtered to this satellite via the norad variable.
+    const src = `${GRAFANA}/d/${DASH_UID}/orbit-telemetry`+
+                `?orgId=1&kiosk&var-norad=${s.norad}&theme=dark`;
+    body.innerHTML = `<iframe src="${src}"></iframe>`;
+  } else {
+    body.innerHTML = `<div class="empty"><b>${s.name}</b> is position-only:
+      its downlink is encrypted or it broadcasts no open telemetry. Its orbit is
+      tracked; there is simply no public health data to show — and we prefer
+      saying so to faking a dashboard.</div>`;
+  }
+  const sats = await j("/api/satellites"); renderList(sats);
+}
+
+let trackSourceAdded = false;
+async function drawTrack(norad){
+  const pts = await j(`/api/track/${norad}`);
+  const coords = pts.map(p=>[p.lon, p.lat]);
+  const geo = { type:"Feature", geometry:{ type:"LineString", coordinates:coords }};
+  if (!trackSourceAdded){
+    map.addSource("track", { type:"geojson", data:geo });
+    map.addLayer({ id:"track", type:"line", source:"track",
+      paint:{ "line-color":"#5aa9ff", "line-width":2, "line-opacity":.8 }});
+    trackSourceAdded = true;
+  } else {
+    map.getSource("track").setData(geo);
+  }
+}
+
+map.on("load", () => { refresh(); setInterval(refresh, 15000); });
+</script>
+</body>
+</html>

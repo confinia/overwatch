@@ -1,0 +1,92 @@
+# Orbit POC — one command: `docker compose up`
+#
+# Architecture (the point of the whole thing):
+#
+#   CelesTrak ─┐                 ┌─ MapLibre globe (web) ── reads cache only
+#   SatNOGS  ──┤─►  ingest  ─►  db (Postgres)                │
+#              │  (only thing            └─ Grafana ─────────┘ reads cache only
+#              │   touching                 (embedded per-satellite panels)
+#              │   upstream)
+#
+# Nothing but `ingest` ever calls an external API. The browser talks to `web`
+# and to `grafana`; both read exclusively from the local cache in `db`.
+
+# Production (VM OVH, podman + podman-compose): everything binds to
+# 127.0.0.1 only; the public entrypoint is the shared caddy edge in
+# ~/projects/confinia (host network), which terminates TLS for
+# overwatch.confinia.eu and proxies to web (8081) and grafana (3001).
+# See DEV.md at the repo root.
+
+services:
+  db:
+    image: docker.io/library/postgres:16
+    environment:
+      POSTGRES_USER: orbit
+      POSTGRES_PASSWORD: orbit
+      POSTGRES_DB: orbit
+    volumes:
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U orbit"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  ingest:
+    build: ./ingest
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_DSN: "dbname=orbit user=orbit password=orbit host=db port=5432"
+      ELEMENTS_INTERVAL: "21600"   # 6h — respect CelesTrak update cadence
+      POSITION_INTERVAL: "15"      # local propagation only, no external calls
+      TELEMETRY_INTERVAL: "1800"   # 30m
+    # SATNOGS_TOKEN lives in .env (podman-compose does not interpolate
+    # ${VAR:-default}, hence env_file rather than inline interpolation).
+    env_file:
+      - .env
+    restart: unless-stopped
+
+  web:
+    build: ./web
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_DSN: "dbname=orbit user=orbit password=orbit host=db port=5432"
+    ports:
+      - "127.0.0.1:8081:8080"   # public access goes through caddy
+    restart: unless-stopped
+
+  grafana:
+    image: docker.io/grafana/grafana:11.2.0
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # Anonymous + embedding: fine for a LOCAL POC. In production this is
+      # exactly where the cookie/JWT auth-proxy replaces anonymous access.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Viewer"
+      GF_SECURITY_ALLOW_EMBEDDING: "true"
+      GF_SECURITY_COOKIE_SAMESITE: "disabled"
+      GF_USERS_DEFAULT_THEME: "dark"
+      GF_DASHBOARDS_MIN_REFRESH_INTERVAL: "15s"
+      # Served under /grafana behind caddy so the iframe embed is same-origin
+      # in production (no third-party-cookie / CSP headaches).
+      GF_SERVER_ROOT_URL: "https://overwatch.confinia.eu/grafana"
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+    # GF_SECURITY_ADMIN_PASSWORD comes from .env — never committed.
+    env_file:
+      - .env
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "127.0.0.1:3001:3000"   # public access goes through caddy (/grafana)
+    restart: unless-stopped
+
+volumes:
+  pgdata:

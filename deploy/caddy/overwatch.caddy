@@ -1,0 +1,33 @@
+# Overwatch — orbit POC (live satellite positions + embedded telemetry).
+# Dropped into the shared caddy edge (~/projects/confinia/deploy/sites/ on the
+# VM, imported by the main Caddyfile).
+#
+# overwatch.confinia.eu — primary; TLS issues automatically once the DNS
+#   A record overwatch.confinia.eu -> 5.135.143.93 exists.
+# overwatch.confinia.io — live immediately (existing *.confinia.io wildcard).
+
+overwatch.confinia.eu, overwatch.confinia.io {
+	encode zstd gzip
+
+	# Baseline security headers (SaaS hygiene). frame-ancestors 'self' keeps
+	# the Grafana iframe embed working (same-origin) while blocking third-party
+	# framing — tenant-scoped values come later with the auth-proxy.
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Content-Security-Policy "frame-ancestors 'self'"
+		-Server
+	}
+
+	# Grafana serves from the /grafana sub-path (GF_SERVER_SERVE_FROM_SUB_PATH),
+	# so no path stripping here — same-origin embedding, no cookie tricks.
+	handle /grafana* {
+		reverse_proxy 127.0.0.1:3001
+	}
+
+	# Frontend: MapLibre globe + read-only position API.
+	handle {
+		reverse_proxy 127.0.0.1:8081
+	}
+}

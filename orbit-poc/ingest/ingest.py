@@ -1,0 +1,307 @@
+"""
+Ingest / cache service -- the heart of the POC's architecture.
+
+RESPONSIBILITY: it is the ONLY component allowed to talk to upstream APIs.
+It fetches on sane schedules, caches locally, and propagates positions in-process.
+MapLibre and Grafana never touch CelesTrak or SatNOGS directly.
+
+Why this matters (learned from the research, not invented):
+  * CelesTrak firewalls IPs pulling >100 MB/day and asks you to download data
+    once per update, not per view. Elements update a few times daily.
+  * SatNOGS telemetry updates only when a volunteer ground station hears a pass,
+    so polling it fast is pointless and rude.
+
+Cadences (env-overridable):
+  ELEMENTS_INTERVAL  = 6h   (orbital elements)
+  POSITION_INTERVAL  = 15s  (local SGP4 propagation -> position table)
+  TELEMETRY_INTERVAL = 30m  (decoded frames)
+
+Graceful degradation: no SatNOGS token => telemetry step is skipped with a
+clear log line; the map + orbit half runs fully without any account.
+"""
+
+import os
+import time
+import logging
+import threading
+from datetime import datetime, timezone, timedelta
+
+import requests
+import psycopg2
+from psycopg2.extras import execute_values
+from sgp4.api import Satrec, jday
+import numpy as np
+
+from satellites import SHOWCASE
+
+logging.basicConfig(level=logging.INFO,
+                    format="%(asctime)s %(levelname)s %(message)s")
+log = logging.getLogger("ingest")
+
+DB_DSN            = os.environ["DB_DSN"]
+SATNOGS_TOKEN     = os.environ.get("SATNOGS_TOKEN", "").strip()
+CELESTRAK_BASE    = "https://celestrak.org/NORAD/elements/gp.php"
+SATNOGS_BASE      = "https://db.satnogs.org/api"
+
+ELEMENTS_INTERVAL  = int(os.environ.get("ELEMENTS_INTERVAL",  6 * 3600))
+POSITION_INTERVAL  = int(os.environ.get("POSITION_INTERVAL",  15))
+TELEMETRY_INTERVAL = int(os.environ.get("TELEMETRY_INTERVAL", 30 * 60))
+
+# Be a good citizen: identify ourselves.
+UA = {"User-Agent": "orbit-poc/0.1 (educational; contact: you@example.org)"}
+
+
+def db():
+    return psycopg2.connect(DB_DSN)
+
+
+# --------------------------------------------------------------------------
+# Startup: register showcase satellites, resolve SatNOGS sat_ids by norad id.
+# --------------------------------------------------------------------------
+def seed_satellites():
+    with db() as conn, conn.cursor() as cur:
+        for s in SHOWCASE:
+            sat_id = None
+            if s["telemetry"]:
+                sat_id = resolve_sat_id(s["norad"])
+                if sat_id is None:
+                    log.warning("No SatNOGS sat_id for %s (%s); "
+                                "keeping as position-only.", s["name"], s["norad"])
+            cur.execute(
+                """INSERT INTO satellite (norad, name, sat_id, has_telemetry, note)
+                   VALUES (%s,%s,%s,%s,%s)
+                   ON CONFLICT (norad) DO UPDATE SET
+                     name=EXCLUDED.name, sat_id=EXCLUDED.sat_id,
+                     has_telemetry=EXCLUDED.has_telemetry, note=EXCLUDED.note""",
+                (s["norad"], s["name"], sat_id,
+                 bool(sat_id) and s["telemetry"], s["note"]))
+        conn.commit()
+    log.info("Seeded %d showcase satellites.", len(SHOWCASE))
+
+
+def resolve_sat_id(norad):
+    """Look up a SatNOGS sat_id by norad id. /api/satellites/ needs no key."""
+    try:
+        r = requests.get(f"{SATNOGS_BASE}/satellites/",
+                         params={"norad_cat_id": norad}, headers=UA, timeout=20)
+        r.raise_for_status()
+        data = r.json()
+        if data:
+            return data[0].get("sat_id")
+    except Exception as e:
+        log.warning("sat_id lookup failed for %s: %s", norad, e)
+    return None
+
+
+# --------------------------------------------------------------------------
+# Elements: fetch TLE lines from CelesTrak (once per cadence, cached).
+# We deliberately request FORMAT=TLE per-satellite here for SGP4 convenience,
+# but batch by pulling each showcase id once. For a real fleet, switch to the
+# OMM/JSON group endpoint to avoid legacy-format issues (see README caveat).
+# --------------------------------------------------------------------------
+def fetch_elements():
+    with db() as conn, conn.cursor() as cur:
+        cur.execute("SELECT norad FROM satellite")
+        norads = [r[0] for r in cur.fetchall()]
+
+    for norad in norads:
+        try:
+            r = requests.get(CELESTRAK_BASE,
+                             params={"CATNR": norad, "FORMAT": "TLE"},
+                             headers=UA, timeout=30)
+            r.raise_for_status()
+            lines = [ln for ln in r.text.strip().splitlines() if ln.strip()]
+            if len(lines) < 2:
+                log.warning("No elements returned for %s", norad)
+                continue
+            # Response is either 2 or 3 lines (name + 2). Take the last two.
+            tle1, tle2 = lines[-2], lines[-1]
+            epoch = _epoch_from_tle(tle1)
+            with db() as conn, conn.cursor() as cur:
+                cur.execute(
+                    """INSERT INTO elements (norad, epoch, tle1, tle2)
+                       VALUES (%s,%s,%s,%s)
+                       ON CONFLICT (norad, epoch) DO NOTHING""",
+                    (norad, epoch, tle1, tle2))
+                conn.commit()
+            log.info("Elements updated: %s (epoch %s)", norad, epoch)
+        except Exception as e:
+            log.warning("Element fetch failed for %s: %s", norad, e)
+        time.sleep(1)  # gentle spacing between requests
+
+
+def _epoch_from_tle(tle1):
+    """Parse epoch (YYDDD.frac) from TLE line 1 into a UTC timestamp."""
+    yy = int(tle1[18:20]); day = float(tle1[20:32])
+    year = 2000 + yy if yy < 57 else 1900 + yy
+    return datetime(year, 1, 1, tzinfo=timezone.utc) + timedelta(days=day - 1)
+
+
+# --------------------------------------------------------------------------
+# Positions: propagate latest elements with SGP4, in-process, every 15s.
+# This is the ONLY high-frequency loop and it touches NO external service.
+# --------------------------------------------------------------------------
+def propagate_positions():
+    with db() as conn, conn.cursor() as cur:
+        cur.execute("""
+            SELECT DISTINCT ON (norad) norad, tle1, tle2
+            FROM elements ORDER BY norad, epoch DESC""")
+        rows = cur.fetchall()
+
+    now = datetime.now(timezone.utc)
+    jd, fr = jday(now.year, now.month, now.day,
+                  now.hour, now.minute, now.second + now.microsecond * 1e-6)
+    out = []
+    for norad, tle1, tle2 in rows:
+        try:
+            sat = Satrec.twoline2rv(tle1, tle2)
+            e, r_teme, _ = sat.sgp4(jd, fr)
+            if e != 0:
+                continue
+            lat, lon, alt = _teme_to_geodetic(r_teme, jd, fr)
+            out.append((norad, now, lat, lon, alt))
+        except Exception as ex:
+            log.debug("propagation failed %s: %s", norad, ex)
+
+    if out:
+        with db() as conn, conn.cursor() as cur:
+            execute_values(cur,
+                """INSERT INTO position (norad, ts, lat, lon, alt_km)
+                   VALUES %s ON CONFLICT DO NOTHING""", out)
+            # prune: keep 6h rolling window
+            cur.execute("DELETE FROM position WHERE ts < now() - interval '6 hours'")
+            conn.commit()
+
+
+def _teme_to_geodetic(r_teme, jd, fr):
+    """
+    Convert TEME position (km) to lat/lon/alt.
+    Simplified: rotate TEME->ECEF by GMST, then geodetic on a sphere-ish Earth.
+    Good enough for a map POC; swap in astropy for precision later.
+    """
+    x, y, z = r_teme
+    # Greenwich Mean Sidereal Time (radians), low-precision formula.
+    t = (jd + fr - 2451545.0) / 36525.0
+    gmst = (280.46061837 + 360.98564736629 * (jd + fr - 2451545.0)
+            + 0.000387933 * t * t) % 360.0
+    g = np.radians(gmst)
+    xe =  np.cos(g) * x + np.sin(g) * y
+    ye = -np.sin(g) * x + np.cos(g) * y
+    ze = z
+    lon = np.degrees(np.arctan2(ye, xe))
+    hyp = np.sqrt(xe * xe + ye * ye)
+    lat = np.degrees(np.arctan2(ze, hyp))
+    R_EARTH = 6371.0
+    alt = np.sqrt(xe*xe + ye*ye + ze*ze) - R_EARTH
+    # normalise lon to [-180,180]
+    lon = ((lon + 180) % 360) - 180
+    # plain floats: psycopg2 cannot adapt numpy scalars (np.float64 renders
+    # as "np.float64(...)" in SQL -> InvalidSchemaName "np")
+    return float(lat), float(lon), float(alt)
+
+
+# --------------------------------------------------------------------------
+# Telemetry: decoded frames from SatNOGS (needs API token). Skipped cleanly
+# if no token is provided -> the position-only demo still runs.
+# --------------------------------------------------------------------------
+def fetch_telemetry():
+    if not SATNOGS_TOKEN:
+        log.info("No SATNOGS_TOKEN set -> skipping telemetry ingest "
+                 "(map + orbits still work). Add a free token to light up "
+                 "the health dashboards.")
+        return
+
+    headers = dict(UA); headers["Authorization"] = f"Token {SATNOGS_TOKEN}"
+    with db() as conn, conn.cursor() as cur:
+        cur.execute("SELECT norad, sat_id FROM satellite "
+                    "WHERE has_telemetry AND sat_id IS NOT NULL")
+        targets = cur.fetchall()
+
+    for norad, sat_id in targets:
+        try:
+            r = requests.get(f"{SATNOGS_BASE}/telemetry/",
+                             params={"sat_id": sat_id}, headers=headers, timeout=30)
+            if r.status_code == 401:
+                log.warning("SatNOGS 401 -> token invalid/expired; skipping telemetry.")
+                return
+            r.raise_for_status()
+            frames = r.json()
+            _store_frames(norad, frames)
+            log.info("Telemetry: %s frames stored for %s", len(frames), norad)
+        except Exception as e:
+            log.warning("Telemetry fetch failed for %s: %s", norad, e)
+        time.sleep(2)
+
+
+def _store_frames(norad, frames):
+    """
+    SatNOGS returns decoded frames whose payload schema differs per satellite.
+    We flatten numeric leaf fields into (field, value_num) rows so any of them
+    can be graphed in Grafana without bespoke parsing.
+    """
+    rows = []
+    for f in frames[:200]:  # cap per cycle
+        ts = f.get("timestamp") or f.get("time")
+        decoded = f.get("decoded") or f.get("fields") or {}
+        if not ts or not isinstance(decoded, dict):
+            continue
+        for k, v in _flatten(decoded):
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                rows.append((norad, ts, k, float(v), None))
+            elif isinstance(v, str):
+                rows.append((norad, ts, k, None, v))
+    if rows:
+        with db() as conn, conn.cursor() as cur:
+            execute_values(cur,
+                """INSERT INTO telemetry (norad, ts, field, value_num, value_txt)
+                   VALUES %s ON CONFLICT DO NOTHING""", rows)
+            conn.commit()
+
+
+def _flatten(d, prefix=""):
+    for k, v in d.items():
+        key = f"{prefix}{k}"
+        if isinstance(v, dict):
+            yield from _flatten(v, prefix=key + "_")
+        else:
+            yield key, v
+
+
+# --------------------------------------------------------------------------
+# Scheduler: independent loops on their own cadences.
+# --------------------------------------------------------------------------
+def loop(fn, interval, name):
+    while True:
+        try:
+            fn()
+        except Exception as e:
+            log.exception("%s loop error: %s", name, e)
+        time.sleep(interval)
+
+
+def main():
+    _wait_for_db()
+    seed_satellites()
+    fetch_elements()  # prime once before propagating
+
+    threading.Thread(target=loop, args=(fetch_elements, ELEMENTS_INTERVAL, "elements"),
+                     daemon=True).start()
+    threading.Thread(target=loop, args=(fetch_telemetry, TELEMETRY_INTERVAL, "telemetry"),
+                     daemon=True).start()
+    # positions in the main thread
+    loop(propagate_positions, POSITION_INTERVAL, "positions")
+
+
+def _wait_for_db(retries=30):
+    for i in range(retries):
+        try:
+            with db():
+                return
+        except Exception:
+            log.info("Waiting for database... (%d)", i)
+            time.sleep(2)
+    raise SystemExit("Database never became available")
+
+
+if __name__ == "__main__":
+    main()

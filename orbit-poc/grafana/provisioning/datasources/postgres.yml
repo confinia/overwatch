@@ -1,0 +1,17 @@
+apiVersion: 1
+datasources:
+  - name: OrbitCache
+    uid: orbitcache          # fixed uid — referenced by the dashboard JSON
+    type: postgres
+    access: proxy
+    url: db:5432
+    user: orbit
+    secureJsonData:
+      password: orbit
+    jsonData:
+      database: orbit
+      sslmode: disable
+      postgresVersion: 1600
+      timescaledb: false
+    isDefault: true
+    editable: true
