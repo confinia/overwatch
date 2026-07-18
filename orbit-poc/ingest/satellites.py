@@ -40,15 +40,11 @@ SHOWCASE = [
      "note": "University of Arizona 6U; active beacon."},
     {"norad": 40931, "name": "LAPAN-A2 (IO-86)", "telemetry": True, "decoder": "io86",
      "note": "Indonesian microsat, amateur payload; frequent passes."},
-
-    # Position-only anchors - shown honestly as such
-    {"norad": 46277, "name": "NEMO-HD", "telemetry": False, "decoder": None,
-     "note": "European smallsat; no public frame decoder - position-only."},
-    {"norad": 43013, "name": "SENTINEL-2 class (EU EO)", "telemetry": False, "decoder": None,
-     "note": "Copernicus/EU sovereignty story; position-only (encrypted downlink)."},
-    {"norad": 48274, "name": "GNSS reference (Galileo class)", "telemetry": False, "decoder": None,
-     "note": "Navigation context; position-only."},
 ]
+# Product decision 2026-07-18: telemetry-only constellation. Position-only
+# anchors and CelesTrak bulk groups are out; every satellite shown must have
+# open, locally-decodable telemetry. Bulk groups can come back by setting
+# CELESTRAK_GROUPS in docker-compose.yml.
 
 # NOTE on ids: NORAD ids for specific CubeSats churn as objects re-catalog.
 # UPMSAT-2 (46276) was removed 2026-07-18: CelesTrak per-CATNR fetch 404s, so

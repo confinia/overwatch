@@ -42,7 +42,8 @@ services:
       DB_DSN: "dbname=orbit user=orbit password=orbit host=db port=5432"
       ELEMENTS_INTERVAL: "21600"   # 6h — respect CelesTrak update cadence
       # Bulk constellations (one CelesTrak request per group per cadence).
-      CELESTRAK_GROUPS: "amateur,stations,cubesat,science,weather,galileo"
+      # Empty = telemetry-only showcase (product decision 2026-07-18).
+      CELESTRAK_GROUPS: ""
       POSITION_INTERVAL: "15"      # local propagation only, no external calls
       TELEMETRY_INTERVAL: "1800"   # 30m
     # SATNOGS_TOKEN lives in .env (podman-compose does not interpolate
