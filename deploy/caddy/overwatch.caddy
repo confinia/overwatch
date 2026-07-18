@@ -9,15 +9,22 @@
 overwatch.confinia.eu, overwatch.confinia.io {
 	encode zstd gzip
 
-	# Baseline security headers (SaaS hygiene). frame-ancestors 'self' keeps
-	# the Grafana iframe embed working (same-origin) while blocking third-party
-	# framing — tenant-scoped values come later with the auth-proxy.
+	# Baseline security headers (SaaS hygiene). frame-ancestors also allows
+	# the GitHub Pages demo mirror (confinia.github.io/overwatch) to embed
+	# Grafana — tenant-scoped values come later with the auth-proxy.
 	header {
 		Strict-Transport-Security "max-age=31536000"
 		X-Content-Type-Options "nosniff"
 		Referrer-Policy "strict-origin-when-cross-origin"
-		Content-Security-Policy "frame-ancestors 'self'"
+		Content-Security-Policy "frame-ancestors 'self' https://confinia.github.io"
 		-Server
+	}
+
+	# Read-only position API — CORS for the demo mirror only.
+	handle /api/* {
+		header Access-Control-Allow-Origin "https://confinia.github.io"
+		header Access-Control-Allow-Methods "GET"
+		reverse_proxy 127.0.0.1:8081
 	}
 
 	# Grafana serves from the /grafana sub-path (GF_SERVER_SERVE_FROM_SUB_PATH),

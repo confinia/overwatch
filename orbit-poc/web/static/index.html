@@ -60,13 +60,16 @@
   </div>
 </div>
 <script>
-// Grafana base + dashboard uid. Kiosk mode strips chrome for clean embedding;
-// the cookie/auth-proxy layer (production) would sit in front of this.
-// Grafana serves from the /grafana sub-path (GF_SERVER_SERVE_FROM_SUB_PATH):
-// same-origin behind caddy in production, direct published port locally.
-const GRAFANA = ["localhost", "127.0.0.1"].includes(location.hostname)
-  ? "http://localhost:3001/grafana"
-  : "/grafana";
+// API + Grafana bases. Same-origin by default (VM behind caddy); the GitHub
+// Pages demo mirror (confinia.github.io/overwatch) overrides API_BASE to the
+// VM origin — caddy sends CORS + frame-ancestors for that origin.
+// Kiosk mode strips Grafana chrome; the cookie/auth-proxy layer (production)
+// would sit in front of this.
+const LOCAL = ["localhost", "127.0.0.1"].includes(location.hostname);
+const MIRROR = location.hostname.endsWith("github.io");
+const API_BASE = MIRROR ? "https://overwatch.confinia.io" : "";
+const GRAFANA = LOCAL ? "http://localhost:3001/grafana"
+                      : `${API_BASE}/grafana`;
 const DASH_UID = "orbit-telemetry";
 
 const map = new maplibregl.Map({
@@ -81,7 +84,7 @@ map.on("style.load", () => map.setProjection({ type: "globe" }));
 const markers = {};
 let activeNorad = null;
 
-async function j(u){ const r = await fetch(u); return r.json(); }
+async function j(u){ const r = await fetch(API_BASE + u); return r.json(); }
 
 async function refresh(){
   const sats = await j("/api/satellites");
