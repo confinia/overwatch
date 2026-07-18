@@ -2,11 +2,10 @@
 # Dropped into the shared caddy edge (~/projects/confinia/deploy/sites/ on the
 # VM, imported by the main Caddyfile).
 #
-# overwatch.confinia.eu — primary; TLS issues automatically once the DNS
-#   A record overwatch.confinia.eu -> 5.135.143.93 exists.
-# overwatch.confinia.io — live immediately (existing *.confinia.io wildcard).
+# overwatch.confinia.io — canonical home (decision 2026-07-18); resolves via
+# the existing *.confinia.io wildcard -> 5.135.143.93.
 
-overwatch.confinia.eu, overwatch.confinia.io {
+overwatch.confinia.io {
 	encode zstd gzip
 
 	# Baseline security headers (SaaS hygiene). frame-ancestors also allows

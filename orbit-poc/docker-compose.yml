@@ -14,7 +14,7 @@
 # Production (VM OVH, podman + podman-compose): everything binds to
 # 127.0.0.1 only; the public entrypoint is the shared caddy edge in
 # ~/projects/confinia (host network), which terminates TLS for
-# overwatch.confinia.eu and proxies to web (8081) and grafana (3001).
+# overwatch.confinia.io and proxies to web (8081) and grafana (3001).
 # See DEV.md at the repo root.
 
 services:
@@ -79,7 +79,7 @@ services:
       GF_DASHBOARDS_MIN_REFRESH_INTERVAL: "15s"
       # Served under /grafana behind caddy so the iframe embed is same-origin
       # in production (no third-party-cookie / CSP headaches).
-      GF_SERVER_ROOT_URL: "https://overwatch.confinia.eu/grafana"
+      GF_SERVER_ROOT_URL: "https://overwatch.confinia.io/grafana"
       GF_SERVER_SERVE_FROM_SUB_PATH: "true"
     # GF_SECURITY_ADMIN_PASSWORD comes from .env — never committed.
     env_file:
