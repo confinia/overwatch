@@ -8,37 +8,39 @@ open telemetry are reliably available, so the demo always looks alive.
 Each entry:
   norad     - NORAD catalog id (positions come from CelesTrak by this id)
   name      - display name
-  sat_id    - SatNOGS DB sat_id (used for telemetry). None => position-only.
-  telemetry - whether we expect decoded health frames in SatNOGS DB
+  telemetry - whether we expect open telemetry frames in SatNOGS DB
+  decoder   - satnogs-decoders module used to decode raw frames LOCALLY.
+              SatNOGS stopped inlining decoded values in its API (they live in
+              their InfluxDB), so sovereign local decoding is the only path.
   note      - why it's in the showcase
 
-The `sat_id` values are looked up automatically at runtime from the SatNOGS
-/api/satellites/ endpoint by norad id, so you do NOT need to hardcode them.
-This list is intentionally small and editable.
+sat_id values are resolved automatically at runtime from the SatNOGS
+/api/satellites/ endpoint by norad id. Entries whose TLE or sat_id cannot be
+resolved are logged at startup, not fatal. Prune/extend from that log and
+from batch/probe3.py sweeps (see batch/).
 """
 
 SHOWCASE = [
-    # Position + rich telemetry: the reliable demo stars
-    {"norad": 25544, "name": "ISS (ZARYA)",      "telemetry": True,
+    # Position + telemetry, decoded locally from raw frames
+    {"norad": 25544, "name": "ISS (ZARYA)", "telemetry": True, "decoder": "iss",
      "note": "Densest coverage of anything in orbit; always has fresh passes."},
-    {"norad": 40967, "name": "LightSail / well-tracked CubeSat class",
-     "telemetry": True,
-     "note": "Representative amateur CubeSat with open beacon."},
+    {"norad": 40967, "name": "FOX-1A (AO-85)", "telemetry": True, "decoder": "fox",
+     "note": "AMSAT CubeSat with open DUV beacon; heard regularly."},
+    {"norad": 60237, "name": "GRBBeta", "telemetry": True, "decoder": "grbbeta",
+     "note": "European (Slovak/Hungarian) gamma-ray CubeSat; very active."},
+    {"norad": 53385, "name": "Geoscan-Edelveis", "telemetry": True, "decoder": "geoscan",
+     "note": "Active 3U with open beacon; dense volunteer coverage."},
 
-    # Position + telemetry, European / NewSpace flavour (fits the pitch)
-    {"norad": 46277, "name": "NEMO-HD",           "telemetry": True,
-     "note": "European smallsat; appears in SatNOGS TLE feed."},
-    {"norad": 46276, "name": "UPMSAT-2",          "telemetry": True,
-     "note": "Universidad Politecnica de Madrid sat - lab audience relevance."},
-
-    # Position-only anchors (no open telemetry) - shown honestly as such
-    {"norad": 43013, "name": "SENTINEL-2 class (EU EO)", "telemetry": False,
+    # Position-only anchors - shown honestly as such
+    {"norad": 46277, "name": "NEMO-HD", "telemetry": False, "decoder": None,
+     "note": "European smallsat; no public frame decoder - position-only."},
+    {"norad": 43013, "name": "SENTINEL-2 class (EU EO)", "telemetry": False, "decoder": None,
      "note": "Copernicus/EU sovereignty story; position-only (encrypted downlink)."},
-    {"norad": 48274, "name": "GNSS reference (Galileo class)", "telemetry": False,
+    {"norad": 48274, "name": "GNSS reference (Galileo class)", "telemetry": False, "decoder": None,
      "note": "Navigation context; position-only."},
 ]
 
 # NOTE on ids: NORAD ids for specific CubeSats churn as objects re-catalog.
-# The ingest service resolves each showcase entry against SatNOGS + CelesTrak
-# at startup and logs any it cannot find, rather than failing hard. Treat this
-# list as a starting point and prune/extend based on the startup log.
+# UPMSAT-2 (46276) was removed 2026-07-18: CelesTrak per-CATNR fetch 404s, so
+# it never even got a position. Candidates found decodable by the batch probe
+# get added here with their decoder module.

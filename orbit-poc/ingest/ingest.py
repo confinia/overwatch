@@ -23,6 +23,7 @@ clear log line; the map + orbit half runs fully without any account.
 import os
 import time
 import logging
+import importlib
 import threading
 from datetime import datetime, timezone, timedelta
 
@@ -68,13 +69,14 @@ def seed_satellites():
                     log.warning("No SatNOGS sat_id for %s (%s); "
                                 "keeping as position-only.", s["name"], s["norad"])
             cur.execute(
-                """INSERT INTO satellite (norad, name, sat_id, has_telemetry, note)
-                   VALUES (%s,%s,%s,%s,%s)
+                """INSERT INTO satellite (norad, name, sat_id, has_telemetry, decoder, note)
+                   VALUES (%s,%s,%s,%s,%s,%s)
                    ON CONFLICT (norad) DO UPDATE SET
                      name=EXCLUDED.name, sat_id=EXCLUDED.sat_id,
-                     has_telemetry=EXCLUDED.has_telemetry, note=EXCLUDED.note""",
+                     has_telemetry=EXCLUDED.has_telemetry,
+                     decoder=EXCLUDED.decoder, note=EXCLUDED.note""",
                 (s["norad"], s["name"], sat_id,
-                 bool(sat_id) and s["telemetry"], s["note"]))
+                 bool(sat_id) and s["telemetry"], s.get("decoder"), s["note"]))
         conn.commit()
     log.info("Seeded %d showcase satellites.", len(SHOWCASE))
 
@@ -211,41 +213,112 @@ def fetch_telemetry():
                  "the health dashboards.")
         return
 
-    headers = dict(UA); headers["Authorization"] = f"Token {SATNOGS_TOKEN}"
     with db() as conn, conn.cursor() as cur:
-        cur.execute("SELECT norad, sat_id FROM satellite "
+        cur.execute("SELECT norad, sat_id, decoder FROM satellite "
                     "WHERE has_telemetry AND sat_id IS NOT NULL")
         targets = cur.fetchall()
 
-    for norad, sat_id in targets:
+    for norad, sat_id, decoder in targets:
         try:
-            r = requests.get(f"{SATNOGS_BASE}/telemetry/",
-                             params={"sat_id": sat_id}, headers=headers, timeout=30)
-            if r.status_code == 401:
-                log.warning("SatNOGS 401 -> token invalid/expired; skipping telemetry.")
-                return
-            r.raise_for_status()
-            frames = r.json()
-            _store_frames(norad, frames)
-            log.info("Telemetry: %s frames stored for %s", len(frames), norad)
+            frames = _get_frames(sat_id)
+            if frames is None:
+                return  # token invalid — logged in _get_frames
+            n = _store_frames(norad, frames, decoder)
+            log.info("Telemetry: %d/%d frames decoded+stored for %s",
+                     n, len(frames), norad)
         except Exception as e:
             log.warning("Telemetry fetch failed for %s: %s", norad, e)
-        time.sleep(2)
+        time.sleep(5)  # stay well under SatNOGS rate limits
 
 
-def _store_frames(norad, frames):
-    """
-    SatNOGS returns decoded frames whose payload schema differs per satellite.
-    We flatten numeric leaf fields into (field, value_num) rows so any of them
-    can be graphed in Grafana without bespoke parsing.
-    """
-    rows = []
+def _get_frames(sat_id, pages=2):
+    """Fetch recent frames. The endpoint is cursor-paginated since 2026
+    ({next, previous, results}); older deployments returned a bare list.
+    Honors 429 Retry-After — SatNOGS throttles aggressively."""
+    headers = dict(UA); headers["Authorization"] = f"Token {SATNOGS_TOKEN}"
+    frames, url, params = [], f"{SATNOGS_BASE}/telemetry/", {"sat_id": sat_id}
+    for _ in range(pages):
+        for attempt in range(4):
+            r = requests.get(url, params=params, headers=headers, timeout=30)
+            if r.status_code == 401:
+                log.warning("SatNOGS 401 -> token invalid/expired; skipping telemetry.")
+                return None
+            if r.status_code == 429:
+                wait = int(r.headers.get("Retry-After", 15)) + 1
+                log.info("SatNOGS 429 — backing off %ss", wait)
+                time.sleep(wait)
+                continue
+            r.raise_for_status()
+            break
+        data = r.json()
+        if isinstance(data, dict):
+            frames += data.get("results", [])
+            url, params = data.get("next"), None
+            if not url:
+                break
+        else:
+            frames += data
+            break
+    return frames
+
+
+def _decode_frame(decoder, frame_hex):
+    """Decode a raw frame LOCALLY with satnogs-decoders (kaitai structs) and
+    flatten numeric leaves. SatNOGS stopped inlining decoded values in the API
+    (they live in their InfluxDB), so sovereign local decoding is the way."""
+    mod = importlib.import_module(f"satnogsdecoders.decoder.{decoder}")
+    cls = getattr(mod, decoder.capitalize())
+    obj = cls.from_bytes(bytes.fromhex(frame_hex))
+    out = {}
+
+    def flat(o, prefix="", depth=0):
+        if depth > 4:
+            return
+        for a in dir(o):
+            if a.startswith("_"):
+                continue
+            try:
+                v = getattr(o, a)
+            except Exception:
+                continue
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                out[prefix + a] = v
+            elif hasattr(v, "__class__") and \
+                    v.__class__.__module__.startswith("satnogsdecoders"):
+                flat(v, prefix + a + "_", depth + 1)
+
+    flat(obj)
+    return out
+
+
+def _store_frames(norad, frames, decoder):
+    """Turn frames into (field, value_num) rows. Preferred path: local kaitai
+    decode of the raw hex. Fallback: inline decoded dicts (legacy API shape)."""
+    rows, decoded_n = [], 0
+    horizon = datetime.now(timezone.utc) + timedelta(hours=1)
     for f in frames[:200]:  # cap per cycle
         ts = f.get("timestamp") or f.get("time")
-        decoded = f.get("decoded") or f.get("fields") or {}
-        if not ts or not isinstance(decoded, dict):
+        if not ts:
             continue
-        for k, v in _flatten(decoded):
+        try:
+            # guard: volunteer stations sometimes upload future-dated frames
+            if datetime.fromisoformat(ts.replace("Z", "+00:00")) > horizon:
+                continue
+        except ValueError:
+            continue
+        fields = {}
+        if decoder and f.get("frame"):
+            try:
+                fields = _decode_frame(decoder, f["frame"])
+            except Exception:
+                pass  # frame type not covered by the decoder — normal
+        if not fields:
+            legacy = f.get("decoded") or f.get("fields") or {}
+            fields = dict(_flatten(legacy)) if isinstance(legacy, dict) else {}
+        if not fields:
+            continue
+        decoded_n += 1
+        for k, v in fields.items():
             if isinstance(v, (int, float)) and not isinstance(v, bool):
                 rows.append((norad, ts, k, float(v), None))
             elif isinstance(v, str):
@@ -256,6 +329,7 @@ def _store_frames(norad, frames):
                 """INSERT INTO telemetry (norad, ts, field, value_num, value_txt)
                    VALUES %s ON CONFLICT DO NOTHING""", rows)
             conn.commit()
+    return decoded_n
 
 
 def _flatten(d, prefix=""):

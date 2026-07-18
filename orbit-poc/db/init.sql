@@ -6,8 +6,11 @@ CREATE TABLE IF NOT EXISTS satellite (
     name         TEXT NOT NULL,
     sat_id       TEXT,              -- SatNOGS sat_id, may be NULL (position-only)
     has_telemetry BOOLEAN DEFAULT FALSE,
+    decoder      TEXT,              -- satnogs-decoders module for LOCAL decoding
     note         TEXT
 );
+-- migration for pre-existing databases (init.sql only runs on first boot)
+ALTER TABLE satellite ADD COLUMN IF NOT EXISTS decoder TEXT;
 
 -- Latest orbital elements (OMM/JSON from CelesTrak). We keep the raw TLE lines
 -- because SGP4 libraries consume them directly.

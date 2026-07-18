@@ -43,7 +43,7 @@
       "targets": [
         {
           "format": "time_series",
-          "rawSql": "SELECT ts AS time, value_num AS value FROM telemetry WHERE norad = $norad AND field ILIKE '%volt%' AND value_num IS NOT NULL ORDER BY ts"
+          "rawSql": "SELECT ts AS time, field AS metric, value_num AS value FROM telemetry WHERE norad = $norad AND field ~* '(volt|vbat|v_bat|bat[a-z_]*_v$|panel_v$)' AND value_num IS NOT NULL ORDER BY ts"
         }
       ]
     },
@@ -56,7 +56,7 @@
       "targets": [
         {
           "format": "time_series",
-          "rawSql": "SELECT ts AS time, field AS metric, value_num AS value FROM telemetry WHERE norad = $norad AND field ILIKE '%temp%' AND value_num IS NOT NULL ORDER BY ts"
+          "rawSql": "SELECT ts AS time, field AS metric, value_num AS value FROM telemetry WHERE norad = $norad AND field ~* '(temp|bat[a-z_]*_t$)' AND value_num IS NOT NULL ORDER BY ts"
         }
       ]
     },
@@ -69,7 +69,7 @@
       "targets": [
         {
           "format": "time_series",
-          "rawSql": "SELECT ts AS time, value_num AS value FROM telemetry WHERE norad = $norad AND (field ILIKE '%current%' OR field ILIKE '%curr%') AND value_num IS NOT NULL ORDER BY ts"
+          "rawSql": "SELECT ts AS time, field AS metric, value_num AS value FROM telemetry WHERE norad = $norad AND field ~* '(current|curr|_i_|amp)' AND value_num IS NOT NULL ORDER BY ts"
         }
       ]
     },
