@@ -12,14 +12,20 @@
   * { box-sizing:border-box; }
   html,body { margin:0; height:100%; background:var(--bg); color:var(--text);
     font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
-  #app { display:grid; grid-template-columns: 1fr 420px; height:100vh; }
+  /* Split layout: top half = globe + list, bottom half = Grafana dashboards */
+  #app { display:grid; grid-template-rows: 50vh 50vh; height:100vh; }
+  #top { display:grid; grid-template-columns: 1fr 420px; min-height:0; }
   #map { height:100%; }
   #side { border-left:1px solid var(--line); background:var(--panel);
     display:flex; flex-direction:column; min-width:0; }
   header { padding:14px 16px; border-bottom:1px solid var(--line); }
   header h1 { font-size:15px; margin:0 0 2px; letter-spacing:.2px; }
   header p { margin:0; font-size:12px; color:var(--dim); }
-  #list { overflow:auto; }
+  #search { margin:10px 16px; padding:8px 10px; width:calc(100% - 32px);
+    background:#0e1420; border:1px solid var(--line); border-radius:6px;
+    color:var(--text); font-size:13px; outline:none; flex:0 0 auto; }
+  #search:focus { border-color:var(--accent); }
+  #list { overflow:auto; flex:1; }
   .sat { padding:11px 16px; border-bottom:1px solid var(--line); cursor:pointer; }
   .sat:hover { background:#0e1420; }
   .sat.active { background:#0e1a2e; box-shadow: inset 3px 0 0 var(--accent); }
@@ -29,9 +35,12 @@
   .badge.tel { background:rgba(57,217,138,.12); color:var(--live); }
   .badge.pos { background:rgba(124,138,165,.14); color:var(--dim); }
   .sat .meta { font-size:11px; color:var(--dim); margin-top:3px; }
-  #panel { flex:0 0 auto; border-top:1px solid var(--line); }
-  #panel .head { padding:10px 16px; font-size:12px; color:var(--dim); }
-  iframe { width:100%; height:340px; border:0; background:#0d1117; }
+  #panel { border-top:1px solid var(--line); background:var(--panel);
+    display:flex; flex-direction:column; min-height:0; }
+  #panel .head { padding:10px 16px; font-size:12px; color:var(--dim);
+    border-bottom:1px solid var(--line); flex:0 0 auto; }
+  #panelBody { flex:1; min-height:0; }
+  iframe { width:100%; height:100%; border:0; background:#0d1117; display:block; }
   .empty { padding:22px 16px; font-size:12px; color:var(--dim); line-height:1.5; }
   .dot { display:inline-block; width:7px; height:7px; border-radius:50%;
     background:var(--live); margin-right:6px; vertical-align:middle;
@@ -41,21 +50,24 @@
 </head>
 <body>
 <div id="app">
-  <div id="map"></div>
-  <div id="side">
-    <header>
-      <h1><span class="dot"></span>Orbit POC — live positions + deep telemetry</h1>
-      <p>Positions cached from CelesTrak · health from SatNOGS · sovereign-hostable</p>
-    </header>
-    <div id="list"></div>
-    <div id="panel">
-      <div class="head" id="panelHead">Select a satellite to inspect its telemetry</div>
-      <div id="panelBody">
-        <div class="empty">The map and orbit tracks work with <b>zero accounts</b>.
-          Telemetry dashboards light up once a free SatNOGS token is set in the
-          ingest service. Satellites marked <span class="badge pos">position-only</span>
-          have encrypted or absent downlinks — shown honestly rather than hidden.</div>
-      </div>
+  <div id="top">
+    <div id="map"></div>
+    <div id="side">
+      <header>
+        <h1><span class="dot"></span>Orbit POC — live positions + deep telemetry</h1>
+        <p>Positions cached from CelesTrak · health from SatNOGS · sovereign-hostable</p>
+      </header>
+      <input id="search" type="search" placeholder="Search satellites (name or NORAD id)…"/>
+      <div id="list"></div>
+    </div>
+  </div>
+  <div id="panel">
+    <div class="head" id="panelHead">Select a satellite to inspect its telemetry</div>
+    <div id="panelBody">
+      <div class="empty">The map and orbit tracks work with <b>zero accounts</b>.
+        Telemetry dashboards light up once a free SatNOGS token is set in the
+        ingest service. Satellites marked <span class="badge pos">position-only</span>
+        have encrypted or absent downlinks — shown honestly rather than hidden.</div>
     </div>
   </div>
 </div>
@@ -83,11 +95,15 @@ map.on("style.load", () => map.setProjection({ type: "globe" }));
 
 const markers = {};
 let activeNorad = null;
+let allSats = [];
 
 async function j(u){ const r = await fetch(API_BASE + u); return r.json(); }
 
+document.getElementById("search").addEventListener("input", () => renderList(allSats));
+
 async function refresh(){
   const sats = await j("/api/satellites");
+  allSats = sats;
   renderList(sats);
   for (const s of sats){
     if (s.lat == null) continue;
@@ -109,8 +125,11 @@ async function refresh(){
 
 function renderList(sats){
   const list = document.getElementById("list");
+  const q = document.getElementById("search").value.trim().toLowerCase();
   list.innerHTML = "";
-  for (const s of sats){
+  const shown = q ? sats.filter(s =>
+    s.name.toLowerCase().includes(q) || String(s.norad).includes(q)) : sats;
+  for (const s of shown){
     const div = document.createElement("div");
     div.className = "sat" + (s.norad===activeNorad?" active":"");
     const badge = s.has_telemetry
@@ -136,18 +155,17 @@ async function select(s){
   // draw recent ground track
   await drawTrack(s.norad);
 
-  if (s.has_telemetry){
-    // Grafana panel, filtered to this satellite via the norad variable.
-    const src = `${GRAFANA}/d/${DASH_UID}/orbit-telemetry`+
-                `?orgId=1&kiosk&var-norad=${s.norad}&theme=dark`;
-    body.innerHTML = `<iframe src="${src}"></iframe>`;
-  } else {
-    body.innerHTML = `<div class="empty"><b>${s.name}</b> is position-only:
-      its downlink is encrypted or it broadcasts no open telemetry. Its orbit is
-      tracked; there is simply no public health data to show — and we prefer
-      saying so to faking a dashboard.</div>`;
+  // Full dashboard in the bottom half. Every satellite has live data there
+  // (the altitude panel reads the position cache); health panels fill only
+  // for satellites with open, locally-decodable telemetry.
+  if (!s.has_telemetry){
+    head.textContent += " — position-only: encrypted or no open downlink; " +
+      "orbit data below, no public health data (shown honestly, not faked)";
   }
-  const sats = await j("/api/satellites"); renderList(sats);
+  const src = `${GRAFANA}/d/${DASH_UID}/orbit-telemetry`+
+              `?orgId=1&kiosk&var-norad=${s.norad}&theme=dark`;
+  body.innerHTML = `<iframe src="${src}"></iframe>`;
+  renderList(allSats);
 }
 
 let trackSourceAdded = false;
