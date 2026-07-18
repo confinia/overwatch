@@ -96,17 +96,51 @@ def resolve_sat_id(norad):
 
 
 # --------------------------------------------------------------------------
-# Elements: fetch TLE lines from CelesTrak (once per cadence, cached).
-# We deliberately request FORMAT=TLE per-satellite here for SGP4 convenience,
-# but batch by pulling each showcase id once. For a real fleet, switch to the
-# OMM/JSON group endpoint to avoid legacy-format issues (see README caveat).
+# Elements: bulk GROUP fetches from CelesTrak (one request per group per 6h
+# cadence — the polite pattern; per-view fetching gets IPs firewalled).
+# Groups seed the satellite table too: every member becomes a position-only
+# entry unless the curated showcase already claims it (decoder, note...).
+# Showcase norads not present in any group fall back to one per-CATNR fetch.
 # --------------------------------------------------------------------------
-def fetch_elements():
-    with db() as conn, conn.cursor() as cur:
-        cur.execute("SELECT norad FROM satellite")
-        norads = [r[0] for r in cur.fetchall()]
+CELESTRAK_GROUPS = [g.strip() for g in
+                    os.environ.get("CELESTRAK_GROUPS", "amateur,stations").split(",")
+                    if g.strip()]
 
-    for norad in norads:
+
+def fetch_elements():
+    seen = set()
+    for group in CELESTRAK_GROUPS:
+        try:
+            r = requests.get(CELESTRAK_BASE,
+                             params={"GROUP": group, "FORMAT": "TLE"},
+                             headers=UA, timeout=60)
+            r.raise_for_status()
+            triples = _parse_tle_file(r.text)
+            with db() as conn, conn.cursor() as cur:
+                for name, tle1, tle2 in triples:
+                    norad = int(tle1[2:7])
+                    seen.add(norad)
+                    cur.execute(
+                        """INSERT INTO satellite (norad, name, has_telemetry, note)
+                           VALUES (%s,%s,false,%s)
+                           ON CONFLICT (norad) DO NOTHING""",
+                        (norad, name, f"CelesTrak group '{group}'"))
+                    cur.execute(
+                        """INSERT INTO elements (norad, epoch, tle1, tle2)
+                           VALUES (%s,%s,%s,%s)
+                           ON CONFLICT (norad, epoch) DO NOTHING""",
+                        (norad, _epoch_from_tle(tle1), tle1, tle2))
+                conn.commit()
+            log.info("Elements: group '%s' -> %d satellites", group, len(triples))
+        except Exception as e:
+            log.warning("Element group fetch failed for '%s': %s", group, e)
+        time.sleep(2)
+
+    # showcase satellites not covered by any group (e.g. EO / GNSS anchors)
+    with db() as conn, conn.cursor() as cur:
+        cur.execute("SELECT norad FROM satellite WHERE note NOT LIKE 'CelesTrak group%%'")
+        rest = [r[0] for r in cur.fetchall() if r[0] not in seen]
+    for norad in rest:
         try:
             r = requests.get(CELESTRAK_BASE,
                              params={"CATNR": norad, "FORMAT": "TLE"},
@@ -116,20 +150,34 @@ def fetch_elements():
             if len(lines) < 2:
                 log.warning("No elements returned for %s", norad)
                 continue
-            # Response is either 2 or 3 lines (name + 2). Take the last two.
             tle1, tle2 = lines[-2], lines[-1]
-            epoch = _epoch_from_tle(tle1)
             with db() as conn, conn.cursor() as cur:
                 cur.execute(
                     """INSERT INTO elements (norad, epoch, tle1, tle2)
                        VALUES (%s,%s,%s,%s)
                        ON CONFLICT (norad, epoch) DO NOTHING""",
-                    (norad, epoch, tle1, tle2))
+                    (norad, _epoch_from_tle(tle1), tle1, tle2))
                 conn.commit()
-            log.info("Elements updated: %s (epoch %s)", norad, epoch)
+            log.info("Elements updated: %s", norad)
         except Exception as e:
             log.warning("Element fetch failed for %s: %s", norad, e)
-        time.sleep(1)  # gentle spacing between requests
+        time.sleep(1)
+
+
+def _parse_tle_file(text):
+    """Parse a 3-line-element file into (name, tle1, tle2) triples."""
+    lines = [ln.rstrip() for ln in text.splitlines() if ln.strip()]
+    out, i = [], 0
+    while i + 2 < len(lines) + 1:
+        if lines[i].startswith("1 ") and i + 1 < len(lines) and lines[i + 1].startswith("2 "):
+            out.append((f"NORAD {lines[i][2:7].strip()}", lines[i], lines[i + 1]))
+            i += 2
+        elif i + 2 < len(lines) and lines[i + 1].startswith("1 ") and lines[i + 2].startswith("2 "):
+            out.append((lines[i].strip(), lines[i + 1], lines[i + 2]))
+            i += 3
+        else:
+            i += 1
+    return out
 
 
 def _epoch_from_tle(tle1):

@@ -93,42 +93,41 @@ const map = new maplibregl.Map({
 // Native globe projection (MapLibre GL >= 5) — the right canvas for orbits.
 map.on("style.load", () => map.setProjection({ type: "globe" }));
 
-const markers = {};
 let activeNorad = null;
 let allSats = [];
+let satsByNorad = {};
 
 async function j(u){ const r = await fetch(API_BASE + u); return r.json(); }
 
 document.getElementById("search").addEventListener("input", () => renderList(allSats));
 
+// Satellites render as a GeoJSON circle layer (scales to thousands —
+// DOM markers would crawl past a few hundred).
+function satsGeojson(sats){
+  return { type:"FeatureCollection", features: sats
+    .filter(s => s.lat != null)
+    .map(s => ({ type:"Feature",
+      geometry:{ type:"Point", coordinates:[s.lon, s.lat] },
+      properties:{ norad:s.norad, tel:!!s.has_telemetry } })) };
+}
+
 async function refresh(){
   const sats = await j("/api/satellites");
   allSats = sats;
+  satsByNorad = Object.fromEntries(sats.map(s => [s.norad, s]));
   renderList(sats);
-  for (const s of sats){
-    if (s.lat == null) continue;
-    if (markers[s.norad]) {
-      markers[s.norad].setLngLat([s.lon, s.lat]);
-    } else {
-      const el = document.createElement("div");
-      el.style.cssText =
-        `width:10px;height:10px;border-radius:50%;cursor:pointer;`+
-        `background:${s.has_telemetry?'#39d98a':'#7c8aa5'};`+
-        `box-shadow:0 0 0 3px rgba(90,169,255,.25);`;
-      el.title = s.name;
-      el.onclick = () => select(s);
-      markers[s.norad] = new maplibregl.Marker({element:el})
-        .setLngLat([s.lon, s.lat]).addTo(map);
-    }
-  }
+  const src = map.getSource("sats");
+  if (src) src.setData(satsGeojson(sats));
 }
 
 function renderList(sats){
   const list = document.getElementById("list");
   const q = document.getElementById("search").value.trim().toLowerCase();
   list.innerHTML = "";
-  const shown = q ? sats.filter(s =>
-    s.name.toLowerCase().includes(q) || String(s.norad).includes(q)) : sats;
+  const shown = (q ? sats.filter(s =>
+    s.name.toLowerCase().includes(q) || String(s.norad).includes(q)) : sats)
+    .slice().sort((a, b) =>
+      (b.has_telemetry - a.has_telemetry) || a.name.localeCompare(b.name));
   for (const s of shown){
     const div = document.createElement("div");
     div.className = "sat" + (s.norad===activeNorad?" active":"");
@@ -183,7 +182,21 @@ async function drawTrack(norad){
   }
 }
 
-map.on("load", () => { refresh(); setInterval(refresh, 15000); });
+map.on("load", () => {
+  map.addSource("sats", { type:"geojson", data:satsGeojson([]) });
+  map.addLayer({ id:"sats", type:"circle", source:"sats",
+    paint:{ "circle-radius":4.5,
+      "circle-color":["case", ["get","tel"], "#39d98a", "#7c8aa5"],
+      "circle-stroke-width":1.5,
+      "circle-stroke-color":"rgba(90,169,255,.45)" }});
+  map.on("click", "sats", e => {
+    const s = satsByNorad[e.features[0].properties.norad];
+    if (s) select(s);
+  });
+  map.on("mouseenter", "sats", () => map.getCanvas().style.cursor = "pointer");
+  map.on("mouseleave", "sats", () => map.getCanvas().style.cursor = "");
+  refresh(); setInterval(refresh, 15000);
+});
 </script>
 </body>
 </html>
