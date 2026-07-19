@@ -2,10 +2,12 @@ apiVersion: 1
 providers:
   - name: orbit
     orgId: 1
-    folder: ''
     type: file
     disableDeletion: false
     updateIntervalSeconds: 15
     allowUiUpdates: true
     options:
       path: /var/lib/grafana/dashboards
+      # subdirectory name = folder name: dashboards/ops -> "ops" folder,
+      # which gets its Viewer permission stripped (admin-only) post-provision
+      foldersFromFilesStructure: true

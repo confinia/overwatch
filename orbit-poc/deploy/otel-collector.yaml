@@ -1,0 +1,33 @@
+# Overwatch observability: OTLP traces in from the web app; the spanmetrics
+# connector derives per-route rate/latency/error metrics; Prometheus scrapes
+# the exporter on :8889.
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+connectors:
+  spanmetrics:
+    namespace: ovw
+    histogram:
+      explicit:
+        buckets: [5ms, 20ms, 50ms, 100ms, 250ms, 500ms, 1s, 2s, 5s]
+    dimensions:
+      - name: http.method
+      - name: http.status_code
+
+exporters:
+  prometheus:
+    endpoint: 0.0.0.0:8889
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      exporters: [spanmetrics]
+    metrics:
+      receivers: [spanmetrics]
+      exporters: [prometheus]

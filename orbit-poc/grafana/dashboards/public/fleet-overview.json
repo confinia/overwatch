@@ -1,20 +1,37 @@
 {
   "uid": "fleet-overview",
   "title": "Fleet Overview",
-  "tags": ["orbit-poc"],
+  "tags": [
+    "orbit-poc"
+  ],
   "timezone": "utc",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "refresh": "1m",
-  "time": { "from": "now-7d", "to": "now" },
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
   "panels": [
     {
       "id": 1,
-      "title": "Battery voltage — whole fleet (normalized battery_v)",
+      "title": "Battery voltage \u2014 whole fleet (normalized battery_v)",
       "type": "timeseries",
-      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 0 },
-      "fieldConfig": { "defaults": { "unit": "volt",
-        "custom": { "drawStyle": "points", "pointSize": 4 } } },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "volt",
+          "custom": {
+            "drawStyle": "points",
+            "pointSize": 4
+          }
+        }
+      },
       "targets": [
         {
           "format": "time_series",
@@ -26,9 +43,23 @@
       "id": 2,
       "title": "Frames received per hour, by satellite",
       "type": "timeseries",
-      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 0 },
-      "fieldConfig": { "defaults": {
-        "custom": { "drawStyle": "bars", "fillOpacity": 60, "stacking": { "mode": "normal" } } } },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 60,
+            "stacking": {
+              "mode": "normal"
+            }
+          }
+        }
+      },
       "targets": [
         {
           "format": "time_series",
@@ -38,10 +69,18 @@
     },
     {
       "id": 3,
-      "title": "Link status — last frame, coverage, battery",
+      "title": "Link status \u2014 last frame, coverage, battery",
       "type": "table",
-      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 9 },
-      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 9
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
       "targets": [
         {
           "format": "table",

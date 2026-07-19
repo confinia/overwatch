@@ -1,18 +1,28 @@
 {
   "uid": "ground-stations",
   "title": "Ground Stations",
-  "tags": ["orbit-poc"],
+  "tags": [
+    "orbit-poc"
+  ],
   "timezone": "utc",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "refresh": "5m",
-  "time": { "from": "now-7d", "to": "now" },
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
   "panels": [
     {
       "id": 1,
-      "title": "Station scorecard — who carries the network (7 days)",
+      "title": "Station scorecard \u2014 who carries the network (7 days)",
       "type": "table",
-      "gridPos": { "h": 11, "w": 14, "x": 0, "y": 0 },
+      "gridPos": {
+        "h": 11,
+        "w": 14,
+        "x": 0,
+        "y": 0
+      },
       "targets": [
         {
           "format": "table",
@@ -24,9 +34,20 @@
       "id": 2,
       "title": "Receptions per hour (whole network)",
       "type": "timeseries",
-      "gridPos": { "h": 11, "w": 10, "x": 14, "y": 0 },
-      "fieldConfig": { "defaults": {
-        "custom": { "drawStyle": "bars", "fillOpacity": 60 } } },
+      "gridPos": {
+        "h": 11,
+        "w": 10,
+        "x": 14,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 60
+          }
+        }
+      },
       "targets": [
         {
           "format": "time_series",
@@ -38,7 +59,12 @@
       "id": 3,
       "title": "Per-satellite listener diversity (distinct stations, 7 days)",
       "type": "table",
-      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 11 },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 11
+      },
       "targets": [
         {
           "format": "table",

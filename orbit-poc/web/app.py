@@ -11,6 +11,22 @@ from psycopg2.extras import RealDictCursor
 DB_DSN = os.environ["DB_DSN"]
 app = Flask(__name__, static_folder="static", static_url_path="")
 
+# OpenTelemetry: every request becomes a trace; the collector's spanmetrics
+# connector turns them into per-route rate/latency/error metrics for the
+# admin-only "Platform access" dashboard. No-op when the endpoint is unset.
+if os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT"):
+    from opentelemetry import trace
+    from opentelemetry.sdk.resources import Resource
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+    from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+    from opentelemetry.instrumentation.flask import FlaskInstrumentor
+    _provider = TracerProvider(resource=Resource.create(
+        {"service.name": os.environ.get("OTEL_SERVICE_NAME", "overwatch-web")}))
+    _provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
+    trace.set_tracer_provider(_provider)
+    FlaskInstrumentor().instrument_app(app)
+
 
 def db():
     return psycopg2.connect(DB_DSN, cursor_factory=RealDictCursor)
