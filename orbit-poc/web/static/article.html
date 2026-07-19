@@ -1,0 +1,112 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A satellite control room from 100% open data, self-hosted in Europe</title>
+<style>
+ body{background:#0a0e17;color:#dfe7f5;font-family:ui-sans-serif,system-ui,sans-serif;
+   line-height:1.65;max-width:760px;margin:0 auto;padding:40px 20px}
+ h1{font-size:28px;line-height:1.3} h2{font-size:20px;margin-top:36px;color:#9fc1ff}
+ a{color:#5aa9ff} pre{background:#121826;border:1px solid #1f2a3d;border-radius:8px;
+   padding:14px;overflow-x:auto;font-size:13px} p{font-size:15.5px}
+ code{font-family:ui-monospace,monospace}
+</style></head><body>
+<h1>A satellite control room from 100% open data, self-hosted in Europe</h1>
+<p><b>Live demo: <a href="https://overwatch.confinia.io/#57175">overwatch.confinia.io</a></b> —
+a MapLibre globe with 23 satellites moving in real time, each one clickable
+into Grafana dashboards showing battery voltages, temperatures and currents
+decoded from their actual radio beacons. Every byte of it comes from open
+data, and the whole thing runs on one rootless-podman server in Europe.</p>
+<p>This post is about the four design decisions that made it work — and one
+upstream surprise that accidentally proved the project&#x27;s whole point.</p>
+<h2>The stack in one diagram</h2>
+<pre><code>CelesTrak ─┐                ┌─ MapLibre globe (Flask) ── reads cache only
+SatNOGS  ──┤─►  ingest  ─►  Postgres                        │
+           (the ONLY thing           └─ Grafana ────────────┘
+            touching upstream)          embedded per-satellite dashboards
+</code></pre>
+<p>Orbits come from <a href="https://celestrak.org">CelesTrak</a> two-line elements,
+propagated locally with SGP4 every 15 seconds. Telemetry comes from
+<a href="https://satnogs.org">SatNOGS</a>, the Libre Space Foundation&#x27;s global network
+of volunteer ground stations. The basemap is
+<a href="https://s2maps.eu">Sentinel-2 cloudless by EOX</a> — real Copernicus imagery,
+served from Europe. Postgres caches everything; the browser and Grafana read
+only from that cache.</p>
+<h2>Decision 1: the caching boundary is the architecture</h2>
+<p>Exactly one service is allowed to call an external API. CelesTrak firewalls
+IPs that pull more than ~100 MB/day and asks you to fetch each dataset once
+per update — a naive &quot;fetch on every map refresh&quot; design gets you banned, and
+deserves to be. So the ingest service fetches elements on a 6-hour cadence,
+propagates positions locally (no network involved), and polls telemetry every
+30 minutes with cursor pagination — &quot;give me only frames newer than what I
+have.&quot; When the demo hit the front of a busy Slack channel, visitor traffic
+touched nothing upstream. Politeness and scalability turn out to be the same
+property.</p>
+<h2>Decision 2: decode the radio frames yourself</h2>
+<p>Mid-project, SatNOGS&#x27;s API changed: it still serves raw frames — hex blobs
+like 60A060A0A66E60A4A660… — but the <i>decoded</i> values now live only in
+their internal InfluxDB. For a day, my dashboards were empty and the fix
+options were: scrape someone else&#x27;s Grafana, or decode the physics myself.</p>
+<p>The answer was <a href="https://gitlab.com/librespacefoundation/satnogs/satnogs-decoders">satnogs-decoders</a>:
+161 community-written <a href="https://kaitai.io">Kaitai Struct</a> definitions, each
+describing one satellite family&#x27;s beacon layout down to the bit — &quot;bytes
+17–18: battery voltage, big-endian, ×0.0075 volts.&quot; My ingest now runs
+Decoder.from_bytes(bytes.fromhex(frame)) and flattens every numeric leaf
+into Postgres rows.</p>
+<p>That outage was the best thing that happened to the project. A platform that
+depends on someone else&#x27;s decoded data is a proxy; one that decodes raw
+downlinks locally is infrastructure. If you care about data sovereignty,
+the difference is everything — and it&#x27;s also why a satellite with no public
+decoder (looking at you, NEMO-HD) simply can&#x27;t be on my map. The honest fix
+is a .ksy file, not a fake dashboard.</p>
+<h2>Decision 3: normalize the chaos, keep the chaos too</h2>
+<p>Every decoder names things differently: csp_data_payload_eps_vbatt,
+raw_frame_rt_tlm_batt_a_v, beacon_types_type_check_battery_voltage — and
+units vary between volts and millivolts. Dashboards written per-satellite
+don&#x27;t scale past three satellites. So ingest derives canonical fields
+(battery_v, battery_i, battery_pct, with heuristic mV/mA scaling)
+<i>next to</i> the raw ones. One battery panel now works for the whole fleet,
+while the raw fields stay queryable for anyone who wants the real thing.
+A protocol-noise filter also drops AX.25 headers, SSIDs and checksums at
+ingest — nobody&#x27;s health dashboard needs dest_ssid_raw_hbit.</p>
+<h2>Decision 4: fuse position and telemetry — that&#x27;s the product</h2>
+<p>Two features fall out of having orbits and telemetry in the same database,
+and they&#x27;re the two I&#x27;d show a satellite operator first:</p>
+<p><b>Battery vs orbital sunlight.</b> During propagation, a cylindrical
+Earth-shadow test against a low-precision solar ephemeris marks every
+position sample as sunlit or eclipsed. Overlaying that on battery voltage
+shows charge/discharge cycles tracking orbital daylight — spacecraft
+physiology, visible in one graph, from amateur radio receptions.</p>
+<p><b>Who heard whom.</b> Every SatNOGS frame names its receiving station, and
+most station names embed a Maidenhead grid locator (KM7DOS-CN87xi). Decode
+the locator and you can draw the reception network on the globe: this
+satellite, heard from Kitakyushu, Buenos Aires and a garden in Bavaria, with
+lines to where the satellite was at each reception. It&#x27;s a live map of the
+volunteer ground-segment — and of its gaps.</p>
+<h2>Running it sovereign</h2>
+<p>The whole stack is rootless podman on one Debian dedicated server: Postgres,
+ingest, Flask, Grafana, an OpenTelemetry collector and Prometheus for
+access observability (public dashboards stay anonymous-viewer; the ops
+folder is admin-only). A shared Caddy edge terminates TLS with per-project
+vhost files. GitHub Pages hosts a static mirror of the frontend, but every
+byte of data it shows still comes from the European server — a CDN outage
+would take down the shell, not the data; a data-sovereignty audit has
+exactly one machine to look at.</p>
+<h2>Honest limits</h2>
+<p>Coverage is what volunteers make it: a satellite charts only when it
+broadcasts in the clear <i>and</i> someone&#x27;s antenna heard it. Of ~1,700 alive
+satellites in the SatNOGS catalog, my weekly sweep found 23 currently
+meeting that bar — that number is the true state of open satellite
+telemetry, not a limitation of the stack. Ground tracks use a spherical
+Earth (fine for dots on a map, not for targeting). And satellites render at
+ground level for now; elevation-true rendering above the globe is next.</p>
+<h2>What&#x27;s next</h2>
+<p>Multi-tenant embedding with proper short-lived-token auth (the anonymous
+viewer is a POC seam, deliberately), a small SDR ground station to stop
+depending exclusively on other people&#x27;s antennas, and conversations with
+anyone who operates satellites — or any European team that wants live
+operational dashboards embedded in their product without a US hyperscaler
+in the data path. That last sentence is the actual business; the satellites
+are the proof it works.</p>
+<p>*Clément Igonet — <a href="https://confinia.io">confinia.io</a> ·
+contact@confinia.io. Data: CelesTrak, SatNOGS/Libre Space Foundation,
+Copernicus/EOX. Built with MapLibre GL, Grafana, PostgreSQL, podman.*</p>
+</body></html>
