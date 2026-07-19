@@ -1,0 +1,50 @@
+{
+  "uid": "ground-stations",
+  "title": "Ground Stations",
+  "tags": ["orbit-poc"],
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5m",
+  "time": { "from": "now-7d", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Station scorecard — who carries the network (7 days)",
+      "type": "table",
+      "gridPos": { "h": 11, "w": 14, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT split_part(observer, '-', 1) AS station, max(observer) AS observer, count(*) AS frames, count(DISTINCT norad) AS satellites_heard, max(ts) AS last_reception FROM reception WHERE ts > now() - interval '7 days' GROUP BY 1 ORDER BY 3 DESC LIMIT 50"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Receptions per hour (whole network)",
+      "type": "timeseries",
+      "gridPos": { "h": 11, "w": 10, "x": 14, "y": 0 },
+      "fieldConfig": { "defaults": {
+        "custom": { "drawStyle": "bars", "fillOpacity": 60 } } },
+      "targets": [
+        {
+          "format": "time_series",
+          "rawSql": "SELECT date_trunc('hour', ts) AS time, count(*)::float AS receptions FROM reception WHERE ts > now() - interval '7 days' GROUP BY 1 ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Per-satellite listener diversity (distinct stations, 7 days)",
+      "type": "table",
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 11 },
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT s.name AS satellite, count(DISTINCT r.observer) AS stations, count(*) AS receptions, max(r.ts) AS last_heard FROM reception r JOIN satellite s USING (norad) WHERE r.ts > now() - interval '7 days' GROUP BY s.name ORDER BY 2 DESC"
+        }
+      ]
+    }
+  ]
+}

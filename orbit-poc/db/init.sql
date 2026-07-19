@@ -31,8 +31,10 @@ CREATE TABLE IF NOT EXISTS position (
     lat          DOUBLE PRECISION NOT NULL,
     lon          DOUBLE PRECISION NOT NULL,
     alt_km       DOUBLE PRECISION NOT NULL,
+    sunlit       BOOLEAN,           -- false = in Earth's shadow (eclipse)
     PRIMARY KEY (norad, ts)
 );
+ALTER TABLE position ADD COLUMN IF NOT EXISTS sunlit BOOLEAN;
 CREATE INDEX IF NOT EXISTS position_ts_idx ON position (ts DESC);
 
 -- Decoded telemetry frames from SatNOGS. Schema-per-satellite varies wildly,
@@ -47,3 +49,16 @@ CREATE TABLE IF NOT EXISTS telemetry (
     PRIMARY KEY (norad, ts, field)
 );
 CREATE INDEX IF NOT EXISTS telemetry_lookup_idx ON telemetry (norad, field, ts DESC);
+
+-- Who heard whom: one row per (frame, receiving station). The observer string
+-- from SatNOGS is "CALLSIGN-GRIDLOCATOR"; lat/lon decoded from the Maidenhead
+-- grid locator (NULL when the station publishes no locator).
+CREATE TABLE IF NOT EXISTS reception (
+    norad        INTEGER REFERENCES satellite(norad),
+    ts           TIMESTAMPTZ NOT NULL,
+    observer     TEXT NOT NULL,
+    lat          DOUBLE PRECISION,
+    lon          DOUBLE PRECISION,
+    PRIMARY KEY (norad, ts, observer)
+);
+CREATE INDEX IF NOT EXISTS reception_obs_idx ON reception (observer, ts DESC);

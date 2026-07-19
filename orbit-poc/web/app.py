@@ -36,6 +36,28 @@ def satellites():
         return jsonify(cur.fetchall())
 
 
+@app.get("/api/receptions/<int:norad>")
+def receptions(norad):
+    """Who heard this satellite in the last 7 days: receiving station
+    (Maidenhead-decoded) + the satellite's cached position at reception time
+    when our position history covers it."""
+    with db() as conn, conn.cursor() as cur:
+        cur.execute("""
+            SELECT r.ts, r.observer, r.lat, r.lon,
+                   p.lat AS sat_lat, p.lon AS sat_lon
+            FROM reception r
+            LEFT JOIN LATERAL (
+                SELECT lat, lon FROM position
+                WHERE norad = r.norad
+                  AND ts BETWEEN r.ts - interval '2 minutes'
+                             AND r.ts + interval '2 minutes'
+                ORDER BY abs(extract(epoch FROM ts - r.ts)) LIMIT 1
+            ) p ON true
+            WHERE r.norad = %s AND r.ts > now() - interval '7 days'
+            ORDER BY r.ts DESC LIMIT 300""", (norad,))
+        return jsonify(cur.fetchall())
+
+
 @app.get("/api/track/<int:norad>")
 def track(norad):
     """Recent ground track for one satellite (for drawing the orbit line)."""

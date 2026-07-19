@@ -231,6 +231,7 @@ def propagate_positions():
     now = datetime.now(timezone.utc)
     jd, fr = jday(now.year, now.month, now.day,
                   now.hour, now.minute, now.second + now.microsecond * 1e-6)
+    sun = _sun_unit_vector(jd + fr)
     out = []
     for norad, tle1, tle2 in rows:
         try:
@@ -239,18 +240,41 @@ def propagate_positions():
             if e != 0:
                 continue
             lat, lon, alt = _teme_to_geodetic(r_teme, jd, fr)
-            out.append((norad, now, lat, lon, alt))
+            out.append((norad, now, lat, lon, alt, _is_sunlit(r_teme, sun)))
         except Exception as ex:
             log.debug("propagation failed %s: %s", norad, ex)
 
     if out:
         with db() as conn, conn.cursor() as cur:
             execute_values(cur,
-                """INSERT INTO position (norad, ts, lat, lon, alt_km)
+                """INSERT INTO position (norad, ts, lat, lon, alt_km, sunlit)
                    VALUES %s ON CONFLICT DO NOTHING""", out)
-            # prune: keep 6h rolling window
-            cur.execute("DELETE FROM position WHERE ts < now() - interval '6 hours'")
+            # prune: keep a week so position joins telemetry history
+            cur.execute("DELETE FROM position WHERE ts < now() - interval '7 days'")
             conn.commit()
+
+
+def _sun_unit_vector(jd):
+    """Low-precision solar position (ECI, equinox of date ~ TEME): standard
+    almanac formulas, plenty accurate for an eclipse flag."""
+    n = jd - 2451545.0
+    L = np.radians((280.460 + 0.9856474 * n) % 360.0)   # mean longitude
+    g = np.radians((357.528 + 0.9856003 * n) % 360.0)   # mean anomaly
+    lam = L + np.radians(1.915) * np.sin(g) + np.radians(0.020) * np.sin(2 * g)
+    eps = np.radians(23.439 - 0.0000004 * n)             # obliquity
+    return np.array([np.cos(lam), np.cos(eps) * np.sin(lam),
+                     np.sin(eps) * np.sin(lam)])
+
+
+def _is_sunlit(r_teme, sun_hat):
+    """Cylindrical Earth-shadow model: in shadow iff on the night side AND
+    within one Earth radius of the anti-sun axis."""
+    r = np.array(r_teme)
+    s = float(np.dot(r, sun_hat))
+    if s >= 0:
+        return True
+    perp = float(np.sqrt(max(np.dot(r, r) - s * s, 0.0)))
+    return perp > 6371.0
 
 
 def _teme_to_geodetic(r_teme, jd, fr):
@@ -408,10 +432,41 @@ def _decode_frame(decoder, frame_hex):
     return out
 
 
+def _maidenhead(loc):
+    """Maidenhead grid locator -> (lat, lon) at cell center, or None."""
+    m = re.match(r"^([A-Ra-r]{2})(\d{2})([A-Xa-x]{2})?$", loc.strip())
+    if not m:
+        return None
+    lon = (ord(m.group(1)[0].upper()) - 65) * 20 - 180 + int(m.group(2)[0]) * 2
+    lat = (ord(m.group(1)[1].upper()) - 65) * 10 - 90 + int(m.group(2)[1])
+    if m.group(3):
+        lon += (ord(m.group(3)[0].lower()) - 97) * (2 / 24) + 1 / 24
+        lat += (ord(m.group(3)[1].lower()) - 97) * (1 / 24) + 0.5 / 24
+    else:
+        lon += 1.0
+        lat += 0.5
+    return lat, lon
+
+
+def _reception_row(norad, ts, f):
+    """SatNOGS observer strings look like 'KM7DOS-CN87xi'."""
+    obs = (f.get("observer") or "").strip()
+    if not obs:
+        return None
+    lat = lon = None
+    if "-" in obs:
+        pos = _maidenhead(obs.rsplit("-", 1)[1])
+        if pos:
+            lat, lon = pos
+    return (norad, ts, obs, lat, lon)
+
+
 def _store_frames(norad, frames, decoder):
     """Turn frames into (field, value_num) rows. Preferred path: local kaitai
-    decode of the raw hex. Fallback: inline decoded dicts (legacy API shape)."""
+    decode of the raw hex. Fallback: inline decoded dicts (legacy API shape).
+    Also records who-heard-whom reception rows (observer + grid locator)."""
     rows, decoded_n = [], 0
+    receptions = []
     horizon = datetime.now(timezone.utc) + timedelta(hours=1)
     for f in frames[:200]:  # cap per cycle
         ts = f.get("timestamp") or f.get("time")
@@ -423,6 +478,9 @@ def _store_frames(norad, frames, decoder):
                 continue
         except ValueError:
             continue
+        rec = _reception_row(norad, ts, f)
+        if rec:
+            receptions.append(rec)
         fields = {}
         if decoder and f.get("frame"):
             try:
@@ -452,6 +510,13 @@ def _store_frames(norad, frames, decoder):
             execute_values(cur,
                 """INSERT INTO telemetry (norad, ts, field, value_num, value_txt)
                    VALUES %s ON CONFLICT DO NOTHING""", rows)
+            conn.commit()
+    if receptions:
+        receptions = list({(r[0], r[1], r[2]): r for r in receptions}.values())
+        with db() as conn, conn.cursor() as cur:
+            execute_values(cur,
+                """INSERT INTO reception (norad, ts, observer, lat, lon)
+                   VALUES %s ON CONFLICT DO NOTHING""", receptions)
             conn.commit()
     return decoded_n
 

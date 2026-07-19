@@ -16,8 +16,23 @@
      half); right column = full-height satellite list with search. */
   #app { display:grid; grid-template-columns: 1fr 300px;
     grid-template-rows: 100vh; height:100vh; overflow:hidden; }
-  #left { display:grid; grid-template-rows: 50vh 1fr; min-width:0; min-height:0; }
+  #left { display:grid; grid-template-rows: 50vh 1fr; min-width:0; min-height:0;
+    position:relative; }
   #map { height:100%; min-height:0; }
+  /* Fleet health signal — floats over the globe, works on mobile too. */
+  #fleetbar { position:absolute; top:10px; left:10px; z-index:5;
+    background:rgba(18,24,38,.88); border:1px solid var(--line);
+    border-radius:8px; padding:6px 12px; font-size:12px; color:var(--text);
+    display:flex; gap:12px; align-items:center; }
+  .fdot { display:inline-block; width:8px; height:8px; border-radius:50%;
+    margin-right:5px; vertical-align:middle; }
+  .fdot.g { background:#39d98a; } .fdot.o { background:#f5a623; }
+  .fdot.r { background:#ff5c5c; }
+  .sdot { display:inline-block; width:7px; height:7px; border-radius:50%;
+    margin-right:7px; vertical-align:middle; }
+  /* heard within the last hour: alive and glowing */
+  .fdot.live { animation:pulse 1.6s infinite;
+    box-shadow:0 0 7px 1px rgba(57,217,138,.8); }
   #side { border-left:1px solid var(--line); background:var(--panel);
     display:flex; flex-direction:column; min-width:0; min-height:0; }
   /* Small screens: globe + dashboards only; satellites are picked by tapping
@@ -60,6 +75,7 @@
 <div id="app">
   <div id="left">
     <div id="map"></div>
+    <div id="fleetbar" title="Fleet link status">loading fleet…</div>
     <div id="panel">
       <div class="head" id="panelHead">Select a satellite to inspect its telemetry</div>
       <div id="panelBody">
@@ -113,6 +129,34 @@ function age(ts){
   return `${Math.round(h / 24)}d ago`;
 }
 
+// Link status per satellite: green = heard <24h, orange = 1-3 days,
+// red = silent >3 days (or never heard).
+function linkStatus(s){
+  if (!s.last_frame) return "r";
+  const h = (Date.now() - Date.parse(s.last_frame)) / 3.6e6;
+  return h <= 24 ? "g" : h <= 72 ? "o" : "r";
+}
+
+// Heard within the last hour -> highlighted as live.
+function isLive(s){
+  return s.last_frame && (Date.now() - Date.parse(s.last_frame)) < 3.6e6;
+}
+
+function renderFleetbar(sats){
+  const by = { g:[], o:[], r:[] };
+  sats.forEach(s => by[linkStatus(s)].push(s.name));
+  const live = sats.filter(isLive);
+  const bar = document.getElementById("fleetbar");
+  bar.innerHTML =
+    `<span><span class="fdot g live"></span>${live.length} live &lt;1h</span>` +
+    `<span><span class="fdot g"></span>${by.g.length} nominal</span>` +
+    `<span><span class="fdot o"></span>${by.o.length} quiet</span>` +
+    `<span><span class="fdot r"></span>${by.r.length} silent</span>`;
+  bar.title = (live.length ? "Live (<1h): " + live.map(s => s.name).join(", ") + "\n" : "") +
+              (by.o.length ? "Quiet (1-3d): " + by.o.join(", ") + "\n" : "") +
+              (by.r.length ? "Silent (>3d): " + by.r.join(", ") : "");
+}
+
 document.getElementById("search").addEventListener("input", () => renderList(allSats));
 
 // Satellites render as a GeoJSON circle layer (scales to thousands —
@@ -122,7 +166,8 @@ function satsGeojson(sats){
     .filter(s => s.lat != null)
     .map(s => ({ type:"Feature",
       geometry:{ type:"Point", coordinates:[s.lon, s.lat] },
-      properties:{ norad:s.norad, tel:!!s.has_telemetry, name:s.name } })) };
+      properties:{ norad:s.norad, tel:!!s.has_telemetry, name:s.name,
+                   live:isLive(s) } })) };
 }
 
 async function refresh(){
@@ -130,6 +175,7 @@ async function refresh(){
   allSats = sats;
   satsByNorad = Object.fromEntries(sats.map(s => [s.norad, s]));
   renderList(sats);
+  renderFleetbar(sats);
   const src = map.getSource("sats");
   if (src) src.setData(satsGeojson(sats));
   // Deep link: #<norad> in the URL selects that satellite (kept across
@@ -166,7 +212,7 @@ function renderList(sats){
     const heard = " · " + (s.last_frame
       ? "heard " + age(s.last_frame) : "no frames yet");
     div.innerHTML =
-      `<div class="row"><span class="name">${s.name}</span></div>
+      `<div class="row"><span class="name"><span class="sdot fdot ${linkStatus(s)}${isLive(s) ? " live" : ""}"></span>${s.name}</span></div>
        <div class="meta">NORAD ${s.norad} · ${pos}${heard}</div>`;
     div.onclick = () => select(s);
     list.appendChild(div);
@@ -188,8 +234,9 @@ async function select(s){
   const body = document.getElementById("panelBody");
   head.textContent = `${s.name} — NORAD ${s.norad}`;
 
-  // draw recent ground track
+  // draw recent ground track + who-heard-it reception network
   await drawTrack(s.norad);
+  await drawReceptions(s.norad);
 
   // Full dashboard in the bottom half. Every satellite has live data there
   // (the altitude panel reads the position cache); health panels fill only
@@ -202,6 +249,31 @@ async function select(s){
               `?orgId=1&kiosk&var-norad=${s.norad}&theme=dark`;
   body.innerHTML = `<iframe src="${src}"></iframe>`;
   renderList(allSats);
+}
+
+// Ground stations that heard the selected satellite (last 7 days), with
+// links to where the satellite was when heard (when history covers it).
+async function drawReceptions(norad){
+  const recs = await j(`/api/receptions/${norad}`);
+  const seen = {};
+  const stations = [], links = [];
+  for (const r of recs){
+    if (r.lat == null) continue;
+    if (!seen[r.observer]){
+      seen[r.observer] = true;
+      stations.push({ type:"Feature",
+        geometry:{ type:"Point", coordinates:[r.lon, r.lat] },
+        properties:{ name: r.observer.split("-")[0] } });
+    }
+    if (r.sat_lat != null){
+      links.push({ type:"Feature",
+        geometry:{ type:"LineString",
+          coordinates:[[r.lon, r.lat], [r.sat_lon, r.sat_lat]] },
+        properties:{} });
+    }
+  }
+  map.getSource("rx-stations").setData({ type:"FeatureCollection", features: stations });
+  map.getSource("rx-links").setData({ type:"FeatureCollection", features: links });
 }
 
 let trackSourceAdded = false;
@@ -222,10 +294,13 @@ async function drawTrack(norad){
 map.on("load", () => {
   map.addSource("sats", { type:"geojson", data:satsGeojson([]) });
   map.addLayer({ id:"sats", type:"circle", source:"sats",
-    paint:{ "circle-radius":4.5,
-      "circle-color":["case", ["get","tel"], "#39d98a", "#7c8aa5"],
-      "circle-stroke-width":1.5,
-      "circle-stroke-color":"rgba(90,169,255,.45)" }});
+    paint:{
+      "circle-radius":["case", ["get","live"], 6.5, 4.5],
+      "circle-color":["case", ["get","live"], "#4dffa6",
+        ["case", ["get","tel"], "#39d98a", "#7c8aa5"]],
+      "circle-stroke-width":["case", ["get","live"], 3, 1.5],
+      "circle-stroke-color":["case", ["get","live"],
+        "rgba(57,217,138,.5)", "rgba(90,169,255,.45)"] }});
   // Satellite names on the globe ("Open Sans Semibold" is the one font the
   // demotiles glyph server provides). Elevation-true rendering is a future
   // maplibre-engine work item — for now dots sit on the ground track.
@@ -236,6 +311,21 @@ map.on("load", () => {
       "text-allow-overlap":false },
     paint:{ "text-color":"#dfe7f5",
       "text-halo-color":"#0a0e17", "text-halo-width":1.2 }});
+  // Reception network layers (populated when a satellite is selected).
+  const empty = { type:"FeatureCollection", features: [] };
+  map.addSource("rx-links", { type:"geojson", data: empty });
+  map.addLayer({ id:"rx-links", type:"line", source:"rx-links",
+    paint:{ "line-color":"rgba(245,166,35,.45)", "line-width":1 }});
+  map.addSource("rx-stations", { type:"geojson", data: empty });
+  map.addLayer({ id:"rx-stations", type:"circle", source:"rx-stations",
+    paint:{ "circle-radius":3.5, "circle-color":"#f5a623",
+      "circle-stroke-width":1, "circle-stroke-color":"rgba(10,14,23,.9)" }});
+  map.addLayer({ id:"rx-station-labels", type:"symbol", source:"rx-stations",
+    layout:{ "text-field":["get","name"], "text-font":["Open Sans Semibold"],
+      "text-size":9, "text-anchor":"top", "text-offset":[0, 0.6],
+      "text-optional":true },
+    paint:{ "text-color":"#f5a623",
+      "text-halo-color":"#0a0e17", "text-halo-width":1 }});
   map.on("click", "sats", e => {
     const s = satsByNorad[e.features[0].properties.norad];
     if (s) select(s);

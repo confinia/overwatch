@@ -4,7 +4,7 @@
   "tags": ["orbit-poc"],
   "timezone": "utc",
   "schemaVersion": 39,
-  "version": 4,
+  "version": 5,
   "refresh": "30s",
   "time": { "from": "now-7d", "to": "now" },
   "templating": {
@@ -95,6 +95,42 @@
         {
           "format": "time_series",
           "rawSql": "SELECT ts AS time, value_num AS value FROM telemetry WHERE norad = $norad AND field = 'battery_pct' ORDER BY ts"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Battery vs orbital sunlight — position+telemetry fusion",
+      "type": "timeseries",
+      "gridPos": { "h": 7, "w": 24, "x": 0, "y": 27 },
+      "fieldConfig": {
+        "defaults": { "unit": "volt" },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "sunlight" },
+            "properties": [
+              { "id": "unit", "value": "none" },
+              { "id": "max", "value": 1 },
+              { "id": "min", "value": 0 },
+              { "id": "custom.axisPlacement", "value": "right" },
+              { "id": "custom.lineInterpolation", "value": "stepAfter" },
+              { "id": "custom.fillOpacity", "value": 18 },
+              { "id": "custom.lineWidth", "value": 0 },
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "yellow" } }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT ts AS time, value_num AS battery_v FROM telemetry WHERE norad = $norad AND field = 'battery_v' ORDER BY ts"
+        },
+        {
+          "refId": "B",
+          "format": "time_series",
+          "rawSql": "SELECT ts AS time, (CASE WHEN sunlit THEN 1 ELSE 0 END)::float AS sunlight FROM position WHERE norad = $norad AND sunlit IS NOT NULL ORDER BY ts"
         }
       ]
     },
