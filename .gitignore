@@ -2,3 +2,6 @@
 *.har
 orbit-poc.tar.gz
 .DS_Store
+
+# internal working docs — kept local only
+/*.md
