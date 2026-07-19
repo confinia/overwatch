@@ -182,6 +182,11 @@ async function select(s){
   if (location.hash !== "#" + s.norad) {
     history.replaceState(null, "", "#" + s.norad);
   }
+  // Focus the globe on the satellite (deep links land right on it).
+  if (s.lat != null) {
+    map.flyTo({ center: [s.lon, s.lat],
+                zoom: Math.max(map.getZoom(), 2.4), duration: 1800 });
+  }
   document.querySelectorAll(".sat").forEach(e=>e.classList.remove("active"));
   const head = document.getElementById("panelHead");
   const body = document.getElementById("panelBody");
