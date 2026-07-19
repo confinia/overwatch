@@ -8,6 +8,17 @@
 overwatch.confinia.io {
 	encode zstd gzip
 
+	# JSON access log, persisted in the caddy_data volume (survives container
+	# recreation). Referrers + raw pageviews for the promotion window.
+	# Read: podman exec confinia_caddy_1 tail /data/logs/overwatch-access.log
+	log {
+		output file /data/logs/overwatch-access.log {
+			roll_size 20MiB
+			roll_keep 5
+		}
+		format json
+	}
+
 	# Baseline security headers (SaaS hygiene). frame-ancestors also allows
 	# the GitHub Pages demo mirror (confinia.github.io/overwatch) to embed
 	# Grafana — tenant-scoped values come later with the auth-proxy.
