@@ -107,9 +107,25 @@ const GRAFANA = LOCAL ? "http://localhost:3001/grafana"
                       : `${API_BASE}/grafana`;
 const DASH_UID = "orbit-telemetry";
 
+// Basemap: Sentinel-2 cloudless by EOX — real Copernicus imagery, processed
+// and served from Europe. The glyph server only feeds the text labels.
 const map = new maplibregl.Map({
   container: "map",
-  style: "https://demotiles.maplibre.org/style.json", // sovereign tiles swappable
+  style: {
+    version: 8,
+    glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
+    sources: {
+      s2: {
+        type: "raster", tileSize: 256, maxzoom: 14,
+        tiles: ["https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2024_3857/default/g/{z}/{y}/{x}.jpg"],
+        attribution: "Sentinel-2 cloudless by <a href=\"https://s2maps.eu\">EOX</a> (Copernicus data)"
+      }
+    },
+    layers: [
+      { id: "space", type: "background", paint: { "background-color": "#04070d" } },
+      { id: "s2", type: "raster", source: "s2" }
+    ]
+  },
   center: [0, 20], zoom: 1.4, attributionControl: true
 });
 
