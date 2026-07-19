@@ -6,7 +6,7 @@
   ],
   "timezone": "utc",
   "schemaVersion": 39,
-  "version": 3,
+  "version": 4,
   "refresh": "30s",
   "time": {
     "from": "now-24h",
@@ -120,6 +120,61 @@
         {
           "expr": "sum by (http_status_code) (rate(ovw_calls_total[$__rate_interval])) * 60",
           "legendFormat": "{{http_status_code}}"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Frontend events / hour (load, select, search)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "promops" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 22 },
+      "targets": [
+        {
+          "expr": "sum by (span_name) (rate(ovw_calls_total{span_name=~\"ui\\\\..*\"}[$__rate_interval])) * 3600",
+          "legendFormat": "{{span_name}}"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Most-inspected satellites (selections in range)",
+      "type": "bargauge",
+      "datasource": { "type": "prometheus", "uid": "promops" },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 22 },
+      "options": { "orientation": "horizontal", "displayMode": "gradient",
+                   "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        {
+          "expr": "topk(10, sum by (sat_norad) (increase(ovw_calls_total{span_name=\"ui.select\"}[$__range])))",
+          "legendFormat": "NORAD {{sat_norad}}",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "Traffic origin (direct vs GitHub-Pages mirror)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "promops" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 22 },
+      "targets": [
+        {
+          "expr": "sum by (origin) (rate(ovw_calls_total{span_name=\"ui.load\"}[$__rate_interval])) * 3600",
+          "legendFormat": "{{origin}}"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "title": "Estimated concurrent viewers (satellites poll = 4/min per tab)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "promops" },
+      "gridPos": { "h": 7, "w": 24, "x": 0, "y": 30 },
+      "targets": [
+        {
+          "expr": "sum(rate(ovw_calls_total{span_name=~\".*api/satellites.*\"}[5m])) * 15",
+          "legendFormat": "open tabs (est.)"
         }
       ]
     },

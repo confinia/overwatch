@@ -26,6 +26,9 @@ if os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT"):
     _provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
     trace.set_tracer_provider(_provider)
     FlaskInstrumentor().instrument_app(app)
+    _ui_tracer = trace.get_tracer("overwatch-ui")
+else:
+    _ui_tracer = None
 
 
 def db():
@@ -83,6 +86,26 @@ def track(norad):
             WHERE norad = %s AND ts > now() - interval '100 minutes'
             ORDER BY ts""", (norad,))
         return jsonify(cur.fetchall())
+
+
+@app.get("/api/event")
+def ui_event():
+    """First-party usage beacon: page loads, satellite selections, searches.
+    No cookies, no ids — just anonymous counters as OTel spans, turned into
+    metrics by the collector's spanmetrics connector (admin-only dashboard)."""
+    from flask import request
+    etype = request.args.get("type", "")
+    if etype not in ("load", "select", "search"):
+        return {"ok": False}, 400
+    if _ui_tracer is not None:
+        with _ui_tracer.start_as_current_span(f"ui.{etype}") as span:
+            origin = request.args.get("origin", "")
+            if origin in ("direct", "mirror", "local"):
+                span.set_attribute("origin", origin)
+            norad = request.args.get("norad", "")
+            if norad.isdigit():
+                span.set_attribute("sat_norad", norad)
+    return {"ok": True}
 
 
 @app.get("/")

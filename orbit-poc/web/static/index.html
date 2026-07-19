@@ -144,6 +144,20 @@ let satsByNorad = {};
 
 async function j(u){ const r = await fetch(API_BASE + u); return r.json(); }
 
+// Anonymous first-party usage beacon (no cookies, no ids — counters only).
+const ORIGIN = LOCAL ? "local" : MIRROR ? "mirror" : "direct";
+function beacon(type, norad){
+  fetch(`${API_BASE}/api/event?type=${type}&origin=${ORIGIN}` +
+        (norad ? `&norad=${norad}` : ""), { keepalive: true }).catch(() => {});
+}
+beacon("load");
+let searchPinged = null;
+document.getElementById("search").addEventListener("input", e => {
+  clearTimeout(searchPinged);
+  if (e.target.value.trim().length > 1)
+    searchPinged = setTimeout(() => beacon("search"), 1500);
+});
+
 function age(ts){
   const h = (Date.now() - Date.parse(ts)) / 3.6e6;
   if (h < 1) return `${Math.max(1, Math.round(h * 60))}min ago`;
@@ -242,6 +256,7 @@ function renderList(sats){
 }
 
 async function select(s){
+  if (s.norad !== activeNorad) beacon("select", s.norad);
   activeNorad = s.norad;
   if (location.hash !== "#" + s.norad) {
     history.replaceState(null, "", "#" + s.norad);

@@ -18,6 +18,9 @@ connectors:
     dimensions:
       - name: http.method
       - name: http.status_code
+      # frontend usage beacon (ui.load / ui.select / ui.search spans)
+      - name: origin
+      - name: sat_norad
 
 exporters:
   prometheus:
