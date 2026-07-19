@@ -1,0 +1,123 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Overwatch — lightning talk</title>
+<style>
+  :root { --bg:#0a0e17; --text:#dfe7f5; --accent:#5aa9ff; --live:#39d98a;
+          --dim:#7c8aa5; --warn:#f5a623; }
+  * { box-sizing:border-box; margin:0; }
+  html,body { height:100%; background:var(--bg); color:var(--text);
+    font-family:ui-sans-serif,system-ui,sans-serif; overflow:hidden; }
+  .slide { display:none; height:100vh; padding:7vh 8vw; flex-direction:column;
+    justify-content:center; }
+  .slide.on { display:flex; }
+  h1 { font-size:5.2vw; line-height:1.15; margin-bottom:3vh; }
+  h2 { font-size:3.6vw; margin-bottom:4vh; color:var(--accent); }
+  p, li { font-size:2.4vw; line-height:1.5; color:var(--text); }
+  ul { padding-left:3vw; } li { margin:1.6vh 0; }
+  .dim { color:var(--dim); } .live { color:var(--live); }
+  .warn { color:var(--warn); } .accent { color:var(--accent); }
+  .big { font-size:7vw; font-weight:700; }
+  .url { font-size:3.2vw; color:var(--live); font-family:ui-monospace,monospace; }
+  pre { font-size:1.9vw; line-height:1.5; color:var(--text);
+    background:#121826; border:1px solid #1f2a3d; border-radius:12px;
+    padding:3vh 2vw; font-family:ui-monospace,monospace; }
+  .foot { position:fixed; bottom:2vh; right:3vw; color:var(--dim);
+    font-size:1.4vw; }
+  .kpis { display:flex; gap:5vw; margin-top:4vh; }
+  .kpi { text-align:center; }
+  .kpi .n { font-size:6vw; font-weight:700; color:var(--live); }
+  .kpi .l { font-size:1.8vw; color:var(--dim); }
+</style></head><body>
+
+<section class="slide on">
+  <h1>A satellite control room<br>from <span class="live">100% open data</span></h1>
+  <p class="dim">self-hosted on one server, in Europe — no cloud account anywhere</p>
+  <p style="margin-top:6vh" class="url">overwatch.confinia.io</p>
+  <p class="dim" style="margin-top:2vh">Clément Igonet · contact@confinia.io</p>
+</section>
+
+<section class="slide">
+  <h2>The bet</h2>
+  <ul>
+    <li>Orbits: <b>CelesTrak</b> TLEs, propagated locally (SGP4)</li>
+    <li>Telemetry: <b>SatNOGS</b> — volunteer ground stations worldwide</li>
+    <li>Basemap: <b>Sentinel-2 cloudless</b> — Copernicus, served from the EU</li>
+    <li>One Debian server · rootless podman · Postgres · Grafana · MapLibre</li>
+  </ul>
+  <p style="margin-top:5vh"><span class="warn">Zero</span> API contracts ·
+     <span class="warn">zero</span> hyperscalers ·
+     <span class="warn">zero</span> satellites owned</p>
+</section>
+
+<section class="slide">
+  <div style="text-align:center">
+    <p class="big live">LIVE DEMO</p>
+    <p class="url" style="margin-top:3vh">overwatch.confinia.io/#57175</p>
+    <p class="dim" style="margin-top:4vh">fleet status → CUBEBEL-2 → reception network<br>
+      → battery vs orbital sunlight → who's live right now</p>
+  </div>
+</section>
+
+<section class="slide">
+  <h2>The architecture is one rule</h2>
+  <pre>
+CelesTrak ─┐               ┌─ MapLibre globe ── reads cache only
+SatNOGS  ──┤─►  ingest ─►  Postgres
+           │  (the ONLY thing       └─ Grafana ── reads cache only
+           │   touching upstream)</pre>
+  <p style="margin-top:3vh">Be polite to upstream <span class="dim">(CelesTrak bans greedy IPs)</span>
+    — and a Slack front-page spike costs upstream <b>nothing</b>.</p>
+</section>
+
+<section class="slide">
+  <h2>Plot twist → the whole point</h2>
+  <ul>
+    <li>Mid-project, SatNOGS <b>stopped serving decoded values</b> — raw hex only</li>
+    <li>Fix: decode the radio frames <b>locally</b> — 161 community Kaitai decoders</li>
+    <li><span class="accent">"bytes 17–18: battery voltage, ×0.0075 V"</span></li>
+  </ul>
+  <p style="margin-top:4vh">Depending on someone's decoded data = <span class="warn">a proxy</span>.<br>
+     Decoding raw downlinks yourself = <span class="live">infrastructure</span>.</p>
+</section>
+
+<section class="slide">
+  <h2>What falls out of position + telemetry in one DB</h2>
+  <ul>
+    <li><b>Battery vs orbital sunlight</b> — eclipse cycles visible in the voltage curve</li>
+    <li><b>Who heard whom</b> — reception lines: satellite ↔ Kitakyushu, Buenos Aires…</li>
+    <li><b>Fleet link status</b> — live &lt;1h / nominal / quiet / silent</li>
+  </ul>
+  <div class="kpis">
+    <div class="kpi"><div class="n">23</div><div class="l">satellites decodable<br>+ heard this week</div></div>
+    <div class="kpi"><div class="n">161</div><div class="l">open decoders</div></div>
+    <div class="kpi"><div class="n">1</div><div class="l">server</div></div>
+    <div class="kpi"><div class="n">0</div><div class="l">hyperscalers</div></div>
+  </div>
+</section>
+
+<section class="slide">
+  <h2>Talk to me if…</h2>
+  <ul>
+    <li>you <b>operate satellites</b> — imagine this on <i>your private</i> telemetry,
+      in an isolated European tenant</li>
+    <li>your product needs <b>embedded live dashboards</b> without a US cloud
+      in the data path</li>
+    <li>you run a <b>ground station</b> — your coverage, scored</li>
+  </ul>
+  <p style="margin-top:5vh" class="url">overwatch.confinia.io/article.html</p>
+  <p class="dim">contact@confinia.io</p>
+</section>
+
+<div class="foot"><span id="pos"></span> · ←/→ or space</div>
+<script>
+const slides=[...document.querySelectorAll(".slide")];let i=0;
+function show(n){i=Math.max(0,Math.min(slides.length-1,n));
+  slides.forEach((s,k)=>s.classList.toggle("on",k===i));
+  document.getElementById("pos").textContent=(i+1)+"/"+slides.length;}
+addEventListener("keydown",e=>{
+  if(e.key==="ArrowRight"||e.key===" "||e.key==="PageDown")show(i+1);
+  if(e.key==="ArrowLeft"||e.key==="PageUp")show(i-1);});
+addEventListener("click",()=>show(i+1));
+show(0);
+</script>
+</body></html>
