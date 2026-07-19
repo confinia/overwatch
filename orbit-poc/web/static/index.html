@@ -133,7 +133,23 @@ async function refresh(){
   renderList(sats);
   const src = map.getSource("sats");
   if (src) src.setData(satsGeojson(sats));
+  // Deep link: #<norad> in the URL selects that satellite (kept across
+  // refreshes and shareable).
+  const wanted = hashNorad();
+  if (wanted && wanted !== activeNorad && satsByNorad[wanted]) {
+    select(satsByNorad[wanted]);
+  }
 }
+
+function hashNorad(){
+  const m = location.hash.match(/^#(\d+)$/);
+  return m ? Number(m[1]) : null;
+}
+
+window.addEventListener("hashchange", () => {
+  const n = hashNorad();
+  if (n && n !== activeNorad && satsByNorad[n]) select(satsByNorad[n]);
+});
 
 function renderList(sats){
   const list = document.getElementById("list");
@@ -163,6 +179,9 @@ function renderList(sats){
 
 async function select(s){
   activeNorad = s.norad;
+  if (location.hash !== "#" + s.norad) {
+    history.replaceState(null, "", "#" + s.norad);
+  }
   document.querySelectorAll(".sat").forEach(e=>e.classList.remove("active"));
   const head = document.getElementById("panelHead");
   const body = document.getElementById("panelBody");
