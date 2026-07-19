@@ -63,10 +63,9 @@
     <div id="panel">
       <div class="head" id="panelHead">Select a satellite to inspect its telemetry</div>
       <div id="panelBody">
-        <div class="empty">The map and orbit tracks work with <b>zero accounts</b>.
-          Telemetry dashboards light up once a free SatNOGS token is set in the
-          ingest service. Satellites marked <span class="badge pos">position-only</span>
-          have encrypted or absent downlinks — shown honestly rather than hidden.</div>
+        <div class="empty">Every listed satellite broadcasts open telemetry,
+          decoded locally from raw frames. Pick one — dashboards fill for the
+          passes volunteer ground stations actually heard.</div>
       </div>
     </div>
   </div>
@@ -162,15 +161,12 @@ function renderList(sats){
   for (const s of shown){
     const div = document.createElement("div");
     div.className = "sat" + (s.norad===activeNorad?" active":"");
-    const badge = s.has_telemetry
-      ? `<span class="badge tel">telemetry</span>`
-      : `<span class="badge pos">position-only</span>`;
     const pos = s.lat==null ? "acquiring…"
       : `${s.lat.toFixed(1)}°, ${s.lon.toFixed(1)}° · ${Math.round(s.alt_km)} km`;
-    const heard = !s.has_telemetry ? "" : " · " + (s.last_frame
+    const heard = " · " + (s.last_frame
       ? "heard " + age(s.last_frame) : "no frames yet");
     div.innerHTML =
-      `<div class="row"><span class="name">${s.name}</span>${badge}</div>
+      `<div class="row"><span class="name">${s.name}</span></div>
        <div class="meta">NORAD ${s.norad} · ${pos}${heard}</div>`;
     div.onclick = () => select(s);
     list.appendChild(div);
