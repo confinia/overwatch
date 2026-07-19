@@ -87,6 +87,7 @@ services:
     env_file:
       - .env
     volumes:
+      - grafana_data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
     ports:
@@ -112,3 +113,4 @@ services:
 volumes:
   pgdata:
   prom_data:
+  grafana_data:   # users + ACLs (ops folder restriction) survive recreation
