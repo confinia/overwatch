@@ -10,6 +10,7 @@ sync:
 	rsync -av --delete \
 		--exclude 'orbit-poc.tar.gz' \
 		--exclude 'orbit-poc/.env' \
+		--exclude 'orbit-poc/deploy/geoip' \
 		--exclude '.DS_Store' \
 		./ $(VM):$(REMOTE)/
 

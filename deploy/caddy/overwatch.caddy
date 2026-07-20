@@ -30,6 +30,12 @@ overwatch.confinia.io {
 		-Server
 	}
 
+	# Public product API (/v1): landing, OpenAPI docs, keys, data endpoints.
+	# CORS is handled by the service itself (open, read-only).
+	handle /v1* {
+		reverse_proxy 127.0.0.1:8082
+	}
+
 	# Read-only position API — CORS for the demo mirror only.
 	handle /api/* {
 		header Access-Control-Allow-Origin "https://confinia.github.io"

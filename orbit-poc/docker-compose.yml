@@ -65,6 +65,29 @@ services:
       - "127.0.0.1:8081:8080"   # public access goes through caddy
     restart: unless-stopped
 
+  # Public product API (/v1) — separate from the map's internal /api/* so the
+  # two can evolve independently. Keys/rate-limits/metering live here.
+  api:
+    build: ./api
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_DSN: "dbname=orbit user=orbit password=orbit host=db port=5432"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318"
+      OTEL_SERVICE_NAME: "overwatch-api"
+      REQUIRE_API_KEY: "false"     # flip to "true" when the beta hardens
+    # VISITOR_SALT_SECRET comes from .env (unique-visitor hashing; optional).
+    env_file:
+      - .env
+    volumes:
+      # dbip-country-lite.mmdb (calling country, never the IP). VM-side file,
+      # excluded from rsync --delete; API degrades to country "??" if absent.
+      - ./deploy/geoip:/geoip:ro
+    ports:
+      - "127.0.0.1:8082:8000"   # public access goes through caddy (/v1)
+    restart: unless-stopped
+
   grafana:
     image: docker.io/grafana/grafana:11.2.0
     depends_on:
