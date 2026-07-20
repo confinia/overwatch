@@ -57,10 +57,10 @@ deploy-full: sync
 		podman-compose -p green -f docker-compose.green.yml up -d --build; \
 		bash $(REMOTE)/deploy/slots.sh status'
 
-# Reload overwatch's OWN caddy (orbit-poc stack) after editing
-# orbit-poc/deploy/caddy/Caddyfile. Zero-downtime (graceful reload).
+# Config-only change to orbit-poc/deploy/caddy/Caddyfile.tmpl: regenerate
+# with current colors + graceful reload (validated, zero downtime).
 caddy: sync
-	ssh $(VM) 'podman exec orbit-poc_caddy_1 caddy reload --config /etc/caddy/Caddyfile'
+	ssh $(VM) 'bash $(REMOTE)/deploy/slots.sh reload'
 
 # Install/refresh the tiny TLS stub at the PLATFORM edge (rarely needed —
 # the stub is stable by design). Uses the platform repo's own documented

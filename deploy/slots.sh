@@ -17,7 +17,7 @@
 #   rollback  swap back (previous color still runs the previous version)
 #   status    show colors, versions, container state
 set -euo pipefail
-cmd=${1:?usage: slots.sh stage|promote|rollback|status}
+cmd=${1:?usage: slots.sh stage|promote|rollback|reload|status}
 cd "$(dirname "$0")/../orbit-poc"
 
 CADDY_DIR=deploy/caddy
@@ -85,6 +85,12 @@ promote)
   echo "$cand" > "$STATE"
   echo "== promoted: $cand is LIVE; $live keeps running ($(podman ps --filter name=${live}_web_1 --format '{{.Status}}')) — instant rollback available"
   ;;
+reload)
+  # Config-only change (Caddyfile.tmpl edited): regenerate with the current
+  # colors and graceful-reload — no builds, no container churn.
+  gen_caddy "$live" "$cand"
+  echo "== app caddy reloaded (live: $live, candidate: $cand)"
+  ;;
 rollback)
   if ! healthy "$cand"; then
     echo "!! previous color $cand is not healthy — cannot roll back onto it"
@@ -106,5 +112,5 @@ status)
   podman ps --format '{{.Names}} {{.Status}}' | grep -E '^(blue|green)_' || true
   ;;
 *)
-  echo "usage: slots.sh stage|promote|rollback|status"; exit 2 ;;
+  echo "usage: slots.sh stage|promote|rollback|reload|status"; exit 2 ;;
 esac

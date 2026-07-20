@@ -70,6 +70,10 @@ http://overwatch.confinia.io {
 		redir * /api{uri} 308
 	}
 
+	# Bare /api -> the API landing (humans type it; nothing serves it raw).
+	redir /api /api/v1 308
+	redir /api/ /api/v1 308
+
 	handle /api/* {
 		header Access-Control-Allow-Origin "https://confinia.github.io"
 		header Access-Control-Allow-Methods "GET"
