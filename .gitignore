@@ -5,3 +5,4 @@ orbit-poc.tar.gz
 
 # internal working docs — kept local only
 /*.md
+__pycache__/
