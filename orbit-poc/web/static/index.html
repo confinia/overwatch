@@ -80,6 +80,15 @@
     background:var(--live); margin-right:6px; vertical-align:middle;
     animation:pulse 1.6s infinite; }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
+  .maplibregl-popup-content { background:#121826; color:var(--text);
+    border:1px solid var(--line); border-radius:8px; padding:10px 12px;
+    font-size:12px; line-height:1.55; box-shadow:0 4px 18px rgba(0,0,0,.5); }
+  .maplibregl-popup-content code { color:var(--accent); }
+  .maplibregl-popup-close-button { color:var(--dim); font-size:15px; }
+  .maplibregl-popup-anchor-bottom .maplibregl-popup-tip { border-top-color:#121826; }
+  .maplibregl-popup-anchor-top .maplibregl-popup-tip { border-bottom-color:#121826; }
+  .maplibregl-popup-anchor-left .maplibregl-popup-tip { border-right-color:#121826; }
+  .maplibregl-popup-anchor-right .maplibregl-popup-tip { border-left-color:#121826; }
   #ver { white-space:nowrap; } #ver a { color:var(--dim); border:1px solid var(--line);
     border-radius:9px; padding:1px 7px; font-size:10px; text-decoration:none; }
   #ver a:hover { color:var(--fg); }
@@ -360,23 +369,26 @@ async function embedDashboards(s){
 // links to where the satellite was when heard (when history covers it).
 async function drawReceptions(norad){
   const recs = await j(`/api/receptions/${norad}`);
-  const seen = {};
-  const stations = [], links = [];
+  const st = {};                     // observer -> aggregated station stats
+  const links = [];
   for (const r of recs){
     if (r.lat == null) continue;
-    if (!seen[r.observer]){
-      seen[r.observer] = true;
-      stations.push({ type:"Feature",
-        geometry:{ type:"Point", coordinates:[r.lon, r.lat] },
-        properties:{ name: r.observer.split("-")[0] } });
-    }
+    const t = new Date(r.ts).getTime();
+    let a = st[r.observer];
+    if (!a) a = st[r.observer] = { lon:r.lon, lat:r.lat, n:0, first:t, last:t };
+    a.n++; if (t < a.first) a.first = t; if (t > a.last) a.last = t;
     if (r.sat_lat != null){
       links.push({ type:"Feature",
         geometry:{ type:"LineString",
           coordinates:[[r.lon, r.lat], [r.sat_lon, r.sat_lat]] },
-        properties:{} });
+        properties:{ observer:r.observer, ts:t,
+                     slat:r.sat_lat.toFixed(1), slon:r.sat_lon.toFixed(1) } });
     }
   }
+  const stations = Object.entries(st).map(([obs, a]) => ({ type:"Feature",
+    geometry:{ type:"Point", coordinates:[a.lon, a.lat] },
+    properties:{ name: obs.split("-")[0], grid: obs.split("-")[1] || "",
+                 n: a.n, first: a.first, last: a.last } }));
   map.getSource("rx-stations").setData({ type:"FeatureCollection", features: stations });
   map.getSource("rx-links").setData({ type:"FeatureCollection", features: links });
 }
@@ -421,6 +433,9 @@ map.on("load", () => {
   map.addSource("rx-links", { type:"geojson", data: empty });
   map.addLayer({ id:"rx-links", type:"line", source:"rx-links",
     paint:{ "line-color":"rgba(245,166,35,.45)", "line-width":1 }});
+  // Invisible wide twin of rx-links: a 1px line is unclickable, this isn't.
+  map.addLayer({ id:"rx-links-hit", type:"line", source:"rx-links",
+    paint:{ "line-color":"#f5a623", "line-width":12, "line-opacity":0.001 }});
   map.addSource("rx-stations", { type:"geojson", data: empty });
   map.addLayer({ id:"rx-stations", type:"circle", source:"rx-stations",
     paint:{ "circle-radius":3.5, "circle-color":"#f5a623",
@@ -437,6 +452,36 @@ map.on("load", () => {
   });
   map.on("mouseenter", "sats", () => map.getCanvas().style.cursor = "pointer");
   map.on("mouseleave", "sats", () => map.getCanvas().style.cursor = "");
+
+  // Reception layer popups: a station dot tells who it is and how much it
+  // heard; a line tells about that single frame reception.
+  const fmtT = t => new Date(+t).toUTCString().slice(5, -7) + " UTC";
+  map.on("click", "rx-stations", e => {
+    const p = e.features[0].properties;
+    new maplibregl.Popup({ maxWidth:"280px" })
+      .setLngLat(e.features[0].geometry.coordinates)
+      .setHTML(`<b>${p.name}</b> — volunteer ground station (SatNOGS)<br>` +
+        (p.grid ? `Maidenhead locator <code>${p.grid}</code><br>` : "") +
+        `${p.n} frame${p.n > 1 ? "s" : ""} heard from this satellite (7 d)<br>` +
+        `first ${fmtT(p.first)}<br>last ${fmtT(p.last)}`)
+      .addTo(map);
+  });
+  map.on("click", "rx-links-hit", e => {
+    if (map.queryRenderedFeatures(e.point, { layers:["rx-stations", "sats"] }).length) return;
+    const p = e.features[0].properties;
+    const sat = satsByNorad[activeNorad];
+    new maplibregl.Popup({ maxWidth:"280px" })
+      .setLngLat(e.lngLat)
+      .setHTML(`<b>Radio reception</b><br>` +
+        `<b>${p.observer.split("-")[0]}</b> decoded a frame from ` +
+        `<b>${sat ? sat.name : "the satellite"}</b><br>${fmtT(p.ts)}<br>` +
+        `satellite was over ${p.slat}°, ${p.slon}° at that moment`)
+      .addTo(map);
+  });
+  for (const l of ["rx-stations", "rx-links-hit"]) {
+    map.on("mouseenter", l, () => map.getCanvas().style.cursor = "pointer");
+    map.on("mouseleave", l, () => map.getCanvas().style.cursor = "");
+  }
   refresh(); setInterval(refresh, 15000);
 });
 </script>
