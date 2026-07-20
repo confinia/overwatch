@@ -30,27 +30,54 @@ overwatch.confinia.io {
 		-Server
 	}
 
+	# Blue-green: web and api each have two slots (blue 808x, green 908x),
+	# deployed alternately by deploy/bluegreen.sh. lb_policy first = prefer
+	# the first healthy upstream; active health checks + retry make the
+	# blue->green flip invisible (no dropped requests during deploys).
+
 	# Public product API (/v1): landing, OpenAPI docs, keys, data endpoints.
 	# CORS is handled by the service itself (open, read-only).
 	handle /v1* {
-		reverse_proxy 127.0.0.1:8082
+		reverse_proxy 127.0.0.1:8082 127.0.0.1:9082 {
+			lb_policy first
+			lb_try_duration 3s
+			lb_try_interval 250ms
+			health_uri /healthz
+			health_interval 2s
+			health_timeout 2s
+		}
 	}
 
 	# Read-only position API — CORS for the demo mirror only.
 	handle /api/* {
 		header Access-Control-Allow-Origin "https://confinia.github.io"
 		header Access-Control-Allow-Methods "GET"
-		reverse_proxy 127.0.0.1:8081
+		reverse_proxy 127.0.0.1:8081 127.0.0.1:9081 {
+			lb_policy first
+			lb_try_duration 3s
+			lb_try_interval 250ms
+			health_uri /healthz
+			health_interval 2s
+			health_timeout 2s
+		}
 	}
 
 	# Grafana serves from the /grafana sub-path (GF_SERVER_SERVE_FROM_SUB_PATH),
 	# so no path stripping here — same-origin embedding, no cookie tricks.
+	# Single slot (stateful volume); restarts are rare and brief.
 	handle /grafana* {
 		reverse_proxy 127.0.0.1:3001
 	}
 
 	# Frontend: MapLibre globe + read-only position API.
 	handle {
-		reverse_proxy 127.0.0.1:8081
+		reverse_proxy 127.0.0.1:8081 127.0.0.1:9081 {
+			lb_policy first
+			lb_try_duration 3s
+			lb_try_interval 250ms
+			health_uri /healthz
+			health_interval 2s
+			health_timeout 2s
+		}
 	}
 }
