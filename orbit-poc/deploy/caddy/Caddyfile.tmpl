@@ -1,0 +1,120 @@
+# Overwatch's OWN caddy — every overwatch routing decision lives here,
+# inside the overwatch stack. TLS terminates at the shared confinia edge,
+# which forwards plain HTTP (Host header preserved) for both hostnames to
+# this server via 127.0.0.1:8090. The edge-side file is a 3-line stub
+# (deploy/caddy/overwatch.caddy at the repo root) that never changes —
+# confinia-side deploys can no longer break overwatch routing.
+#
+# TEMPLATE — deploy/slots.sh substitutes %LIVE% / %CANDIDATE% (blue|green)
+# and writes the real Caddyfile next to this file, then graceful-reloads.
+# Upstreams are container DNS names on the shared compose network
+# (orbit-poc_default): <color>_web_1 / <color>_api_1 from the color
+# stacks (docker-compose.blue|green.yml) and the compose-managed grafana.
+
+{
+	auto_https off
+	# admin API stays on (localhost inside the container only): it is what
+	# `caddy reload` uses for the graceful color swap.
+	servers {
+		# The edge connects from container/loopback space; trust it so
+		# X-Forwarded-For (real client IP) flows through to the api's
+		# rate limiter / GeoIP and to our access log.
+		trusted_proxies static private_ranges
+	}
+}
+
+# ---- production ------------------------------------------------------------
+http://overwatch.confinia.io {
+	encode zstd gzip
+
+	# JSON access log (was on the edge before 2026-07-20; now self-owned).
+	# Read: podman exec orbit-poc_caddy_1 tail /data/logs/access.log
+	log {
+		output file /data/logs/access.log {
+			roll_size 20MiB
+			roll_keep 5
+		}
+		format json
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Content-Security-Policy "frame-ancestors 'self' https://confinia.github.io"
+		-Server
+	}
+
+	# Blue/green: LIVE color first, CANDIDATE second (lb_policy first +
+	# health checks). A promote regenerates this file with the colors
+	# swapped + graceful reload — no container restarts, and the old
+	# color keeps running as instant rollback.
+	handle /v1* {
+		reverse_proxy %LIVE%_api_1:8000 %CANDIDATE%_api_1:8000 {
+			lb_policy first
+			lb_try_duration 3s
+			lb_try_interval 250ms
+			health_uri /healthz
+			health_interval 2s
+			health_timeout 2s
+		}
+	}
+
+	handle /api/* {
+		header Access-Control-Allow-Origin "https://confinia.github.io"
+		header Access-Control-Allow-Methods "GET"
+		reverse_proxy %LIVE%_web_1:8080 %CANDIDATE%_web_1:8080 {
+			lb_policy first
+			lb_try_duration 3s
+			lb_try_interval 250ms
+			health_uri /healthz
+			health_interval 2s
+			health_timeout 2s
+		}
+	}
+
+	# Grafana under /grafana sub-path (GF_SERVER_SERVE_FROM_SUB_PATH) —
+	# same-origin iframe embedding, no path stripping.
+	handle /grafana* {
+		reverse_proxy grafana:3000
+	}
+
+	handle {
+		reverse_proxy %LIVE%_web_1:8080 %CANDIDATE%_web_1:8080 {
+			lb_policy first
+			lb_try_duration 3s
+			lb_try_interval 250ms
+			health_uri /healthz
+			health_interval 2s
+			health_timeout 2s
+		}
+	}
+}
+
+# ---- staging preview (validate before `make promote`) ----------------------
+http://staging.overwatch.confinia.io {
+	encode zstd gzip
+
+	basic_auth {
+		clement REDACTED
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Robots-Tag "noindex, nofollow"
+		-Server
+	}
+
+	handle /v1* {
+		reverse_proxy %CANDIDATE%_api_1:8000
+	}
+
+	handle /grafana* {
+		reverse_proxy grafana:3000
+	}
+
+	handle {
+		reverse_proxy %CANDIDATE%_web_1:8080
+	}
+}

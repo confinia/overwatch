@@ -52,40 +52,24 @@ services:
       - .env
     restart: unless-stopped
 
-  web:
-    build: ./web
-    depends_on:
-      db:
-        condition: service_healthy
-    environment:
-      DB_DSN: "dbname=orbit user=orbit password=orbit host=db port=5432"
-      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318"
-      OTEL_SERVICE_NAME: "overwatch-web"
-    ports:
-      - "127.0.0.1:8081:8080"   # public access goes through caddy
-    restart: unless-stopped
+  # NOTE: web + api are NOT here — they live in the color stacks
+  # (docker-compose.blue.yml / docker-compose.green.yml), two complete
+  # independent compose projects deployed by deploy/slots.sh. This file is
+  # the shared CORE: data, ingest, observability, and the app caddy that
+  # routes production to the live color.
 
-  # Public product API (/v1) — separate from the map's internal /api/* so the
-  # two can evolve independently. Keys/rate-limits/metering live here.
-  api:
-    build: ./api
-    depends_on:
-      db:
-        condition: service_healthy
-    environment:
-      DB_DSN: "dbname=orbit user=orbit password=orbit host=db port=5432"
-      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318"
-      OTEL_SERVICE_NAME: "overwatch-api"
-      REQUIRE_API_KEY: "false"     # flip to "true" when the beta hardens
-    # VISITOR_SALT_SECRET comes from .env (unique-visitor hashing; optional).
-    env_file:
-      - .env
+  # Overwatch's own caddy: all overwatch routing (prod/staging vhosts,
+  # blue/green switching, staging auth, access log) self-owned. The
+  # platform edge terminates TLS and forwards both hostnames here (:8090).
+  # /etc/caddy is a directory mount: deploy/slots.sh regenerates
+  # Caddyfile from Caddyfile.tmpl (color swap) + graceful reload.
+  caddy:
+    image: docker.io/library/caddy:2.11.4-alpine
     volumes:
-      # dbip-country-lite.mmdb (calling country, never the IP). VM-side file,
-      # excluded from rsync --delete; API degrades to country "??" if absent.
-      - ./deploy/geoip:/geoip:ro
+      - ./deploy/caddy:/etc/caddy:ro
+      - caddy_data:/data
     ports:
-      - "127.0.0.1:8082:8000"   # public access goes through caddy (/v1)
+      - "127.0.0.1:8090:80"
     restart: unless-stopped
 
   grafana:
@@ -137,3 +121,4 @@ volumes:
   pgdata:
   prom_data:
   grafana_data:   # users + ACLs (ops folder restriction) survive recreation
+  caddy_data:     # overwatch access logs survive recreation

@@ -272,7 +272,11 @@ async def access_control(request: Request, call_next):
     response.headers["X-Response-Time-Ms"] = f"{(time.perf_counter() - t0) * 1000:.1f}"
     response.headers["X-RateLimit-Limit"] = f"{RATE_PER_SEC};w=1, {RATE_PER_MIN};w=60"
     country = client_country(request)
-    if REQ_COUNTER is not None:
+    # The app caddy health-checks /healthz on every upstream every 2 s;
+    # counting those floods the metrics with country="??" noise. Real
+    # (external) healthz calls still count.
+    probe = internal and path.rstrip("/") in ("/healthz", "/v1/healthz")
+    if REQ_COUNTER is not None and not probe:
         route = request.scope.get("route")
         REQ_COUNTER.add(1, {
             "route": getattr(route, "path", path),

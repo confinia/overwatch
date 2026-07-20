@@ -1,54 +1,49 @@
 #!/usr/bin/env bash
-# Staged blue-green for the stateless HTTP services (web, api) — runs ON the VM.
+# Blue/green as two complete, independent compose stacks — runs ON the VM.
 #
-#   stage    build the working tree into the STAGING slot (9081/9082).
-#            Production is untouched. Validate the candidate at
-#            https://staging.overwatch.confinia.io (basic-auth protected).
-#   promote  restart the PROD slot (8081/8082) from the staged images.
-#            The prod caddy vhost lists prod first, staging second, with
-#            active health checks: during the restart, traffic serves from
-#            staging — the same version just validated — so the flip drops
-#            no requests and users only ever see old-version -> new-version.
+#   blue  = podman-compose project "blue"  (docker-compose.blue.yml,  :8081/:8082)
+#   green = podman-compose project "green" (docker-compose.green.yml, :9081/:9082)
 #
-# Singletons (db, ingest, grafana, otel-collector, prometheus) stay under
-# podman-compose (stateful or no public HTTP surface).
+# One color is LIVE (production), the other is the CANDIDATE (served at
+# https://staging.overwatch.confinia.io behind basic-auth). The app caddy's
+# config is generated from deploy/caddy/Caddyfile.tmpl with the two colors
+# substituted; switching = regenerate + graceful reload. No container is
+# touched at promote time, so:
+#   - deploys drop zero requests (health-checked failover during reload),
+#   - the previous color keeps running -> `rollback` is instant.
+#
+#   stage     build the working tree into the CANDIDATE color, point staging at it
+#   promote   swap colors in the caddy config (candidate becomes LIVE)
+#   rollback  swap back (previous color still runs the previous version)
+#   status    show colors, versions, container state
 set -euo pipefail
-cmd=${1:?usage: slots.sh stage|promote}
+cmd=${1:?usage: slots.sh stage|promote|rollback|status}
 cd "$(dirname "$0")/../orbit-poc"
 
-NET=orbit-poc_default
-DB_DSN="dbname=orbit user=orbit password=orbit host=db port=5432"
-VERSION=$(tr -d '[:space:]' < ../VERSION 2>/dev/null || echo dev)
-declare -A WEB_PORT=( [prod]=8081 [staging]=9081 )
-declare -A API_PORT=( [prod]=8082 [staging]=9082 )
+CADDY_DIR=deploy/caddy
+STATE=$CADDY_DIR/LIVE_COLOR
+live=$(cat "$STATE" 2>/dev/null || echo blue)
+cand=$([ "$live" = blue ] && echo green || echo blue)
+declare -A WEB_PORT=( [blue]=8081 [green]=9081 )
+declare -A API_PORT=( [blue]=8082 [green]=9082 )
 
-run_slot() {  # $1 = prod|staging — (re)create the slot from the staged images
-  local slot=$1
-  podman rm -f "overwatch_web_$slot" "overwatch_api_$slot" >/dev/null 2>&1 || true
-  podman run -d --name "overwatch_web_$slot" --network "$NET" \
-    -p "127.0.0.1:${WEB_PORT[$slot]}:8080" \
-    -e DB_DSN="$DB_DSN" \
-    -e OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318 \
-    -e OTEL_SERVICE_NAME=overwatch-web \
-    -e OVERWATCH_VERSION="$VERSION" \
-    --restart=always overwatch-web:staged >/dev/null
-  podman run -d --name "overwatch_api_$slot" --network "$NET" \
-    -p "127.0.0.1:${API_PORT[$slot]}:8000" \
-    -e DB_DSN="$DB_DSN" \
-    -e OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318 \
-    -e OTEL_SERVICE_NAME=overwatch-api \
-    -e REQUIRE_API_KEY=false \
-    -e OVERWATCH_VERSION="$VERSION" \
-    --env-file .env \
-    -v "$PWD/deploy/geoip:/geoip:ro" \
-    --restart=always overwatch-api:staged >/dev/null
+gen_caddy() {  # $1 = live color, $2 = candidate color
+  sed -e "s/%LIVE%/$1/g" -e "s/%CANDIDATE%/$2/g" \
+    "$CADDY_DIR/Caddyfile.tmpl" > "$CADDY_DIR/Caddyfile.new"
+  # Validate in an ephemeral container (never the running one: after a
+  # rsync it may hold stale inodes) before touching the mounted file.
+  podman run --rm -v "$PWD/$CADDY_DIR:/check:ro" \
+    docker.io/library/caddy:2.11.4-alpine \
+    caddy validate --config /check/Caddyfile.new --adapter caddyfile >/dev/null
+  mv "$CADDY_DIR/Caddyfile.new" "$CADDY_DIR/Caddyfile"
+  podman exec orbit-poc_caddy_1 caddy reload --config /etc/caddy/Caddyfile
 }
 
-healthy() {  # $1 = prod|staging — gate on both services answering
-  local slot=$1
+healthy() {  # $1 = color
+  local c=$1
   for _ in $(seq 1 60); do
-    if curl -sf "http://127.0.0.1:${WEB_PORT[$slot]}/healthz" >/dev/null \
-    && curl -sf "http://127.0.0.1:${API_PORT[$slot]}/healthz" >/dev/null; then
+    if curl -sf "http://127.0.0.1:${WEB_PORT[$c]}/healthz" >/dev/null \
+    && curl -sf "http://127.0.0.1:${API_PORT[$c]}/healthz" >/dev/null; then
       return 0
     fi
     sleep 1
@@ -58,37 +53,49 @@ healthy() {  # $1 = prod|staging — gate on both services answering
 
 case $cmd in
 stage)
-  echo "== building $VERSION into the staging slot"
-  podman build -q -t overwatch-web:staged ./web
-  podman build -q -t overwatch-api:staged ./api
-  podman tag overwatch-web:staged "overwatch-web:$VERSION"
-  podman tag overwatch-api:staged "overwatch-api:$VERSION"
-  run_slot staging
-  if ! healthy staging; then
-    echo "!! staging failed its health gate — production untouched"
-    podman logs --tail 30 overwatch_web_staging overwatch_api_staging || true
+  echo "== live: $live — building candidate: $cand"
+  podman-compose -p "$cand" -f "docker-compose.$cand.yml" up -d --build 2>&1 | tail -2
+  for c in $(podman ps --format '{{.Names}}' | grep -E "^${cand}_"); do
+    podman update --restart=always "$c" >/dev/null
+  done
+  if ! healthy "$cand"; then
+    echo "!! candidate $cand failed its health gate — live ($live) untouched"
+    podman logs --tail 30 "${cand}_web_1" "${cand}_api_1" || true
     exit 1
   fi
-  echo "== staged $VERSION — validate at https://staging.overwatch.confinia.io"
-  echo "   then: make promote"
+  gen_caddy "$live" "$cand"
+  echo "== staged on $cand — validate at https://staging.overwatch.confinia.io"
+  echo "   then: make promote   (or make rollback later if regret)"
   ;;
 promote)
-  if ! healthy staging; then
-    echo "!! staging slot is not healthy — run 'make stage' and validate first"
+  if ! healthy "$cand"; then
+    echo "!! candidate $cand is not healthy — run 'make stage' first"
     exit 1
   fi
-  echo "== promoting staged images to prod (traffic covers via staging)"
-  run_slot prod
-  if ! healthy prod; then
-    echo "!! prod failed its health gate — traffic is serving from staging"
-    podman logs --tail 30 overwatch_web_prod overwatch_api_prod || true
+  gen_caddy "$cand" "$live"          # candidate becomes LIVE, old live becomes fallback+staging
+  echo "$cand" > "$STATE"
+  echo "== promoted: $cand is LIVE; $live keeps running ($(podman ps --filter name=${live}_web_1 --format '{{.Status}}')) — instant rollback available"
+  ;;
+rollback)
+  if ! healthy "$cand"; then
+    echo "!! previous color $cand is not healthy — cannot roll back onto it"
     exit 1
   fi
-  # legacy cleanup from the alternating blue/green era
-  podman rm -f overwatch_web_blue overwatch_web_green \
-    overwatch_api_blue overwatch_api_green >/dev/null 2>&1 || true
-  echo "== promoted: prod on :${WEB_PORT[prod]}/:${API_PORT[prod]} ($VERSION)"
+  gen_caddy "$cand" "$live"
+  echo "$cand" > "$STATE"
+  echo "== rolled back: $cand is LIVE again"
+  ;;
+status)
+  echo "LIVE: $live — candidate: $cand"
+  for c in blue green; do
+    printf "%s: web " "$c"
+    curl -sf "http://127.0.0.1:${WEB_PORT[$c]}/healthz" >/dev/null && printf "up" || printf "DOWN"
+    printf " api "
+    curl -sf "http://127.0.0.1:${API_PORT[$c]}/api/version" >/dev/null 2>&1 || true
+    curl -s "http://127.0.0.1:${API_PORT[$c]}/healthz" | head -c 120; echo
+  done
+  podman ps --format '{{.Names}} {{.Status}}' | grep -E '^(blue|green)_' || true
   ;;
 *)
-  echo "usage: slots.sh stage|promote"; exit 2 ;;
+  echo "usage: slots.sh stage|promote|rollback|status"; exit 2 ;;
 esac

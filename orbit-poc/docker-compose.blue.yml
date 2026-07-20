@@ -1,0 +1,45 @@
+# BLUE app stack — one of two complete, independently deployable stacks
+# (blue vs green), each a full compose project:
+#   podman-compose -p blue -f docker-compose.blue.yml up -d --build
+# Colors alternate live/candidate; the app caddy decides which color
+# serves production (deploy/slots.sh generates its config). The shared
+# core (db, ingest, grafana, otel, prometheus, caddy) lives in
+# docker-compose.yml — colors join its network. Ingest/db are NOT
+# duplicated per color: two ingests would double-poll CelesTrak/SatNOGS
+# (caching-boundary rule) and fork the telemetry history.
+#
+# green = same file with ports 9081/9082 (docker-compose.green.yml).
+
+services:
+  web:
+    build: ./web
+    environment:
+      DB_DSN: "dbname=orbit user=orbit password=orbit host=db port=5432"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318"
+      OTEL_SERVICE_NAME: "overwatch-web"
+    env_file:
+      - version.env
+    ports:
+      - "127.0.0.1:8081:8080"   # debugging; routing goes via the app caddy
+    restart: unless-stopped
+
+  api:
+    build: ./api
+    environment:
+      DB_DSN: "dbname=orbit user=orbit password=orbit host=db port=5432"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318"
+      OTEL_SERVICE_NAME: "overwatch-api"
+      REQUIRE_API_KEY: "false"
+    env_file:
+      - .env          # VISITOR_SALT_SECRET, SATNOGS_TOKEN (unused here), GF pw (unused)
+      - version.env
+    volumes:
+      - ./deploy/geoip:/geoip:ro
+    ports:
+      - "127.0.0.1:8082:8000"
+    restart: unless-stopped
+
+networks:
+  default:
+    external: true
+    name: orbit-poc_default

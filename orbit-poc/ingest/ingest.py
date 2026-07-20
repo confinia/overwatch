@@ -380,7 +380,8 @@ def _get_frames(sat_id, pages=2, until=None):
 # Protocol/framing noise — true for every AX.25-based decoder. Filtering at
 # ingest keeps the "Latest decoded fields" panel meaningful.
 JUNK_FIELD_RE = re.compile(
-    r"(ax25_header|ssid|hbit|_ctl$|_pid$|mask|_raw$|callsign|crc|_magic)", re.I)
+    r"(ax25_header|ssid|hbit|_ctl$|_pid$|mask|_raw$|callsign|crc|_magic"
+    r"|(message|msg|packet|frame)_type)", re.I)
 
 
 def _canonical(field, v):

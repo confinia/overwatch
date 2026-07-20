@@ -6,3 +6,6 @@ orbit-poc.tar.gz
 # internal working docs — kept local only
 /*.md
 __pycache__/
+orbit-poc/deploy/caddy/Caddyfile
+orbit-poc/deploy/caddy/LIVE_COLOR
+orbit-poc/version.env

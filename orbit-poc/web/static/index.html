@@ -324,28 +324,31 @@ async function embedDashboards(s){
   const qs = `orgId=1&var-norad=${s.norad}&theme=dark&from=now-7d&to=now`;
   // Ask the product API which telemetry fields exist (same 7-day window as
   // the dashboard) and embed only the panels that will actually show data.
-  let fields = null;
+  let all = null;
   try {
     const r = await fetch(`${API_BASE}/v1/telemetry/${s.norad}/fields`);
-    if (r.ok) fields = (await r.json()).map(f => f.field);
+    if (r.ok) all = await r.json();   // [{field, points, last_seen}]
   } catch (e) { /* /v1 unreachable (local dev): fall back below */ }
   if (s.norad !== activeNorad) return;
-  if (fields === null) {
+  if (all === null) {
     body.innerHTML = `<iframe src="${GRAFANA}/d/${DASH_UID}/orbit-telemetry?${qs}&kiosk"></iframe>`;
     return;
   }
-  const has = re => fields.some(f => re.test(f));
+  // A field only justifies a chart if it can draw a line: >= 3 points in
+  // the 7-day window. One or two lone dots reads as an empty panel.
+  const rich = all.filter(f => f.points >= 3).map(f => f.field);
+  const has = re => rich.some(f => re.test(f));
   // Panel ids from grafana/dashboards/public/orbit-telemetry.json; each
   // `show` mirrors that panel's SQL field filter.
   const panels = [
     { id: 5, wide: true, show: true },  // orbit altitude: position cache, live for every satellite
-    { id: 1, show: fields.includes("battery_v") || has(/volt|vbat|v_bat|bat[a-z_]*_v$|panel_v$/i) },
+    { id: 1, show: rich.includes("battery_v") || has(/volt|vbat|v_bat|bat[a-z_]*_v$|panel_v$/i) },
     { id: 2, show: has(/temp|bat[a-z_]*_t$/i) },
-    { id: 3, show: fields.includes("battery_i") || has(/current|curr|_i_|amp/i) },
-    { id: 4, show: fields.length > 0 },  // latest decoded fields
-    { id: 6, show: fields.includes("battery_pct") },
-    { id: 7, show: fields.length > 0 },  // frames per hour
-    { id: 8, wide: true, show: fields.includes("battery_v") },  // battery vs sunlight fusion
+    { id: 3, show: rich.includes("battery_i") || has(/current|curr|_i_|amp/i) },
+    { id: 4, show: all.length > 0 },  // latest decoded fields (sparse data still belongs in a table)
+    { id: 6, show: rich.includes("battery_pct") },
+    { id: 7, show: all.length > 0 },  // frames per hour
+    { id: 8, wide: true, show: rich.includes("battery_v") },  // battery vs sunlight fusion
   ];
   body.innerHTML = `<div class="ggrid">` + panels.filter(p => p.show).map(p =>
     `<div class="gcell${p.wide ? " wide" : ""}"><iframe loading="lazy" ` +

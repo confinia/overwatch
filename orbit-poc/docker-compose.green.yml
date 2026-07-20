@@ -1,0 +1,37 @@
+# GREEN app stack — twin of docker-compose.blue.yml on ports 9081/9082.
+#   podman-compose -p green -f docker-compose.green.yml up -d --build
+# See the blue file for the full architecture comment.
+
+services:
+  web:
+    build: ./web
+    environment:
+      DB_DSN: "dbname=orbit user=orbit password=orbit host=db port=5432"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318"
+      OTEL_SERVICE_NAME: "overwatch-web"
+    env_file:
+      - version.env
+    ports:
+      - "127.0.0.1:9081:8080"
+    restart: unless-stopped
+
+  api:
+    build: ./api
+    environment:
+      DB_DSN: "dbname=orbit user=orbit password=orbit host=db port=5432"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318"
+      OTEL_SERVICE_NAME: "overwatch-api"
+      REQUIRE_API_KEY: "false"
+    env_file:
+      - .env
+      - version.env
+    volumes:
+      - ./deploy/geoip:/geoip:ro
+    ports:
+      - "127.0.0.1:9082:8000"
+    restart: unless-stopped
+
+networks:
+  default:
+    external: true
+    name: orbit-poc_default
