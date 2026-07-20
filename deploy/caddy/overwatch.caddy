@@ -30,10 +30,12 @@ overwatch.confinia.io {
 		-Server
 	}
 
-	# Blue-green: web and api each have two slots (blue 808x, green 908x),
-	# deployed alternately by deploy/bluegreen.sh. lb_policy first = prefer
-	# the first healthy upstream; active health checks + retry make the
-	# blue->green flip invisible (no dropped requests during deploys).
+	# Staged blue-green (deploy/slots.sh): prod slot 808x, staging slot 908x.
+	# lb_policy first = prefer prod; active health checks + retry mean that
+	# during a promote (prod restart) traffic serves from staging — the same
+	# version just validated — so deploys drop no requests. Caveat: if prod
+	# dies while an UNVALIDATED candidate sits in staging, that candidate
+	# serves; promote or re-stage promptly rather than parking candidates.
 
 	# Public product API (/v1): landing, OpenAPI docs, keys, data endpoints.
 	# CORS is handled by the service itself (open, read-only).
@@ -79,5 +81,41 @@ overwatch.confinia.io {
 			health_interval 2s
 			health_timeout 2s
 		}
+	}
+}
+
+# Staging preview — the candidate slot, for validating a release BEFORE
+# `make promote` flips it to production. Basic-auth keeps crawlers and
+# drive-by traffic off unreleased versions (user: clement).
+staging.overwatch.confinia.io {
+	encode zstd gzip
+
+	basic_auth {
+		clement REDACTED
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Robots-Tag "noindex, nofollow"
+		-Server
+	}
+
+	handle /v1* {
+		reverse_proxy 127.0.0.1:9082
+	}
+
+	# Same grafana instance as production (dashboards are provisioned files;
+	# candidate embeds render against it just like prod will).
+	handle /grafana* {
+		reverse_proxy 127.0.0.1:3001
+	}
+
+	handle /api/* {
+		reverse_proxy 127.0.0.1:9081
+	}
+
+	handle {
+		reverse_proxy 127.0.0.1:9081
 	}
 }

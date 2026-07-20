@@ -3,7 +3,7 @@ VM      := confinia-ovh-debian
 REMOTE  := ~/projects/overwatch
 CONFINIA:= ~/projects/confinia
 
-.PHONY: sync deploy caddy logs ps down
+.PHONY: sync stage promote deploy deploy-full ingest caddy logs ps down
 
 # Push the repo to the VM (secrets in .env stay VM-side, tarball stays local).
 sync:
@@ -14,23 +14,32 @@ sync:
 		--exclude '.DS_Store' \
 		./ $(VM):$(REMOTE)/
 
-# Zero-downtime deploy: singletons via compose (created only if absent —
-# they are stateful or have no public HTTP surface; use deploy-full or
-# `make ingest` to update them), then web+api into the idle blue/green slot
-# (deploy/bluegreen.sh; caddy health-checks flip traffic, no dropped requests).
-deploy: sync
+# Staged zero-downtime deploys (deploy/slots.sh):
+#   make stage    -> build candidate into the staging slot; validate it at
+#                    https://staging.overwatch.confinia.io (basic-auth)
+#   make promote  -> flip validated candidate to production (no downtime:
+#                    traffic covers via staging during the prod restart)
+#   make deploy   -> stage + promote in one go (fast path, no manual gate)
+# Singletons via compose, created only if absent; use `make ingest` or
+# deploy-full to update them.
+stage: sync
 	ssh $(VM) 'set -e; cd $(REMOTE)/orbit-poc && test -f .env || cp .env.example .env; \
 		podman-compose up -d --no-recreate db ingest grafana otel-collector prometheus; \
 		for c in $$(podman ps --format "{{.Names}}" | grep ^orbit-poc); do \
 			podman update --restart=always $$c >/dev/null; done; \
-		bash $(REMOTE)/deploy/bluegreen.sh'
+		bash $(REMOTE)/deploy/slots.sh stage'
+
+promote:
+	ssh $(VM) 'bash $(REMOTE)/deploy/slots.sh promote'
+
+deploy: stage promote
 
 # Escape hatch: recreate EVERYTHING via compose (brief downtime — removes the
-# blue/green slots first so compose can rebind 8081/8082).
+# prod/staging slots first so compose can rebind 8081/8082).
 deploy-full: sync
 	ssh $(VM) 'set -e; cd $(REMOTE)/orbit-poc && test -f .env || cp .env.example .env; \
-		podman rm -f overwatch_web_blue overwatch_web_green \
-			overwatch_api_blue overwatch_api_green 2>/dev/null || true; \
+		podman rm -f overwatch_web_prod overwatch_web_staging \
+			overwatch_api_prod overwatch_api_staging 2>/dev/null || true; \
 		podman-compose up -d --build'
 
 # Install/refresh the vhost in the shared caddy edge and reload it.
