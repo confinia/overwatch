@@ -113,6 +113,13 @@ def index():
     return send_from_directory("static", "index.html")
 
 
+@app.get("/api/version")
+def version():
+    """SaaS + API version for the frontend badge. Single source of truth is
+    the VERSION file at the repo root, injected as env by the deploy."""
+    return {"version": os.environ.get("OVERWATCH_VERSION", "dev"), "api": "v1"}
+
+
 @app.get("/healthz")
 def healthz():
     return {"ok": True}

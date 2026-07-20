@@ -15,6 +15,7 @@ cd "$(dirname "$0")/../orbit-poc"
 
 NET=orbit-poc_default
 DB_DSN="dbname=orbit user=orbit password=orbit host=db port=5432"
+VERSION=$(tr -d '[:space:]' < ../VERSION 2>/dev/null || echo dev)
 declare -A WEB_PORT=( [blue]=8081 [green]=9081 )
 declare -A API_PORT=( [blue]=8082 [green]=9082 )
 
@@ -37,6 +38,7 @@ podman run -d --name "overwatch_web_$target" --network "$NET" \
   -e DB_DSN="$DB_DSN" \
   -e OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318 \
   -e OTEL_SERVICE_NAME=overwatch-web \
+  -e OVERWATCH_VERSION="$VERSION" \
   --restart=always "overwatch-web:$target" >/dev/null
 podman run -d --name "overwatch_api_$target" --network "$NET" \
   -p "127.0.0.1:${API_PORT[$target]}:8000" \
@@ -44,6 +46,7 @@ podman run -d --name "overwatch_api_$target" --network "$NET" \
   -e OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318 \
   -e OTEL_SERVICE_NAME=overwatch-api \
   -e REQUIRE_API_KEY=false \
+  -e OVERWATCH_VERSION="$VERSION" \
   --env-file .env \
   -v "$PWD/deploy/geoip:/geoip:ro" \
   --restart=always "overwatch-api:$target" >/dev/null

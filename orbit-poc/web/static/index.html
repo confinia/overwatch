@@ -80,6 +80,9 @@
     background:var(--live); margin-right:6px; vertical-align:middle;
     animation:pulse 1.6s infinite; }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
+  #ver { white-space:nowrap; } #ver a { color:var(--dim); border:1px solid var(--line);
+    border-radius:9px; padding:1px 7px; font-size:10px; text-decoration:none; }
+  #ver a:hover { color:var(--fg); }
 </style>
 </head>
 <body>
@@ -99,7 +102,8 @@
   <div id="side">
     <header>
       <h1><span class="dot"></span>Orbit POC — live positions + deep telemetry</h1>
-      <p>Positions cached from CelesTrak · health from SatNOGS · sovereign-hostable</p>
+      <p>Positions cached from CelesTrak · health from SatNOGS ·
+        sovereign-hostable <span id="ver"></span></p>
     </header>
     <input id="search" type="search" placeholder="Search satellites (name or NORAD id)…"/>
     <div id="list"></div>
@@ -117,6 +121,13 @@ const API_BASE = MIRROR ? "https://overwatch.confinia.io" : "";
 const GRAFANA = LOCAL ? "http://localhost:3001/grafana"
                       : `${API_BASE}/grafana`;
 const DASH_UID = "orbit-telemetry";
+
+// Version badge (SaaS + API) — links to the public API landing.
+fetch(`${API_BASE}/api/version`).then(r => r.json()).then(v => {
+  document.getElementById("ver").innerHTML =
+    `<a href="${API_BASE}/v1" title="Public API — docs, keys, examples">` +
+    `v${v.version} · API ${v.api}</a>`;
+}).catch(() => {});
 
 // Basemap: Sentinel-2 cloudless by EOX — real Copernicus imagery, processed
 // and served from Europe. The glyph server only feeds the text labels.

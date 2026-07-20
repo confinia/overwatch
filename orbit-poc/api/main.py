@@ -86,9 +86,11 @@ async def lifespan(_: FastAPI):
     pool.closeall()
 
 
+PRODUCT_VERSION = os.environ.get("OVERWATCH_VERSION", "dev")
+
 app = FastAPI(
     title="Overwatch API",
-    version="0.1.0",
+    version=PRODUCT_VERSION,
     description="Live positions, decoded telemetry and reception network for "
                 "the open-telemetry cubesat fleet. Telemetry & receptions: "
                 "SatNOGS DB (CC-BY-SA), decoded locally with satnogs-decoders. "
@@ -429,7 +431,7 @@ def healthz():
         sats = cur.fetchone()[0]
         cur.execute("SELECT max(ts) FROM position")
         last = cur.fetchone()[0]
-    return {"status": "ok", "satellites": sats,
+    return {"status": "ok", "version": PRODUCT_VERSION, "satellites": sats,
             "last_position": last.isoformat() if last else None}
 
 
@@ -473,7 +475,7 @@ raw beacon fields (per-satellite naming) stay queryable next to them.</pre>
 <li><a href="/v1/docs">Interactive documentation (OpenAPI)</a></li>
 <li><a href="/v1/healthz">Service health</a></li>
 </ul>
-<footer>Free during development — no key required yet
+<footer>Version __VERSION__ · Free during development — no key required yet
 (<code>POST /v1/keys {"email": …}</code> to get one for the beta;
 <code>/v1/keys/{key}/usage</code> shows your own consumption).
 Rate limits apply; positions are SGP4-propagated from cached elements,
@@ -482,6 +484,9 @@ Attribution: telemetry &amp; receptions © <a href="https://db.satnogs.org">SatN
 contributors (CC-BY-SA) · decoders: satnogs-decoders (LGPL) ·
 elements: <a href="https://celestrak.org">CelesTrak</a>.</footer>
 </main></body></html>"""
+
+
+LANDING = LANDING.replace("__VERSION__", PRODUCT_VERSION)
 
 
 @app.get("/v1", include_in_schema=False)
