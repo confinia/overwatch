@@ -235,6 +235,13 @@ async function refresh(){
   const wanted = hashNorad();
   if (wanted && wanted !== activeNorad && satsByNorad[wanted]) {
     select(satsByNorad[wanted]);
+  } else if (activeNorad === null && !wanted) {
+    // Default view: land on a satellite with the freshest telemetry —
+    // inside the hour when the network heard one, otherwise the most
+    // recently heard overall. The page never opens on an empty panel.
+    const heard = sats.filter(s => s.last_frame)
+      .sort((a, b) => new Date(b.last_frame) - new Date(a.last_frame));
+    if (heard.length) select(heard[0], true);
   }
 }
 
@@ -271,8 +278,10 @@ function renderList(sats){
   }
 }
 
-async function select(s){
-  if (s.norad !== activeNorad) beacon("select", s.norad);
+async function select(s, auto = false){
+  // auto = default selection on load, not a user action: skip the usage
+  // beacon so the "most-inspected satellites" ops panel stays honest.
+  if (!auto && s.norad !== activeNorad) beacon("select", s.norad);
   activeNorad = s.norad;
   if (location.hash !== "#" + s.norad) {
     history.replaceState(null, "", "#" + s.norad);
