@@ -49,7 +49,11 @@ http://overwatch.confinia.io {
 	# health checks). A promote regenerates this file with the colors
 	# swapped + graceful reload — no container restarts, and the old
 	# color keeps running as instant rollback.
-	handle /v1* {
+	# Public product API at /api/v1 (decision 2026-07-20 evening). The
+	# service keeps /v1 internally; the /api prefix is stripped here.
+	# MUST stay above the generic /api/* handler (first match wins).
+	handle /api/v1* {
+		uri strip_prefix /api
 		reverse_proxy %LIVE%_api_1:8000 %CANDIDATE%_api_1:8000 {
 			lb_policy first
 			lb_try_duration 3s
@@ -58,6 +62,12 @@ http://overwatch.confinia.io {
 			health_interval 2s
 			health_timeout 2s
 		}
+	}
+
+	# Legacy /v1 URLs are published (Mastodon, replies) — permanent,
+	# method-preserving redirect so POST /v1/keys keeps working too.
+	handle /v1* {
+		redir * /api{uri} 308
 	}
 
 	handle /api/* {
@@ -106,8 +116,13 @@ http://staging.overwatch.confinia.io {
 		-Server
 	}
 
-	handle /v1* {
+	handle /api/v1* {
+		uri strip_prefix /api
 		reverse_proxy %CANDIDATE%_api_1:8000
+	}
+
+	handle /v1* {
+		redir * /api{uri} 308
 	}
 
 	handle /grafana* {

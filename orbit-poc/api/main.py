@@ -96,6 +96,9 @@ app = FastAPI(
                 "SatNOGS DB (CC-BY-SA), decoded locally with satnogs-decoders. "
                 "Orbital elements: CelesTrak.",
     lifespan=lifespan,
+    # Public URL is /api/v1/* (caddy strips /api); root_path makes the docs
+    # UI and OpenAPI "servers" resolve under the public prefix.
+    root_path="/api",
     docs_url="/v1/docs", openapi_url="/v1/openapi.json", redoc_url=None,
 )
 
@@ -266,7 +269,7 @@ async def access_control(request: Request, call_next):
     if (REQUIRE_KEY and valid_key is None and path.startswith("/v1")
             and path not in OPEN_PATHS and not path.startswith("/v1/keys")):
         from fastapi.responses import JSONResponse
-        return JSONResponse({"detail": "API key required: POST /v1/keys {\"email\"} "
+        return JSONResponse({"detail": "API key required: POST /api/v1/keys {\"email\"} "
                                        "then header X-API-Key."}, status_code=401)
     response = await call_next(request)
     response.headers["X-Response-Time-Ms"] = f"{(time.perf_counter() - t0) * 1000:.1f}"
@@ -412,7 +415,7 @@ def create_key(req: KeyRequest):
         key, created = cur.fetchone()
         cur.connection.commit()
     return {"key": str(key), "created_at": created.isoformat(),
-            "usage": f"/v1/keys/{key}/usage"}
+            "usage": f"/api/v1/keys/{key}/usage"}
 
 
 @app.get("/v1/keys/{key}/usage")
@@ -462,26 +465,26 @@ currents decoded locally from their actual radio frames. 100% open data,
 self-hosted in Europe.</p>
 <pre>The whole fleet — latest positions + when each satellite was last heard:
 
-GET <a href="/v1/satellites">/v1/satellites</a>
+GET <a href="/api/v1/satellites">/api/v1/satellites</a>
 
 One satellite (CUBEBEL-2, the richest live beacon — NORAD 57175):
 
-GET <a href="/v1/track/57175?minutes=100">/v1/track/57175?minutes=100</a>            → recent ground track (+ eclipse flag)
-GET <a href="/v1/receptions/57175?hours=24">/v1/receptions/57175?hours=24</a>          → volunteer stations that heard it
-GET <a href="/v1/telemetry/57175/fields">/v1/telemetry/57175/fields</a>             → decoded fields available
-GET <a href="/v1/telemetry/57175?field=battery_v&amp;hours=24">/v1/telemetry/57175?field=battery_v&amp;hours=24</a>  → battery voltage series
+GET <a href="/api/v1/track/57175?minutes=100">/api/v1/track/57175?minutes=100</a>            → recent ground track (+ eclipse flag)
+GET <a href="/api/v1/receptions/57175?hours=24">/api/v1/receptions/57175?hours=24</a>          → volunteer stations that heard it
+GET <a href="/api/v1/telemetry/57175/fields">/api/v1/telemetry/57175/fields</a>             → decoded fields available
+GET <a href="/api/v1/telemetry/57175?field=battery_v&amp;hours=24">/api/v1/telemetry/57175?field=battery_v&amp;hours=24</a>  → battery voltage series
 
 Canonical fields work fleet-wide: battery_v, battery_i, battery_pct —
 raw beacon fields (per-satellite naming) stay queryable next to them.</pre>
 <ul>
 <li><a href="https://overwatch.confinia.io/#57175">Live demo — the control room (MapLibre globe + Grafana)</a></li>
 <li><a href="https://overwatch.confinia.io/article.html">The write-up — architecture &amp; decisions</a></li>
-<li><a href="/v1/docs">Interactive documentation (OpenAPI)</a></li>
-<li><a href="/v1/healthz">Service health</a></li>
+<li><a href="/api/v1/docs">Interactive documentation (OpenAPI)</a></li>
+<li><a href="/api/v1/healthz">Service health</a></li>
 </ul>
 <footer>Version __VERSION__ · Free during development — no key required yet
-(<code>POST /v1/keys {"email": …}</code> to get one for the beta;
-<code>/v1/keys/{key}/usage</code> shows your own consumption).
+(<code>POST /api/v1/keys {"email": …}</code> to get one for the beta;
+<code>/api/v1/keys/{key}/usage</code> shows your own consumption).
 Rate limits apply; positions are SGP4-propagated from cached elements,
 telemetry is decoded locally — no request here ever hits an upstream API.
 Attribution: telemetry &amp; receptions © <a href="https://db.satnogs.org">SatNOGS DB</a>

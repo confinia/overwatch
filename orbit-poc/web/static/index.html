@@ -125,7 +125,7 @@ const DASH_UID = "orbit-telemetry";
 // Version badge (SaaS + API) — links to the public API landing.
 fetch(`${API_BASE}/api/version`).then(r => r.json()).then(v => {
   document.getElementById("ver").innerHTML =
-    `<a href="${API_BASE}/v1" title="Public API — docs, keys, examples">` +
+    `<a href="${API_BASE}/api/v1" title="Public API — docs, keys, examples">` +
     `v${v.version} · API ${v.api}</a>`;
 }).catch(() => {});
 
@@ -326,7 +326,7 @@ async function embedDashboards(s){
   // the dashboard) and embed only the panels that will actually show data.
   let all = null;
   try {
-    const r = await fetch(`${API_BASE}/v1/telemetry/${s.norad}/fields`);
+    const r = await fetch(`${API_BASE}/api/v1/telemetry/${s.norad}/fields`);
     if (r.ok) all = await r.json();   // [{field, points, last_seen}]
   } catch (e) { /* /v1 unreachable (local dev): fall back below */ }
   if (s.norad !== activeNorad) return;

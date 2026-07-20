@@ -54,7 +54,16 @@ healthy() {  # $1 = color
 case $cmd in
 stage)
   echo "== live: $live — building candidate: $cand"
-  podman-compose -p "$cand" -f "docker-compose.$cand.yml" up -d --build 2>&1 | tail -2
+  # --no-cache for the api: podman's layer cache misses modified COPYs
+  # (same gotcha as the confinia api) — a stale build passing the health
+  # gate is worse than a slow one.
+  podman-compose -p "$cand" -f "docker-compose.$cand.yml" build --no-cache api 2>&1 | tail -1
+  podman-compose -p "$cand" -f "docker-compose.$cand.yml" build web 2>&1 | tail -1
+  # podman-compose's `up -d` does NOT reliably recreate running containers
+  # on a new image — remove the candidate's containers first (safe: the
+  # candidate is never the live color; caddy health-checks cover the gap).
+  podman rm -f "${cand}_web_1" "${cand}_api_1" >/dev/null 2>&1 || true
+  podman-compose -p "$cand" -f "docker-compose.$cand.yml" up -d 2>&1 | tail -2
   for c in $(podman ps --format '{{.Names}}' | grep -E "^${cand}_"); do
     podman update --restart=always "$c" >/dev/null
   done
