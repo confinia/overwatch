@@ -45,6 +45,28 @@ accounts exist:
   This cookie/JWT SSO into embedded, tenant-isolated dashboards is the
   productized mechanism of the platform itself.
 
+### How a user gets an organization
+
+Keycloak is the **source of truth**; the SaaS follows the token and
+auto-materializes any organization it sees (first authenticated call
+mirrors the org and creates its tenant record — no operator action).
+Three paths in:
+
+1. **Invitation** (stock Keycloak): an org admin invites a colleague;
+   on acceptance the next token carries the membership — the SaaS
+   recognizes them as a member of the existing tenant immediately.
+2. **Email-domain matching** (stock Keycloak, one realm-flow toggle,
+   not yet enabled): an org declares its domain; new users registering
+   with a matching email are attached automatically — whole teams
+   self-join without invitations.
+3. **`POST /api/v1/orgs`** — the "create an organization" button stock
+   Keycloak lacks for end users: it creates the org IN Keycloak via the
+   admin API and joins the caller. The SaaS never invents org state.
+
+The only organization data the SaaS owns is what Keycloak cannot know:
+quotas, subscription state (billing), service tokens, and the telemetry
+itself.
+
 ## 2 · Overwatch SaaS — the organization registry
 
 The Overwatch application holds no passwords. It keeps:
