@@ -60,6 +60,27 @@ CREATE UNLOGGED TABLE IF NOT EXISTS visitor_daily (
     PRIMARY KEY (day, client_hash)
 );
 DELETE FROM visitor_daily WHERE day < CURRENT_DATE - 45;
+-- Private tenants: a party plugs ITS OWN satellite telemetry in and
+-- observes it in isolated dashboards. Never mixed with the public fleet.
+CREATE TABLE IF NOT EXISTS tenant (
+    key        uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    name       text NOT NULL,
+    email      text NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    active     boolean NOT NULL DEFAULT true,
+    max_points_day bigint NOT NULL DEFAULT 200000
+);
+CREATE TABLE IF NOT EXISTS tenant_telemetry (
+    tenant    uuid NOT NULL REFERENCES tenant(key),
+    satellite text NOT NULL,
+    ts        timestamptz NOT NULL,
+    field     text NOT NULL,
+    value_num double precision,
+    value_txt text,
+    PRIMARY KEY (tenant, satellite, ts, field)
+);
+CREATE INDEX IF NOT EXISTS tenant_tlm_idx
+    ON tenant_telemetry (tenant, satellite, field, ts DESC);
 """
 
 
@@ -435,6 +456,82 @@ def station_receptions(callsign: str):
              "observer": obs} for ts, n, name, obs in rows]
 
 
+# --- Private tenants: push YOUR telemetry, observe it immediately ----------
+
+class TenantPoint(BaseModel):
+    ts: str                      # ISO 8601
+    field: str
+    value: float | str
+
+
+class TenantPush(BaseModel):
+    satellite: str
+    points: list[TenantPoint]
+
+
+def _tenant(cur, key: str):
+    cur.execute("SELECT active, max_points_day FROM tenant WHERE key = %s::uuid", (key,))
+    row = cur.fetchone()
+    if not row or not row[0]:
+        raise HTTPException(404, "Unknown or inactive tenant key.")
+    return row
+
+
+@app.post("/v1/tenants/{key}/telemetry", status_code=202)
+def tenant_push(key: str, body: TenantPush):
+    """Plug your satellite data in: batch-push time-series points into your
+    isolated tenant. Observe them immediately via the read endpoints and
+    your private dashboards."""
+    if len(body.points) > 1000:
+        raise HTTPException(413, "Max 1000 points per request — batch your pushes.")
+    with cursor() as cur:
+        _, quota = _tenant(cur, key)
+        cur.execute("""SELECT count(*) FROM tenant_telemetry
+                       WHERE tenant = %s::uuid AND ts > now() - interval '1 day'""", (key,))
+        if cur.fetchone()[0] + len(body.points) > quota:
+            raise HTTPException(429, f"Daily ingest quota reached ({quota} points/day). "
+                                     "Need more? contact@confinia.io")
+        for p in body.points:
+            num = p.value if isinstance(p.value, (int, float)) else None
+            txt = None if num is not None else str(p.value)
+            cur.execute("""INSERT INTO tenant_telemetry
+                           (tenant, satellite, ts, field, value_num, value_txt)
+                           VALUES (%s::uuid, %s, %s::timestamptz, %s, %s, %s)
+                           ON CONFLICT (tenant, satellite, ts, field) DO UPDATE
+                           SET value_num = EXCLUDED.value_num,
+                               value_txt = EXCLUDED.value_txt""",
+                        (key, body.satellite, p.ts, p.field, num, txt))
+        cur.connection.commit()
+    return {"accepted": len(body.points), "satellite": body.satellite}
+
+
+@app.get("/v1/tenants/{key}/satellites")
+def tenant_satellites(key: str):
+    """What this tenant has: satellites, fields, freshness."""
+    with cursor() as cur:
+        _tenant(cur, key)
+        cur.execute("""SELECT satellite, field, count(*), max(ts)
+                       FROM tenant_telemetry WHERE tenant = %s::uuid
+                       GROUP BY 1, 2 ORDER BY 1, 2""", (key,))
+        rows = cur.fetchall()
+    return [{"satellite": s, "field": f, "points": n, "last": t.isoformat()}
+            for s, f, n, t in rows]
+
+
+@app.get("/v1/tenants/{key}/telemetry")
+def tenant_read(key: str, satellite: str, field: str,
+                hours: int = Query(24, ge=1, le=8760)):
+    """Read back one of your series (also what your dashboards query)."""
+    with cursor() as cur:
+        _tenant(cur, key)
+        cur.execute("""SELECT ts, value_num, value_txt FROM tenant_telemetry
+                       WHERE tenant = %s::uuid AND satellite = %s AND field = %s
+                         AND ts > now() - %s * interval '1 hour'
+                       ORDER BY ts""", (key, satellite, field, hours))
+        return [{"ts": ts.isoformat(), "value": n if n is not None else t}
+                for ts, n, t in cur.fetchall()]
+
+
 # --- Keys (free during the beta; email = the design-partner conversation) ---
 
 class KeyRequest(BaseModel):
@@ -515,6 +612,7 @@ raw beacon fields (per-satellite naming) stay queryable next to them.</pre>
 <ul>
 <li><a href="https://overwatch.confinia.io/#57175">Live demo — the control room (MapLibre globe + Grafana)</a></li>
 <li><a href="https://overwatch.confinia.io/article.html">The write-up — architecture &amp; decisions</a></li>
+<li><a href="/pro.html">Operators: run this on YOUR fleet's telemetry (private tenants)</a></li>
 <li><a href="/api/v1/docs">Interactive documentation (OpenAPI)</a></li>
 <li><a href="/api/v1/healthz">Service health</a></li>
 </ul>

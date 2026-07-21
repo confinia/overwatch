@@ -1,0 +1,71 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<title>Overwatch for operators — your fleet, your data, your control room</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { color-scheme: dark; }
+  body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
+         background:#10151d; color:#e8eaed; font:16px/1.6 system-ui,-apple-system,sans-serif; }
+  main { max-width:46rem; padding:2.5rem 2rem; }
+  h1 { font-size:1.6rem; margin:0 0 .3rem; } h1 span { color:#7ab8ff; }
+  h2 { font-size:1.05rem; margin:1.6rem 0 .4rem; color:#9fc5f8; }
+  p.tag { margin:0 0 1.2rem; opacity:.85; }
+  pre { background:#0b0f16; border:1px solid #26314a; border-radius:8px;
+        padding:.9rem 1rem; overflow-x:auto; font-size:.8rem; }
+  a { color:#7ab8ff; text-decoration:none; } a:hover { text-decoration:underline; }
+  ul { padding-left:1.2rem; margin:.4rem 0; }
+  .cta { display:inline-block; margin-top:1rem; padding:.6rem 1.1rem; border:1px solid #2c6cb0;
+         border-radius:8px; background:#16233a; color:#cfe4ff; }
+  footer { margin-top:1.8rem; font-size:.8rem; opacity:.7; }
+</style></head><body><main>
+<h1><span>Overwatch</span> for operators</h1>
+<p class="tag">The public site shows what this stack does with open data.
+The same stack can run on <b>your</b> telemetry — isolated, sovereign,
+observable in minutes.</p>
+
+<h2>1 · Plug your data in</h2>
+<p>You get a tenant key. Push your telemetry as simple time series — from
+your ground segment, your provider's API, or an AIT/test bench:</p>
+<pre>curl -X POST https://overwatch.confinia.io/api/v1/tenants/&lt;your-key&gt;/telemetry \
+  -H 'content-type: application/json' \
+  -d '{"satellite":"MYSAT-1","points":[
+        {"ts":"2026-07-21T18:00:00Z","field":"battery_v","value":7.42},
+        {"ts":"2026-07-21T18:00:00Z","field":"temp_obc","value":18.5}]}'</pre>
+<p>Alternative for satellites heard by the SatNOGS network: we decode your
+frames with <em>your</em> decoder definition — results land in your tenant
+only.</p>
+
+<h2>2 · Observe it immediately</h2>
+<ul>
+<li>Private Grafana dashboards over your satellites and fields — the same
+    engine as the public demo, isolated per tenant.</li>
+<li>Read-back API for your own tools:
+    <code>GET /api/v1/tenants/&lt;key&gt;/telemetry</code>.</li>
+<li>Self-hosted in Europe, no US hyperscaler in the data path. Open core
+    (AGPL) — no lock-in: the engine is public, you pay for operation.</li>
+</ul>
+
+<h2>3 · Start</h2>
+<div id="welcome" style="display:none; border:1px solid #2c6cb0; background:#16233a;
+  border-radius:8px; padding:.8rem 1rem; margin:.6rem 0;">
+  Trial started — welcome aboard. Your tenant key and dashboard access
+  arrive by email within the day (provisioning is being automated; a
+  human still presses the button, fast).</div>
+<p><b>Fleet Tenant (beta)</b> — isolated tenant, push API, private
+dashboards, up to 5 satellites. <b>490 €/month, 14-day free trial</b>,
+cancel anytime from the customer portal.</p>
+<a class="cta" href="https://buy.polar.sh/polar_cl_VYpdGBRjeH4Pn7vvD1dNbN450Yncw9sOHwqLf154vRQ">Start the 14-day trial</a>
+&nbsp; <a class="cta" style="background:transparent"
+  href="mailto:contact@confinia.io?subject=Overwatch%20tenant%20—%20design%20partner">or talk design-partner terms</a>
+<p style="font-size:.8rem; opacity:.75; margin-top:.8rem">Beta terms: no
+SLA yet (status honestly reported), data hosted in Europe, your telemetry
+stays yours and is deleted on request. Billing and invoices are handled
+by Polar (merchant of record).</p>
+<script>
+if (new URLSearchParams(location.search).get("welcome"))
+  document.getElementById("welcome").style.display = "block";
+</script>
+
+<footer>Public demo: <a href="https://overwatch.confinia.io">overwatch.confinia.io</a> ·
+API docs: <a href="/api/v1/docs">/api/v1/docs</a> ·
+Source: <a href="https://github.com/confinia/overwatch">github.com/confinia/overwatch</a> (AGPL)</footer>
+</main></body></html>
