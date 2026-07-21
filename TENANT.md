@@ -32,6 +32,12 @@ accounts exist:
 - Every issued token (OIDC/JWT) carries the user's identity (`sub`,
   `email`, `name`), the organization id, and the role — downstream
   systems trust the token, never a password.
+- **A single Keycloak client (`overwatch`) serves everything.** Grafana
+  supports one OpenID client, so the app shares it: Grafana and the
+  Overwatch frontend perform the code flow against the same client
+  (different redirect URIs), and the API validates the same tokens as a
+  resource server (JWKS). One login, one session, one token — valid in
+  the frontend, in Grafana, and on the API.
 
 ## 2 · Overwatch SaaS — the organization registry
 
@@ -68,7 +74,7 @@ Two credential types, both organization-scoped:
 | Credential | Who uses it | Can | Issued by |
 |---|---|---|---|
 | **User token** (OIDC JWT) | Humans and their tools | Read org data; write if `org_admin` | Keycloak login |
-| **Org service token** | Machines (ground segment, pipelines, AIT benches) | Push and read telemetry for the org | Org admin, from the account; revocable individually |
+| **Org service token** | Machines (ground segment, pipelines, AIT benches) | Push and read telemetry for the org | Org admin, from the account; revocable individually. Issued by Overwatch (opaque), not Keycloak — preserves the single-client rule |
 
 Every API call is attributed to (organization, identity): user calls by
 their token claims, machine calls by the named service token. Rate
