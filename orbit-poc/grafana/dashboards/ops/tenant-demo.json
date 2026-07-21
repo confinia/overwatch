@@ -1,0 +1,38 @@
+{
+  "uid": "tenant-demo",
+  "title": "Tenant — private telemetry (demo)",
+  "description": "Private-tenant view: data pushed via POST /api/v1/tenants/{key}/telemetry. Admin-only until the tenant auth proxy ships (issue #7).",
+  "tags": ["ops", "tenant"],
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-24h", "to": "now" },
+  "templating": { "list": [
+    { "name": "tenant", "type": "textbox", "label": "Tenant key", "query": "" },
+    { "name": "satellite", "type": "query", "label": "Satellite",
+      "datasource": { "type": "postgres", "uid": "orbitcache" },
+      "query": "SELECT DISTINCT satellite FROM tenant_telemetry WHERE tenant = '$tenant'::uuid",
+      "refresh": 2 },
+    { "name": "field", "type": "query", "label": "Field", "multi": true, "includeAll": true,
+      "datasource": { "type": "postgres", "uid": "orbitcache" },
+      "query": "SELECT DISTINCT field FROM tenant_telemetry WHERE tenant = '$tenant'::uuid AND satellite = '$satellite'",
+      "refresh": 2 }
+  ] },
+  "panels": [
+    {
+      "id": 1, "title": "$satellite — pushed telemetry", "type": "timeseries",
+      "datasource": { "type": "postgres", "uid": "orbitcache" },
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 0 },
+      "targets": [ { "format": "time_series",
+        "rawSql": "SELECT ts AS time, field AS metric, value_num AS value FROM tenant_telemetry WHERE tenant = '$tenant'::uuid AND satellite = '$satellite' AND field IN ($field) AND value_num IS NOT NULL AND $__timeFilter(ts) ORDER BY ts" } ]
+    },
+    {
+      "id": 2, "title": "Your data — satellites, fields, freshness", "type": "table",
+      "datasource": { "type": "postgres", "uid": "orbitcache" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 12 },
+      "targets": [ { "format": "table",
+        "rawSql": "SELECT satellite, field, count(*) AS points, max(ts) AS last FROM tenant_telemetry WHERE tenant = '$tenant'::uuid GROUP BY 1, 2 ORDER BY 1, 2" } ]
+    }
+  ]
+}
