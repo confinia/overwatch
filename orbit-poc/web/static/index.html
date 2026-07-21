@@ -138,6 +138,24 @@ const TOUCH = window.matchMedia("(pointer: coarse)").matches;
 // sign-in/register link (Keycloak handles both); signed in without org ->
 // create-organization action; with org -> private fleet section in the list.
 let orgInfo = null;
+// View mode: anonymous -> always the full open-data fleet. Signed in with
+// an organization -> private fleet only by DEFAULT; open data is an
+// activable option (persisted per browser).
+let showOpen = true;
+function applyOpenVisibility(){
+  const vis = showOpen ? "visible" : "none";
+  for (const l of ["sats","sats-hit","sat-labels","track","rx-links",
+                   "rx-links-hit","rx-stations","rx-stations-hit","rx-station-labels"]){
+    try { if (map.getLayer(l)) map.setLayoutProperty(l, "visibility", vis); } catch(e){}
+  }
+  const fb = document.getElementById("fleetbar");
+  if (fb) fb.style.display = showOpen ? "flex" : "none";
+}
+function toggleOpen(){
+  showOpen = !showOpen;
+  localStorage.setItem("ovw_showOpen", showOpen ? "1" : "0");
+  applyOpenVisibility(); renderList(allSats);
+}
 async function loadAccount(){
   const el = document.getElementById("acct");
   try {
@@ -152,6 +170,7 @@ async function loadAccount(){
       for (const row of inv) (by[row.satellite] = by[row.satellite] || []).push(row);
       orgInfo = { name: me.organization.name,
                   sats: Object.entries(by).map(([sat, f]) => ({ satellite: sat, fields: f })) };
+      showOpen = localStorage.getItem("ovw_showOpen") === "1";   // default: private only
     } else {
       el.innerHTML = ` · ${me.email || "signed in"} — ` +
         `<a href="#" onclick="createOrg();return false">create your organization</a> · ` +
@@ -162,6 +181,8 @@ async function loadAccount(){
     el.innerHTML = ` · <a href="${API_BASE}/api/v1/auth/login">Sign in / Register</a>`;
     orgInfo = null;
   }
+  if (!orgInfo) showOpen = true;       // anonymous: always full open data
+  applyOpenVisibility();
   renderList(allSats);
 }
 async function createOrg(){
@@ -310,7 +331,7 @@ async function refresh(){
     selectStation(wantedStation);
   } else if (wanted && wanted !== activeNorad && satsByNorad[wanted]) {
     select(satsByNorad[wanted]);
-  } else if (activeNorad === null && activeStation === null && !wanted) {
+  } else if (activeNorad === null && activeStation === null && !wanted && showOpen) {
     // Default view: land on a satellite with the freshest telemetry —
     // inside the hour when the network heard one, otherwise the most
     // recently heard overall. The page never opens on an empty panel.
@@ -344,7 +365,8 @@ function renderList(sats){
   if (orgInfo){
     const hdr = document.createElement("div");
     hdr.className = "meta"; hdr.style.padding = "8px 12px 2px";
-    hdr.textContent = `Your fleet — ${orgInfo.name} (private)`;
+    hdr.innerHTML = `Your fleet — ${orgInfo.name} (private) · ` +
+      `<a href="#" onclick="toggleOpen();return false">${showOpen ? "hide" : "show"} open-data fleet</a>`;
     list.appendChild(hdr);
     if (!orgInfo.sats.length){
       const d = document.createElement("div"); d.className = "empty";
@@ -361,6 +383,7 @@ function renderList(sats){
       list.appendChild(div);
     }
   }
+  if (orgInfo && !showOpen) return;   // private mode: org fleet only
   const shown = (q ? sats.filter(s =>
     s.name.toLowerCase().includes(q) || String(s.norad).includes(q)) : sats)
     .slice().sort((a, b) =>
