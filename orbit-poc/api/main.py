@@ -60,6 +60,28 @@ CREATE UNLOGGED TABLE IF NOT EXISTS visitor_daily (
     PRIMARY KEY (day, client_hash)
 );
 DELETE FROM visitor_daily WHERE day < CURRENT_DATE - 45;
+-- v2 organizations (tenant = organization; id mirrors the Keycloak org id).
+CREATE TABLE IF NOT EXISTS organization (
+    id         uuid PRIMARY KEY,
+    name       text NOT NULL,
+    active     boolean NOT NULL DEFAULT true,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS org_user (
+    sub        uuid NOT NULL,
+    org        uuid NOT NULL REFERENCES organization(id),
+    email      text,
+    name       text,
+    last_seen  timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (sub, org)
+);
+CREATE TABLE IF NOT EXISTS org_token (
+    token      uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    org        uuid NOT NULL REFERENCES organization(id),
+    label      text NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    revoked    boolean NOT NULL DEFAULT false
+);
 -- Private tenants: a party plugs ITS OWN satellite telemetry in and
 -- observes it in isolated dashboards. Never mixed with the public fleet.
 CREATE TABLE IF NOT EXISTS tenant (
@@ -456,6 +478,235 @@ def station_receptions(callsign: str):
              "observer": obs} for ts, n, name, obs in rows]
 
 
+# --- v2 identity: Keycloak (single client), cookie-borne OpenID token ------
+import secrets as _secrets
+import requests as _rq
+import jwt as _jwt
+from jwt import PyJWKClient
+
+KC_ISSUER = os.environ.get("KC_ISSUER",
+    "https://overwatch.confinia.io/auth/realms/overwatch")
+KC_CLIENT_ID = os.environ.get("OVERWATCH_CLIENT_ID", "overwatch")
+KC_CLIENT_SECRET = os.environ.get("OVERWATCH_CLIENT_SECRET", "")
+KC_ADMIN_USER = os.environ.get("KC_ADMIN_USERNAME", "")
+KC_ADMIN_PASS = os.environ.get("KC_ADMIN_PASSWORD", "")
+COOKIE = "ovw_token"
+_jwks = None
+
+
+def _jwks_client():
+    global _jwks
+    if _jwks is None:
+        _jwks = PyJWKClient(f"{KC_ISSUER}/protocol/openid-connect/certs")
+    return _jwks
+
+
+def _claims(request: Request):
+    """The same OpenID token everywhere: Authorization bearer or cookie."""
+    tok = (request.headers.get("authorization") or "").removeprefix("Bearer ").strip()         or request.cookies.get(COOKIE, "")
+    if not tok:
+        return None
+    try:
+        key = _jwks_client().get_signing_key_from_jwt(tok)
+        return _jwt.decode(tok, key.key, algorithms=["RS256"],
+                           issuer=KC_ISSUER, options={"verify_aud": False})
+    except Exception:
+        return None
+
+
+def _org_of(claims) -> tuple[str, str] | None:
+    """Extract (org_id, org_name) from the Keycloak organization claim,
+    tolerating its dict/list shapes."""
+    o = claims.get("organization")
+    if isinstance(o, dict) and o:
+        name, meta = next(iter(o.items()))
+        return ((meta or {}).get("id") or name, name)
+    if isinstance(o, list) and o:
+        return (o[0], o[0]) if isinstance(o[0], str) else                (o[0].get("id"), o[0].get("name", "org"))
+    return None
+
+
+def _require_user(request: Request):
+    c = _claims(request)
+    if not c:
+        raise HTTPException(401, "Sign in first: /api/v1/auth/login")
+    return c
+
+
+def _require_org(request: Request):
+    c = _require_user(request)
+    org = _org_of(c)
+    if not org:
+        raise HTTPException(403, "No organization yet: POST /api/v1/orgs {\"name\"}")
+    with cursor() as cur:
+        cur.execute("""INSERT INTO org_user (sub, org, email, name, last_seen)
+                       VALUES (%s::uuid, %s::uuid, %s, %s, now())
+                       ON CONFLICT (sub, org) DO UPDATE SET last_seen = now(),
+                         email = EXCLUDED.email, name = EXCLUDED.name""",
+                    (c["sub"], org[0], c.get("email"), c.get("name")))
+        cur.execute("""INSERT INTO organization (id, name) VALUES (%s::uuid, %s)
+                       ON CONFLICT (id) DO NOTHING""", (org[0], org[1]))
+        cur.execute("""INSERT INTO tenant (key, name, email)
+                       VALUES (%s::uuid, %s, %s) ON CONFLICT (key) DO NOTHING""",
+                    (org[0], org[1], c.get("email", "")))
+        cur.connection.commit()
+    return c, org
+
+
+def _kc_admin_token() -> str:
+    r = _rq.post(f"{KC_ISSUER.rsplit('/realms/',1)[0]}/realms/master/protocol/openid-connect/token",
+                 data={"grant_type": "password", "client_id": "admin-cli",
+                       "username": KC_ADMIN_USER, "password": KC_ADMIN_PASS},
+                 timeout=15)
+    r.raise_for_status()
+    return r.json()["access_token"]
+
+
+@app.get("/v1/auth/login", include_in_schema=False)
+def auth_login():
+    from fastapi.responses import RedirectResponse
+    state = _secrets.token_urlsafe(16)
+    url = (f"{KC_ISSUER}/protocol/openid-connect/auth?client_id={KC_CLIENT_ID}"
+           f"&response_type=code&scope=openid+profile+email+organization"
+           f"&redirect_uri=https://overwatch.confinia.io/api/v1/auth/callback"
+           f"&state={state}")
+    resp = RedirectResponse(url)
+    resp.set_cookie("ovw_state", state, max_age=600, httponly=True,
+                    secure=True, samesite="lax")
+    return resp
+
+
+@app.get("/v1/auth/callback", include_in_schema=False)
+def auth_callback(request: Request, code: str = "", state: str = ""):
+    from fastapi.responses import RedirectResponse
+    if not code or state != request.cookies.get("ovw_state"):
+        raise HTTPException(400, "Invalid login state — retry /api/v1/auth/login")
+    r = _rq.post(f"{KC_ISSUER}/protocol/openid-connect/token",
+                 data={"grant_type": "authorization_code", "code": code,
+                       "client_id": KC_CLIENT_ID, "client_secret": KC_CLIENT_SECRET,
+                       "redirect_uri": "https://overwatch.confinia.io/api/v1/auth/callback"},
+                 timeout=15)
+    if r.status_code != 200:
+        raise HTTPException(502, "Token exchange failed")
+    resp = RedirectResponse("/")
+    resp.set_cookie(COOKIE, r.json()["access_token"], max_age=1740,
+                    httponly=True, secure=True, samesite="lax", path="/")
+    resp.delete_cookie("ovw_state")
+    return resp
+
+
+@app.get("/v1/auth/logout", include_in_schema=False)
+def auth_logout():
+    from fastapi.responses import RedirectResponse
+    resp = RedirectResponse("/")
+    resp.delete_cookie(COOKIE, path="/")
+    return resp
+
+
+@app.get("/v1/me")
+def me(request: Request):
+    """Who am I — identity and organization from the shared OpenID token."""
+    c = _require_user(request)
+    org = _org_of(c)
+    return {"sub": c["sub"], "email": c.get("email"), "name": c.get("name"),
+            "organization": {"id": org[0], "name": org[1]} if org else None}
+
+
+class OrgCreate(BaseModel):
+    name: str
+
+
+@app.post("/v1/orgs", status_code=201)
+def create_org(request: Request, body: OrgCreate):
+    """Self-serve organization creation: creates the Keycloak organization,
+    joins the current user, mirrors it locally. Sign in again afterwards so
+    the token carries the new membership."""
+    c = _require_user(request)
+    if _org_of(c):
+        raise HTTPException(409, "You already belong to an organization.")
+    name = body.name.strip()[:60]
+    if len(name) < 2:
+        raise HTTPException(422, "Organization name too short.")
+    alias = "".join(ch if ch.isalnum() else "-" for ch in name.lower())[:40]
+    at = _kc_admin_token()
+    base = f"{KC_ISSUER.rsplit('/realms/',1)[0]}/admin/realms/overwatch"
+    h = {"Authorization": f"Bearer {at}"}
+    r = _rq.post(f"{base}/organizations", json={
+        "name": name, "alias": alias,
+        "domains": [{"name": f"{alias}.invalid", "verified": False}]}, headers=h, timeout=15)
+    if r.status_code not in (201, 409):
+        raise HTTPException(502, f"Organization creation failed ({r.status_code})")
+    r2 = _rq.get(f"{base}/organizations?search={alias}", headers=h, timeout=15)
+    org_id = r2.json()[0]["id"]
+    _rq.post(f"{base}/organizations/{org_id}/members",
+             json=c["sub"], headers={**h, "Content-Type": "application/json"}, timeout=15)
+    with cursor() as cur:
+        cur.execute("""INSERT INTO organization (id, name) VALUES (%s::uuid, %s)
+                       ON CONFLICT (id) DO NOTHING""", (org_id, name))
+        cur.execute("""INSERT INTO tenant (key, name, email)
+                       VALUES (%s::uuid, %s, %s) ON CONFLICT (key) DO NOTHING""",
+                    (org_id, name, c.get("email", "")))
+        cur.connection.commit()
+    return {"id": org_id, "name": name,
+            "note": "Sign in again so your session carries the organization."}
+
+
+# --- Org-scoped data: same storage as tenants, keyed by the org id --------
+
+@app.get("/v1/org/satellites")
+def org_satellites(request: Request):
+    _, org = _require_org(request)
+    with cursor() as cur:
+        cur.execute("""SELECT satellite, field, count(*), max(ts)
+                       FROM tenant_telemetry WHERE tenant = %s::uuid
+                       GROUP BY 1, 2 ORDER BY 1, 2""", (org[0],))
+        rows = cur.fetchall()
+    return [{"satellite": s, "field": f, "points": n, "last": t.isoformat()}
+            for s, f, n, t in rows]
+
+
+@app.post("/v1/org/telemetry", status_code=202)
+def org_push(request: Request, body: TenantPush):
+    _, org = _require_org(request)
+    return tenant_push(org[0], body)
+
+
+@app.get("/v1/org/telemetry")
+def org_read(request: Request, satellite: str, field: str,
+             hours: int = Query(24, ge=1, le=8760)):
+    _, org = _require_org(request)
+    return tenant_read(org[0], satellite, field, hours)
+
+
+class TokenCreate(BaseModel):
+    label: str
+
+
+@app.post("/v1/org/tokens", status_code=201)
+def org_token_create(request: Request, body: TokenCreate):
+    """Org service token for machine push (ground segment, pipelines).
+    Use it as the key in /v1/tenants/{token}/telemetry. Revocable."""
+    _, org = _require_org(request)
+    with cursor() as cur:
+        cur.execute("""INSERT INTO org_token (org, label) VALUES (%s::uuid, %s)
+                       RETURNING token""", (org[0], body.label[:60]))
+        tok = cur.fetchone()[0]
+        cur.connection.commit()
+    return {"token": str(tok), "label": body.label[:60],
+            "push": f"/api/v1/tenants/{tok}/telemetry"}
+
+
+@app.get("/v1/org/tokens")
+def org_token_list(request: Request):
+    _, org = _require_org(request)
+    with cursor() as cur:
+        cur.execute("""SELECT token, label, created_at, revoked FROM org_token
+                       WHERE org = %s::uuid ORDER BY created_at""", (org[0],))
+        return [{"token": str(t)[:8] + "…", "label": l,
+                 "created": c.isoformat(), "revoked": r}
+                for t, l, c, r in cur.fetchall()]
+
+
 # --- Private tenants: push YOUR telemetry, observe it immediately ----------
 
 class TenantPoint(BaseModel):
@@ -472,6 +723,15 @@ class TenantPush(BaseModel):
 def _tenant(cur, key: str):
     cur.execute("SELECT active, max_points_day FROM tenant WHERE key = %s::uuid", (key,))
     row = cur.fetchone()
+    if row:
+        if not row[0]:
+            raise HTTPException(404, "Unknown or inactive tenant key.")
+        return row
+    # org service token? resolve to the org's tenant record
+    cur.execute("""SELECT t.active, t.max_points_day, ot.org
+                   FROM org_token ot JOIN tenant t ON t.key = ot.org
+                   WHERE ot.token = %s::uuid AND NOT ot.revoked""", (key,))
+    row = cur.fetchone()
     if not row or not row[0]:
         raise HTTPException(404, "Unknown or inactive tenant key.")
     return row
@@ -480,12 +740,14 @@ def _tenant(cur, key: str):
 @app.post("/v1/tenants/{key}/telemetry", status_code=202)
 def tenant_push(key: str, body: TenantPush):
     """Plug your satellite data in: batch-push time-series points into your
-    isolated tenant. Observe them immediately via the read endpoints and
-    your private dashboards."""
+    isolated tenant. The key is a tenant key or an org service token."""
     if len(body.points) > 1000:
         raise HTTPException(413, "Max 1000 points per request — batch your pushes.")
     with cursor() as cur:
-        _, quota = _tenant(cur, key)
+        row = _tenant(cur, key)
+        quota = row[1]
+        if len(row) > 2:
+            key = str(row[2])          # service token -> write under the org id
         cur.execute("""SELECT count(*) FROM tenant_telemetry
                        WHERE tenant = %s::uuid AND ts > now() - interval '1 day'""", (key,))
         if cur.fetchone()[0] + len(body.points) > quota:

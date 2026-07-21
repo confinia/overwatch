@@ -112,7 +112,7 @@
     <header>
       <h1><span class="dot"></span>Orbit POC — live positions + deep telemetry</h1>
       <p>Positions cached from CelesTrak · health from SatNOGS ·
-        sovereign-hostable <span id="ver"></span></p>
+        sovereign-hostable <span id="ver"></span><span id="acct"></span></p>
     </header>
     <input id="search" type="search" placeholder="Search satellites (name or NORAD id)…"/>
     <div id="list"></div>
@@ -133,6 +133,82 @@ const DASH_UID = "orbit-telemetry";
 // Coarse pointer (phones/tablets): draw visibly bigger dots — a 4px target
 // is neither tappable nor perceived as tappable on a phone.
 const TOUCH = window.matchMedia("(pointer: coarse)").matches;
+
+// Account: same OpenID token (cookie) as the API and Grafana. Signed out ->
+// sign-in/register link (Keycloak handles both); signed in without org ->
+// create-organization action; with org -> private fleet section in the list.
+let orgInfo = null;
+// View mode: anonymous -> always the full open-data fleet. Signed in with
+// an organization -> private fleet only by DEFAULT; open data is an
+// activable option (persisted per browser).
+let showOpen = true;
+function applyOpenVisibility(){
+  const vis = showOpen ? "visible" : "none";
+  for (const l of ["sats","sats-hit","sat-labels","track","rx-links",
+                   "rx-links-hit","rx-stations","rx-stations-hit","rx-station-labels"]){
+    try { if (map.getLayer(l)) map.setLayoutProperty(l, "visibility", vis); } catch(e){}
+  }
+  const fb = document.getElementById("fleetbar");
+  if (fb) fb.style.display = showOpen ? "flex" : "none";
+}
+function toggleOpen(){
+  showOpen = !showOpen;
+  localStorage.setItem("ovw_showOpen", showOpen ? "1" : "0");
+  applyOpenVisibility(); renderList(allSats);
+}
+async function loadAccount(){
+  const el = document.getElementById("acct");
+  try {
+    const r = await fetch(`${API_BASE}/api/v1/me`);
+    if (!r.ok) throw 0;
+    const me = await r.json();
+    if (me.organization){
+      el.innerHTML = ` · <b>${me.organization.name}</b> ` +
+        `<a href="${API_BASE}/api/v1/auth/logout" style="color:var(--dim)">sign out</a>`;
+      const inv = await (await fetch(`${API_BASE}/api/v1/org/satellites`)).json();
+      const by = {};
+      for (const row of inv) (by[row.satellite] = by[row.satellite] || []).push(row);
+      orgInfo = { name: me.organization.name,
+                  sats: Object.entries(by).map(([sat, f]) => ({ satellite: sat, fields: f })) };
+      showOpen = localStorage.getItem("ovw_showOpen") === "1";   // default: private only
+    } else {
+      el.innerHTML = ` · ${me.email || "signed in"} — ` +
+        `<a href="#" onclick="createOrg();return false">create your organization</a> · ` +
+        `<a href="${API_BASE}/api/v1/auth/logout" style="color:var(--dim)">sign out</a>`;
+      orgInfo = null;
+    }
+  } catch (e) {
+    el.innerHTML = ` · <a href="${API_BASE}/api/v1/auth/login">Sign in / Register</a>`;
+    orgInfo = null;
+  }
+  if (!orgInfo) showOpen = true;       // anonymous: always full open data
+  applyOpenVisibility();
+  renderList(allSats);
+}
+async function createOrg(){
+  const name = prompt("Organization name:");
+  if (!name) return;
+  const r = await fetch(`${API_BASE}/api/v1/orgs`, { method: "POST",
+    headers: { "content-type": "application/json" }, body: JSON.stringify({ name }) });
+  const d = await r.json().catch(() => ({}));
+  if (r.ok) { alert("Organization created — signing in again to activate it.");
+              location.href = `${API_BASE}/api/v1/auth/login`; }
+  else alert(d.detail || "Could not create the organization.");
+}
+function selectOrgSat(s){
+  activeNorad = null; activeStation = null;
+  document.getElementById("panelHead").textContent =
+    `${s.satellite} — private satellite (${orgInfo.name})`;
+  const rows = s.fields.map(f =>
+    `${f.field} — ${f.points} point${f.points > 1 ? "s" : ""}, last ${age(f.last)}`).join("<br>");
+  document.getElementById("panelBody").innerHTML =
+    `<div class="empty" style="overflow-y:auto; height:100%">` +
+    `<b>Your organization's data — visible to ${orgInfo.name} only</b><br><br>` +
+    rows + `<br><br><span style="opacity:.7">Read via ` +
+    `GET /api/v1/org/telemetry?satellite=${encodeURIComponent(s.satellite)}&field=… ` +
+    `— per-organization dashboards arrive with the Grafana integration.</span></div>`;
+  renderList(allSats);
+}
 
 // Version badge (SaaS + API) — links to the public API landing.
 fetch(`${API_BASE}/api/version`).then(r => r.json()).then(v => {
@@ -255,7 +331,7 @@ async function refresh(){
     selectStation(wantedStation);
   } else if (wanted && wanted !== activeNorad && satsByNorad[wanted]) {
     select(satsByNorad[wanted]);
-  } else if (activeNorad === null && activeStation === null && !wanted) {
+  } else if (activeNorad === null && activeStation === null && !wanted && showOpen) {
     // Default view: land on a satellite with the freshest telemetry —
     // inside the hour when the network heard one, otherwise the most
     // recently heard overall. The page never opens on an empty panel.
@@ -285,6 +361,29 @@ function renderList(sats){
   const list = document.getElementById("list");
   const q = document.getElementById("search").value.trim().toLowerCase();
   list.innerHTML = "";
+  // Private fleet first: the signed-in organization's own satellites.
+  if (orgInfo){
+    const hdr = document.createElement("div");
+    hdr.className = "meta"; hdr.style.padding = "8px 12px 2px";
+    hdr.innerHTML = `Your fleet — ${orgInfo.name} (private) · ` +
+      `<a href="#" onclick="toggleOpen();return false">${showOpen ? "hide" : "show"} open-data fleet</a>`;
+    list.appendChild(hdr);
+    if (!orgInfo.sats.length){
+      const d = document.createElement("div"); d.className = "empty";
+      d.innerHTML = "No data yet — push telemetry with your org token " +
+        "(see <a href='/pro.html'>how</a>).";
+      list.appendChild(d);
+    }
+    for (const s of orgInfo.sats){
+      const div = document.createElement("div");
+      div.className = "sat";
+      div.innerHTML = `<div class="row"><span class="name" style="color:var(--accent)">${s.satellite}</span></div>
+        <div class="meta">${s.fields.length} field${s.fields.length > 1 ? "s" : ""} · private</div>`;
+      div.onclick = () => selectOrgSat(s);
+      list.appendChild(div);
+    }
+  }
+  if (orgInfo && !showOpen) return;   // private mode: org fleet only
   const shown = (q ? sats.filter(s =>
     s.name.toLowerCase().includes(q) || String(s.norad).includes(q)) : sats)
     .slice().sort((a, b) =>
@@ -580,6 +679,7 @@ map.on("load", () => {
   }
   refresh(); setInterval(refresh, 15000);
   loadStations(); setInterval(loadStations, 300000);
+  loadAccount();
 });
 </script>
 </body>

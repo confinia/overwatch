@@ -93,6 +93,12 @@ http://overwatch.confinia.io {
 		reverse_proxy grafana:3000
 	}
 
+	# v2 identity: Keycloak (isolated ovw2 stack) serves /auth — realm
+	# "overwatch", self-registration on. Caddy joins the ovw2 network.
+	handle /auth* {
+		reverse_proxy ovw2_keycloak_1:8080
+	}
+
 	handle {
 		reverse_proxy %LIVE%_web_1:8080 %CANDIDATE%_web_1:8080 {
 			lb_policy first
