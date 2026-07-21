@@ -399,6 +399,42 @@ def telemetry(norad: int,
                 for ts, num, txt in cur.fetchall()]
 
 
+@app.get("/v1/stations")
+def stations_list():
+    """Volunteer ground stations that received the fleet in the last 7 days
+    (positions decoded from their Maidenhead locators)."""
+    with cursor() as cur:
+        cur.execute("""
+            SELECT observer, max(lat) AS lat, max(lon) AS lon,
+                   count(*) AS frames, count(DISTINCT norad) AS satellites,
+                   max(ts) AS last_rx
+            FROM reception
+            WHERE ts > now() - interval '7 days' AND lat IS NOT NULL
+            GROUP BY observer ORDER BY frames DESC""")
+        return [{"observer": o, "lat": la, "lon": lo, "frames": f,
+                 "satellites": s, "last_rx": t.isoformat()}
+                for o, la, lo, f, s, t in cur.fetchall()]
+
+
+@app.get("/v1/stations/{callsign}")
+def station_receptions(callsign: str):
+    """One station's receptions across the fleet (7 days). The callsign
+    matches the part before the grid locator in the observer string."""
+    with cursor() as cur:
+        cur.execute("""
+            SELECT r.ts, r.norad, s.name, r.observer
+            FROM reception r JOIN satellite s USING (norad)
+            WHERE split_part(r.observer, '-', 1) ILIKE %s
+              AND r.ts > now() - interval '7 days'
+            ORDER BY r.ts DESC LIMIT 500""", (callsign,))
+        rows = cur.fetchall()
+    if not rows:
+        raise HTTPException(404, f"No receptions by '{callsign}' in the last "
+                                 "7 days (tracked fleet only).")
+    return [{"ts": ts.isoformat(), "norad": n, "satellite": name,
+             "observer": obs} for ts, n, name, obs in rows]
+
+
 # --- Keys (free during the beta; email = the design-partner conversation) ---
 
 class KeyRequest(BaseModel):

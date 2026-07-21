@@ -88,6 +88,42 @@ def track(norad):
         return jsonify(cur.fetchall())
 
 
+@app.get("/api/stations")
+def stations():
+    """All ground stations heard in the last 7 days, aggregated — feeds the
+    station search (station-first view: 'does MY station appear?')."""
+    with db() as conn, conn.cursor() as cur:
+        cur.execute("""
+            SELECT observer, max(lat) AS lat, max(lon) AS lon,
+                   count(*) AS frames, count(DISTINCT norad) AS sats,
+                   max(ts) AS last_rx
+            FROM reception
+            WHERE ts > now() - interval '7 days' AND lat IS NOT NULL
+            GROUP BY observer ORDER BY frames DESC""")
+        return jsonify(cur.fetchall())
+
+
+@app.get("/api/station/<path:observer>")
+def station(observer):
+    """One station's receptions across the whole fleet (7 days), with the
+    satellite's cached position at each reception when history covers it."""
+    with db() as conn, conn.cursor() as cur:
+        cur.execute("""
+            SELECT r.ts, r.norad, s.name, r.lat, r.lon,
+                   p.lat AS sat_lat, p.lon AS sat_lon
+            FROM reception r JOIN satellite s USING (norad)
+            LEFT JOIN LATERAL (
+                SELECT lat, lon FROM position
+                WHERE norad = r.norad
+                  AND ts BETWEEN r.ts - interval '2 minutes'
+                             AND r.ts + interval '2 minutes'
+                ORDER BY abs(extract(epoch FROM ts - r.ts)) LIMIT 1
+            ) p ON true
+            WHERE r.observer = %s AND r.ts > now() - interval '7 days'
+            ORDER BY r.ts DESC LIMIT 500""", (observer,))
+        return jsonify(cur.fetchall())
+
+
 @app.get("/api/event")
 def ui_event():
     """First-party usage beacon: page loads, satellite selections, searches.
