@@ -10,3 +10,4 @@ orbit-poc/deploy/caddy/Caddyfile
 orbit-poc/deploy/caddy/LIVE_COLOR
 orbit-poc/version.env
 CHAT_02/
+!/README.md
