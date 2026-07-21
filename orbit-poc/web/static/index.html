@@ -130,6 +130,9 @@ const API_BASE = MIRROR ? "https://overwatch.confinia.io" : "";
 const GRAFANA = LOCAL ? "http://localhost:3001/grafana"
                       : `${API_BASE}/grafana`;
 const DASH_UID = "orbit-telemetry";
+// Coarse pointer (phones/tablets): draw visibly bigger dots — a 4px target
+// is neither tappable nor perceived as tappable on a phone.
+const TOUCH = window.matchMedia("(pointer: coarse)").matches;
 
 // Version badge (SaaS + API) — links to the public API landing.
 fetch(`${API_BASE}/api/version`).then(r => r.json()).then(v => {
@@ -497,7 +500,7 @@ map.on("load", () => {
   map.addSource("sats", { type:"geojson", data:satsGeojson([]) });
   map.addLayer({ id:"sats", type:"circle", source:"sats",
     paint:{
-      "circle-radius":["case", ["get","live"], 6.5, 4.5],
+      "circle-radius":["case", ["get","live"], TOUCH ? 10 : 6.5, TOUCH ? 8 : 4.5],
       "circle-color":["case", ["get","live"], "#4dffa6",
         ["case", ["get","tel"], "#39d98a", "#7c8aa5"]],
       "circle-stroke-width":["case", ["get","live"], 3, 1.5],
@@ -508,7 +511,7 @@ map.on("load", () => {
   // maplibre-engine work item — for now dots sit on the ground track.
   // Invisible enlarged twin of "sats": 4px dots are untappable on phones.
   map.addLayer({ id:"sats-hit", type:"circle", source:"sats",
-    paint:{ "circle-radius":16, "circle-color":"#fff", "circle-opacity":0.001 }});
+    paint:{ "circle-radius": TOUCH ? 22 : 16, "circle-color":"#fff", "circle-opacity":0.001 }});
   map.addLayer({ id:"sat-labels", type:"symbol", source:"sats",
     layout:{ "text-field":["get","name"],
       "text-font":["Open Sans Semibold"],
@@ -526,10 +529,10 @@ map.on("load", () => {
     paint:{ "line-color":"#f5a623", "line-width":12, "line-opacity":0.001 }});
   map.addSource("rx-stations", { type:"geojson", data: empty });
   map.addLayer({ id:"rx-stations", type:"circle", source:"rx-stations",
-    paint:{ "circle-radius":3.5, "circle-color":"#f5a623",
+    paint:{ "circle-radius": TOUCH ? 6.5 : 3.5, "circle-color":"#f5a623",
       "circle-stroke-width":1, "circle-stroke-color":"rgba(10,14,23,.9)" }});
   map.addLayer({ id:"rx-stations-hit", type:"circle", source:"rx-stations",
-    paint:{ "circle-radius":14, "circle-color":"#fff", "circle-opacity":0.001 }});
+    paint:{ "circle-radius": TOUCH ? 20 : 14, "circle-color":"#fff", "circle-opacity":0.001 }});
   map.addLayer({ id:"rx-station-labels", type:"symbol", source:"rx-stations",
     layout:{ "text-field":["get","name"], "text-font":["Open Sans Semibold"],
       "text-size":9, "text-anchor":"top", "text-offset":[0, 0.6],
