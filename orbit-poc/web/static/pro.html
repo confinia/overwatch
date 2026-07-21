@@ -45,10 +45,25 @@ only.</p>
 </ul>
 
 <h2>3 · Start</h2>
-<p><b>Design-partner beta:</b> three slots, free while we shape the offer
-together — your feedback steers the roadmap. Paid plans open autumn 2026
-(managed hosting, SLA, private tenants at scale).</p>
-<a class="cta" href="mailto:contact@confinia.io?subject=Overwatch%20tenant%20—%20design%20partner">contact@confinia.io — request a tenant</a>
+<div id="welcome" style="display:none; border:1px solid #2c6cb0; background:#16233a;
+  border-radius:8px; padding:.8rem 1rem; margin:.6rem 0;">
+  Trial started — welcome aboard. Your tenant key and dashboard access
+  arrive by email within the day (provisioning is being automated; a
+  human still presses the button, fast).</div>
+<p><b>Fleet Tenant (beta)</b> — isolated tenant, push API, private
+dashboards, up to 5 satellites. <b>490 €/month, 14-day free trial</b>,
+cancel anytime from the customer portal.</p>
+<a class="cta" href="https://buy.polar.sh/polar_cl_VYpdGBRjeH4Pn7vvD1dNbN450Yncw9sOHwqLf154vRQ">Start the 14-day trial</a>
+&nbsp; <a class="cta" style="background:transparent"
+  href="mailto:contact@confinia.io?subject=Overwatch%20tenant%20—%20design%20partner">or talk design-partner terms</a>
+<p style="font-size:.8rem; opacity:.75; margin-top:.8rem">Beta terms: no
+SLA yet (status honestly reported), data hosted in Europe, your telemetry
+stays yours and is deleted on request. Billing and invoices are handled
+by Polar (merchant of record).</p>
+<script>
+if (new URLSearchParams(location.search).get("welcome"))
+  document.getElementById("welcome").style.display = "block";
+</script>
 
 <footer>Public demo: <a href="https://overwatch.confinia.io">overwatch.confinia.io</a> ·
 API docs: <a href="/api/v1/docs">/api/v1/docs</a> ·
