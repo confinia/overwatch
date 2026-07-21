@@ -70,6 +70,9 @@ services:
       - caddy_data:/data
     ports:
       - "127.0.0.1:8090:80"
+    networks:
+      - default
+      - v2net          # reach the isolated v2 stack (keycloak) by DNS
     restart: unless-stopped
 
   grafana:
@@ -116,6 +119,12 @@ services:
       - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prom_data:/prometheus
     restart: unless-stopped
+
+networks:
+  default: {}
+  v2net:
+    external: true
+    name: ovw2_default
 
 volumes:
   pgdata:
