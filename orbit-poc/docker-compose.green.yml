@@ -27,6 +27,9 @@ services:
       - version.env
     volumes:
       - ./deploy/geoip:/geoip:ro
+    networks:
+      - default
+      - v2net          # direct server-to-server path to Keycloak
     ports:
       - "127.0.0.1:9082:8000"
     restart: unless-stopped
@@ -35,3 +38,6 @@ networks:
   default:
     external: true
     name: orbit-poc_default
+  v2net:
+    external: true
+    name: ovw2_default
