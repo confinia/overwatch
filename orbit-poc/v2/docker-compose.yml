@@ -1,0 +1,51 @@
+# v2 stack — ISOLATED from the free/open version (own project, DB, volumes):
+#   podman-compose -p ovw2 -f docker-compose.yml up -d
+# Serves behind the SAME hostname (single access point): the app caddy
+# routes /auth/* here via the host port. Nothing in this stack touches the
+# v1 database or Grafana.
+#
+# Ports (127.0.0.1): 8095 keycloak.
+services:
+  kc-db:
+    image: docker.io/library/postgres:16
+    environment:
+      POSTGRES_USER: keycloak
+      POSTGRES_DB: keycloak
+    # POSTGRES_PASSWORD via env_file — never committed.
+    env_file:
+      - .env
+    volumes:
+      - kc_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.3
+    command: ["start", "--import-realm"]
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://kc-db:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_HTTP_RELATIVE_PATH: /auth
+      KC_HTTP_ENABLED: "true"
+      KC_PROXY_HEADERS: xforwarded
+      KC_HOSTNAME: https://overwatch.confinia.io/auth
+      KC_HEALTH_ENABLED: "true"
+    # KC_DB_PASSWORD + KC_BOOTSTRAP_ADMIN_* via .env (VM-side only).
+    env_file:
+      - .env
+    volumes:
+      - ./keycloak:/opt/keycloak/data/import:ro
+    ports:
+      - "127.0.0.1:8095:8080"
+    depends_on:
+      kc-db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  kc_pgdata:

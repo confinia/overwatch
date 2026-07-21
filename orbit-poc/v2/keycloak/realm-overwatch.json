@@ -1,0 +1,40 @@
+{
+  "realm": "overwatch",
+  "enabled": true,
+  "displayName": "Overwatch",
+  "registrationAllowed": true,
+  "registrationEmailAsUsername": true,
+  "verifyEmail": false,
+  "resetPasswordAllowed": true,
+  "organizationsEnabled": true,
+  "sslRequired": "external",
+  "clients": [
+    {
+      "clientId": "overwatch-web",
+      "name": "Overwatch frontend",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": ["https://overwatch.confinia.io/*"],
+      "webOrigins": ["https://overwatch.confinia.io"],
+      "attributes": { "pkce.code.challenge.method": "S256" }
+    },
+    {
+      "clientId": "overwatch-api",
+      "name": "Overwatch API (bearer)",
+      "publicClient": false,
+      "bearerOnly": false,
+      "serviceAccountsEnabled": true,
+      "standardFlowEnabled": false,
+      "secret": "REPLACED_AT_DEPLOY"
+    },
+    {
+      "clientId": "grafana",
+      "name": "Grafana (v2)",
+      "publicClient": false,
+      "standardFlowEnabled": true,
+      "redirectUris": ["https://overwatch.confinia.io/grafana2/*"],
+      "secret": "REPLACED_AT_DEPLOY"
+    }
+  ]
+}
