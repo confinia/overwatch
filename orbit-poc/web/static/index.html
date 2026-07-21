@@ -130,6 +130,9 @@ const API_BASE = MIRROR ? "https://overwatch.confinia.io" : "";
 const GRAFANA = LOCAL ? "http://localhost:3001/grafana"
                       : `${API_BASE}/grafana`;
 const DASH_UID = "orbit-telemetry";
+// Coarse pointer (phones/tablets): draw visibly bigger dots — a 4px target
+// is neither tappable nor perceived as tappable on a phone.
+const TOUCH = window.matchMedia("(pointer: coarse)").matches;
 
 // Version badge (SaaS + API) — links to the public API landing.
 fetch(`${API_BASE}/api/version`).then(r => r.json()).then(v => {
@@ -164,6 +167,11 @@ const map = new maplibregl.Map({
 map.on("style.load", () => map.setProjection({ type: "globe" }));
 
 let activeNorad = null;
+let activeStation = null;          // observer string when in station mode
+let allStations = [];              // 7-day station aggregate (search + list)
+async function loadStations(){
+  try { allStations = await j("/api/stations"); } catch (e) {}
+}
 let allSats = [];
 let satsByNorad = {};
 
@@ -242,9 +250,12 @@ async function refresh(){
   // Deep link: #<norad> in the URL selects that satellite (kept across
   // refreshes and shareable).
   const wanted = hashNorad();
-  if (wanted && wanted !== activeNorad && satsByNorad[wanted]) {
+  const wantedStation = hashStation();
+  if (wantedStation && wantedStation !== activeStation) {
+    selectStation(wantedStation);
+  } else if (wanted && wanted !== activeNorad && satsByNorad[wanted]) {
     select(satsByNorad[wanted]);
-  } else if (activeNorad === null && !wanted) {
+  } else if (activeNorad === null && activeStation === null && !wanted) {
     // Default view: land on a satellite with the freshest telemetry —
     // inside the hour when the network heard one, otherwise the most
     // recently heard overall. The page never opens on an empty panel.
@@ -258,10 +269,16 @@ function hashNorad(){
   const m = location.hash.match(/^#(\d+)$/);
   return m ? Number(m[1]) : null;
 }
+function hashStation(){
+  const m = location.hash.match(/^#station:(.+)$/);
+  return m ? decodeURIComponent(m[1]) : null;
+}
 
 window.addEventListener("hashchange", () => {
   const n = hashNorad();
   if (n && n !== activeNorad && satsByNorad[n]) select(satsByNorad[n]);
+  const st = hashStation();
+  if (st && st !== activeStation) selectStation(st);
 });
 
 function renderList(sats){
@@ -285,12 +302,83 @@ function renderList(sats){
     div.onclick = () => select(s);
     list.appendChild(div);
   }
+  // Station results: station-first view for ground-station operators
+  // ("does MY station appear?"). Shown when the query matches a callsign.
+  const stq = q ? allStations.filter(st =>
+    st.observer.toLowerCase().includes(q)) : [];
+  if (q && stq.length){
+    const hdr = document.createElement("div");
+    hdr.className = "meta"; hdr.style.padding = "8px 12px 2px";
+    hdr.textContent = "Ground stations (heard the fleet, last 7 days)";
+    list.appendChild(hdr);
+    for (const st of stq.slice(0, 20)){
+      const div = document.createElement("div");
+      div.className = "sat" + (st.observer===activeStation?" active":"");
+      div.innerHTML =
+        `<div class="row"><span class="name" style="color:#f5a623">${st.observer.split("-")[0]}</span></div>
+         <div class="meta">station ${st.observer} · ${st.frames} frames · ${st.sats} satellites · last ${age(st.last_rx)}</div>`;
+      div.onclick = () => selectStation(st.observer);
+      list.appendChild(div);
+    }
+  }
+  if (q && !shown.length && !stq.length){
+    const div = document.createElement("div");
+    div.className = "empty";
+    div.textContent = "No match. Only the tracked fleet (" + allSats.length +
+      " satellites) and stations that heard it in the last 7 days are shown.";
+    list.appendChild(div);
+  }
+}
+
+// Station mode: one station's receptions across the whole fleet, reusing the
+// orange reception layers. Deep-linkable via #station:OBSERVER.
+async function selectStation(observer){
+  activeStation = observer; activeNorad = null;
+  const h = "#station:" + encodeURIComponent(observer);
+  if (location.hash !== h) history.replaceState(null, "", h);
+  const head = document.getElementById("panelHead");
+  const body = document.getElementById("panelBody");
+  head.textContent = `${observer} — volunteer ground station (SatNOGS)`;
+  body.innerHTML = `<div class="empty"><span class="dot"></span>Loading receptions…</div>`;
+  const recs = await j(`/api/station/${encodeURIComponent(observer)}`);
+  if (activeStation !== observer) return;
+  map.getSource("track").setData({ type:"FeatureCollection", features: [] });
+  const bySat = {};
+  const links = [], stations = [];
+  let lat = null, lon = null;
+  for (const r of recs){
+    if (r.lat != null){ lat = r.lat; lon = r.lon; }
+    const a = bySat[r.norad] || (bySat[r.norad] = { name:r.name, n:0, last:r.ts });
+    a.n++;
+    if (r.sat_lat != null && r.lat != null){
+      links.push({ type:"Feature", geometry:{ type:"LineString",
+        coordinates:[[r.lon, r.lat], [r.sat_lon, r.sat_lat]] },
+        properties:{ observer, ts:new Date(r.ts).getTime(),
+                     slat:r.sat_lat.toFixed(1), slon:r.sat_lon.toFixed(1) } });
+    }
+  }
+  if (lat != null){
+    stations.push({ type:"Feature", geometry:{ type:"Point", coordinates:[lon, lat] },
+      properties:{ name: observer.split("-")[0], grid: observer.split("-")[1] || "",
+                   n: recs.length, first: 0, last: 0 } });
+    map.flyTo({ center:[lon, lat], zoom: Math.max(map.getZoom(), 2.6), duration: 1500 });
+  }
+  map.getSource("rx-links").setData({ type:"FeatureCollection", features: links });
+  map.getSource("rx-stations").setData({ type:"FeatureCollection", features: stations });
+  const sats = Object.values(bySat).sort((a, b) => b.n - a.n);
+  body.innerHTML = `<div class="empty" style="overflow-y:auto; height:100%">` +
+    `<b>${recs.length} receptions · ${sats.length} satellites (last 7 days)</b><br><br>` +
+    sats.map(x => `${x.name} — ${x.n} frame${x.n>1?"s":""}, last ${age(x.last)}`).join("<br>") +
+    `<br><br><span style="opacity:.7">Tracked fleet only (${allSats.length} satellites), ` +
+    `7-day window — a station that heard other satellites will not appear.</span></div>`;
+  renderList(allSats);
 }
 
 async function select(s, auto = false){
   // auto = default selection on load, not a user action: skip the usage
   // beacon so the "most-inspected satellites" ops panel stays honest.
   if (!auto && s.norad !== activeNorad) beacon("select", s.norad);
+  activeStation = null;
   activeNorad = s.norad;
   if (location.hash !== "#" + s.norad) {
     history.replaceState(null, "", "#" + s.norad);
@@ -388,7 +476,7 @@ async function drawReceptions(norad){
   const stations = Object.entries(st).map(([obs, a]) => ({ type:"Feature",
     geometry:{ type:"Point", coordinates:[a.lon, a.lat] },
     properties:{ name: obs.split("-")[0], grid: obs.split("-")[1] || "",
-                 n: a.n, first: a.first, last: a.last } }));
+                 observer: obs, n: a.n, first: a.first, last: a.last } }));
   map.getSource("rx-stations").setData({ type:"FeatureCollection", features: stations });
   map.getSource("rx-links").setData({ type:"FeatureCollection", features: links });
 }
@@ -412,7 +500,7 @@ map.on("load", () => {
   map.addSource("sats", { type:"geojson", data:satsGeojson([]) });
   map.addLayer({ id:"sats", type:"circle", source:"sats",
     paint:{
-      "circle-radius":["case", ["get","live"], 6.5, 4.5],
+      "circle-radius":["case", ["get","live"], TOUCH ? 10 : 6.5, TOUCH ? 8 : 4.5],
       "circle-color":["case", ["get","live"], "#4dffa6",
         ["case", ["get","tel"], "#39d98a", "#7c8aa5"]],
       "circle-stroke-width":["case", ["get","live"], 3, 1.5],
@@ -421,6 +509,9 @@ map.on("load", () => {
   // Satellite names on the globe ("Open Sans Semibold" is the one font the
   // demotiles glyph server provides). Elevation-true rendering is a future
   // maplibre-engine work item — for now dots sit on the ground track.
+  // Invisible enlarged twin of "sats": 4px dots are untappable on phones.
+  map.addLayer({ id:"sats-hit", type:"circle", source:"sats",
+    paint:{ "circle-radius": TOUCH ? 22 : 16, "circle-color":"#fff", "circle-opacity":0.001 }});
   map.addLayer({ id:"sat-labels", type:"symbol", source:"sats",
     layout:{ "text-field":["get","name"],
       "text-font":["Open Sans Semibold"],
@@ -438,36 +529,41 @@ map.on("load", () => {
     paint:{ "line-color":"#f5a623", "line-width":12, "line-opacity":0.001 }});
   map.addSource("rx-stations", { type:"geojson", data: empty });
   map.addLayer({ id:"rx-stations", type:"circle", source:"rx-stations",
-    paint:{ "circle-radius":3.5, "circle-color":"#f5a623",
+    paint:{ "circle-radius": TOUCH ? 6.5 : 3.5, "circle-color":"#f5a623",
       "circle-stroke-width":1, "circle-stroke-color":"rgba(10,14,23,.9)" }});
+  map.addLayer({ id:"rx-stations-hit", type:"circle", source:"rx-stations",
+    paint:{ "circle-radius": TOUCH ? 20 : 14, "circle-color":"#fff", "circle-opacity":0.001 }});
   map.addLayer({ id:"rx-station-labels", type:"symbol", source:"rx-stations",
     layout:{ "text-field":["get","name"], "text-font":["Open Sans Semibold"],
       "text-size":9, "text-anchor":"top", "text-offset":[0, 0.6],
       "text-optional":true },
     paint:{ "text-color":"#f5a623",
       "text-halo-color":"#0a0e17", "text-halo-width":1 }});
-  map.on("click", "sats", e => {
-    const s = satsByNorad[e.features[0].properties.norad];
-    if (s) select(s);
-  });
-  map.on("mouseenter", "sats", () => map.getCanvas().style.cursor = "pointer");
-  map.on("mouseleave", "sats", () => map.getCanvas().style.cursor = "");
+  for (const layer of ["sats", "sats-hit"]) {
+    map.on("click", layer, e => {
+      const s = satsByNorad[e.features[0].properties.norad];
+      if (s) select(s);
+    });
+    map.on("mouseenter", layer, () => map.getCanvas().style.cursor = "pointer");
+    map.on("mouseleave", layer, () => map.getCanvas().style.cursor = "");
+  }
 
   // Reception layer popups: a station dot tells who it is and how much it
   // heard; a line tells about that single frame reception.
   const fmtT = t => new Date(+t).toUTCString().slice(5, -7) + " UTC";
-  map.on("click", "rx-stations", e => {
+  map.on("click", "rx-stations-hit", e => {
     const p = e.features[0].properties;
     new maplibregl.Popup({ maxWidth:"280px" })
       .setLngLat(e.features[0].geometry.coordinates)
       .setHTML(`<b>${p.name}</b> — volunteer ground station (SatNOGS)<br>` +
         (p.grid ? `Maidenhead locator <code>${p.grid}</code><br>` : "") +
-        `${p.n} frame${p.n > 1 ? "s" : ""} heard from this satellite (7 d)<br>` +
-        `first ${fmtT(p.first)}<br>last ${fmtT(p.last)}`)
+        (p.first ? `${p.n} frame${p.n > 1 ? "s" : ""} heard from this satellite (7 d)<br>` +
+          `first ${fmtT(p.first)}<br>last ${fmtT(p.last)}<br>` : `${p.n} receptions (7 d)<br>`) +
+        (p.observer ? `<a href="#station:${encodeURIComponent(p.observer)}">All receptions by this station →</a>` : ""))
       .addTo(map);
   });
   map.on("click", "rx-links-hit", e => {
-    if (map.queryRenderedFeatures(e.point, { layers:["rx-stations", "sats"] }).length) return;
+    if (map.queryRenderedFeatures(e.point, { layers:["rx-stations-hit", "sats-hit"] }).length) return;
     const p = e.features[0].properties;
     const sat = satsByNorad[activeNorad];
     new maplibregl.Popup({ maxWidth:"280px" })
@@ -478,11 +574,12 @@ map.on("load", () => {
         `satellite was over ${p.slat}°, ${p.slon}° at that moment`)
       .addTo(map);
   });
-  for (const l of ["rx-stations", "rx-links-hit"]) {
+  for (const l of ["rx-stations-hit", "rx-links-hit"]) {
     map.on("mouseenter", l, () => map.getCanvas().style.cursor = "pointer");
     map.on("mouseleave", l, () => map.getCanvas().style.cursor = "");
   }
   refresh(); setInterval(refresh, 15000);
+  loadStations(); setInterval(loadStations, 300000);
 });
 </script>
 </body>
