@@ -486,6 +486,11 @@ from jwt import PyJWKClient
 
 KC_ISSUER = os.environ.get("KC_ISSUER",
     "https://overwatch.confinia.io/auth/realms/overwatch")
+# Server-to-server calls bypass the public edge (rootless containers cannot
+# hairpin to the host's public IP): direct container-network URL. Browsers
+# and the token `iss` claim keep the public URL.
+KC_INTERNAL = os.environ.get("KC_INTERNAL",
+    "http://ovw2_keycloak_1:8080/auth/realms/overwatch")
 KC_CLIENT_ID = os.environ.get("OVERWATCH_CLIENT_ID", "overwatch")
 KC_CLIENT_SECRET = os.environ.get("OVERWATCH_CLIENT_SECRET", "")
 KC_ADMIN_USER = os.environ.get("KC_ADMIN_USERNAME", "")
@@ -497,7 +502,7 @@ _jwks = None
 def _jwks_client():
     global _jwks
     if _jwks is None:
-        _jwks = PyJWKClient(f"{KC_ISSUER}/protocol/openid-connect/certs")
+        _jwks = PyJWKClient(f"{KC_INTERNAL}/protocol/openid-connect/certs")
     return _jwks
 
 
@@ -554,7 +559,7 @@ def _require_org(request: Request):
 
 
 def _kc_admin_token() -> str:
-    r = _rq.post(f"{KC_ISSUER.rsplit('/realms/',1)[0]}/realms/master/protocol/openid-connect/token",
+    r = _rq.post(f"{KC_INTERNAL.rsplit('/realms/',1)[0]}/realms/master/protocol/openid-connect/token",
                  data={"grant_type": "password", "client_id": "admin-cli",
                        "username": KC_ADMIN_USER, "password": KC_ADMIN_PASS},
                  timeout=15)
@@ -581,7 +586,7 @@ def auth_callback(request: Request, code: str = "", state: str = ""):
     from fastapi.responses import RedirectResponse
     if not code or state != request.cookies.get("ovw_state"):
         raise HTTPException(400, "Invalid login state — retry /api/v1/auth/login")
-    r = _rq.post(f"{KC_ISSUER}/protocol/openid-connect/token",
+    r = _rq.post(f"{KC_INTERNAL}/protocol/openid-connect/token",
                  data={"grant_type": "authorization_code", "code": code,
                        "client_id": KC_CLIENT_ID, "client_secret": KC_CLIENT_SECRET,
                        "redirect_uri": "https://overwatch.confinia.io/api/v1/auth/callback"},
@@ -629,7 +634,7 @@ def create_org(request: Request, body: OrgCreate):
         raise HTTPException(422, "Organization name too short.")
     alias = "".join(ch if ch.isalnum() else "-" for ch in name.lower())[:40]
     at = _kc_admin_token()
-    base = f"{KC_ISSUER.rsplit('/realms/',1)[0]}/admin/realms/overwatch"
+    base = f"{KC_INTERNAL.rsplit('/realms/',1)[0]}/admin/realms/overwatch"
     h = {"Authorization": f"Bearer {at}"}
     r = _rq.post(f"{base}/organizations", json={
         "name": name, "alias": alias,
