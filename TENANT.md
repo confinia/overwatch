@@ -36,8 +36,14 @@ accounts exist:
   supports one OpenID client, so the app shares it: Grafana and the
   Overwatch frontend perform the code flow against the same client
   (different redirect URIs), and the API validates the same tokens as a
-  resource server (JWKS). One login, one session, one token — valid in
-  the frontend, in Grafana, and on the API.
+  resource server (JWKS). **The token travels in a secure, httpOnly
+  cookie on the single hostname**: one login sets it, and every surface
+  reads the same session — the frontend's API calls send it
+  automatically, the API accepts it (cookie or `Authorization: Bearer`),
+  and the app caddy forwards it to Grafana's JWT auth. One login, one
+  cookie, one token — valid in the frontend, in Grafana, and on the API.
+  This cookie/JWT SSO into embedded, tenant-isolated dashboards is the
+  productized mechanism of the platform itself.
 
 ## 2 · Overwatch SaaS — the organization registry
 
