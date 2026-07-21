@@ -91,6 +91,24 @@ Open-data endpoints (`/api/v1/satellites`, `/telemetry/{norad}`,
 `/stations`, …) remain keyless and free — they serve the public fleet
 and never touch organization data.
 
+## 5 · Billing — Polar and API access
+
+The subscription is **organization-level**, handled by Polar as merchant
+of record; API access follows the organization's state:
+
+| Org state | How it happens | API effect |
+|---|---|---|
+| Registered | Self-serve signup + org creation | Beta: push allowed within default quota; target: trial or subscribe before private push |
+| Subscribed | Checkout linked to the org (the app creates the Polar checkout carrying the org id; the `subscription.active` webhook flips the org) | Full quota; usage metered per org and reported to Polar's customer meter (billing informs, the API enforces) |
+| Past due / canceled | Polar webhook | Push refused (402 pointing at the customer portal); reads keep a grace window, then the org is archived |
+
+During the beta the checkout is a public link and activation is manual
+(operator on the sale notification); the target removes both manual
+steps. Design-partner slots are 100%/3-month discount codes on the same
+product. Self-hosted deployments run without any of this: billing is
+optional and environment-gated — an instance without Polar credentials
+treats every organization as active.
+
 ## The journey these pieces serve
 
 1. Register a user and an organization (self-serve, Keycloak).

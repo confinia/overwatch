@@ -6,3 +6,6 @@ opentelemetry-exporter-otlp-proto-http>=1.25
 opentelemetry-instrumentation-fastapi>=0.46b0
 maxminddb>=2.6
 email-validator>=2.1
+pyjwt>=2.8
+cryptography>=42
+requests>=2.31
