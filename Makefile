@@ -13,6 +13,7 @@ sync:
 	rsync -av --delete \
 		--exclude 'orbit-poc.tar.gz' \
 		--exclude 'orbit-poc/.env' \
+		--exclude 'orbit-poc/v2/.env' \
 		--exclude 'orbit-poc/deploy/geoip' \
 		--exclude 'orbit-poc/deploy/caddy/Caddyfile' \
 		--exclude 'orbit-poc/deploy/caddy/LIVE_COLOR' \
@@ -77,6 +78,16 @@ ingest: sync
 		podman rm -f orbit-poc_ingest_1 2>/dev/null; \
 		cd $(REMOTE)/orbit-poc && podman-compose up -d --no-recreate ingest && \
 		podman update --restart=always orbit-poc_ingest_1'
+
+# v2 stack (Keycloak) — isolated compose project ovw2.
+v2-up: sync
+	ssh $(VM) 'set -e; cd $(REMOTE)/orbit-poc/v2 && test -f .env || { echo "v2/.env missing on VM"; exit 1; }; \
+		podman-compose -p ovw2 -f docker-compose.yml up -d 2>&1 | tail -2; \
+		for c in $$(podman ps --format "{{.Names}}" | grep ^ovw2); do podman update --restart=always $$c >/dev/null; done; \
+		bash $(REMOTE)/deploy/v2-init.sh'
+
+v2-logs:
+	ssh $(VM) 'podman logs --tail=80 ovw2_keycloak_1'
 
 logs:
 	ssh $(VM) 'cd $(REMOTE)/orbit-poc && podman-compose logs --tail=100'

@@ -1,0 +1,41 @@
+{
+  "realm": "overwatch",
+  "enabled": true,
+  "displayName": "Overwatch",
+  "registrationAllowed": true,
+  "registrationEmailAsUsername": true,
+  "verifyEmail": false,
+  "resetPasswordAllowed": true,
+  "organizationsEnabled": true,
+  "sslRequired": "external",
+  "clients": [
+    {
+      "clientId": "overwatch",
+      "name": "Overwatch (single client: app + Grafana + API audience)",
+      "publicClient": false,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": [
+        "https://overwatch.confinia.io/api/v1/auth/callback",
+        "https://overwatch.confinia.io/grafana2/login/generic_oauth"
+      ],
+      "webOrigins": [
+        "https://overwatch.confinia.io"
+      ],
+      "secret": "REPLACED_AT_DEPLOY",
+      "attributes": {
+        "post.logout.redirect.uris": "https://overwatch.confinia.io/*"
+      },
+      "defaultClientScopes": [
+        "web-origins",
+        "acr",
+        "profile",
+        "roles",
+        "basic",
+        "email",
+        "organization"
+      ]
+    }
+  ],
+  "accessTokenLifespan": 1800
+}
