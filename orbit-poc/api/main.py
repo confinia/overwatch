@@ -544,16 +544,19 @@ def _require_org(request: Request):
     if not org:
         raise HTTPException(403, "No organization yet: POST /api/v1/orgs {\"name\"}")
     with cursor() as cur:
-        cur.execute("""INSERT INTO org_user (sub, org, email, name, last_seen)
-                       VALUES (%s::uuid, %s::uuid, %s, %s, now())
-                       ON CONFLICT (sub, org) DO UPDATE SET last_seen = now(),
-                         email = EXCLUDED.email, name = EXCLUDED.name""",
-                    (c["sub"], org[0], c.get("email"), c.get("name")))
+        # Order matters: organization and its tenant must exist before the
+        # org_user row that references them (a user arriving from an upstream
+        # Keycloak invitation has neither locally yet).
         cur.execute("""INSERT INTO organization (id, name) VALUES (%s::uuid, %s)
                        ON CONFLICT (id) DO NOTHING""", (org[0], org[1]))
         cur.execute("""INSERT INTO tenant (key, name, email)
                        VALUES (%s::uuid, %s, %s) ON CONFLICT (key) DO NOTHING""",
                     (org[0], org[1], c.get("email", "")))
+        cur.execute("""INSERT INTO org_user (sub, org, email, name, last_seen)
+                       VALUES (%s::uuid, %s::uuid, %s, %s, now())
+                       ON CONFLICT (sub, org) DO UPDATE SET last_seen = now(),
+                         email = EXCLUDED.email, name = EXCLUDED.name""",
+                    (c["sub"], org[0], c.get("email"), c.get("name")))
         cur.connection.commit()
     return c, org
 
