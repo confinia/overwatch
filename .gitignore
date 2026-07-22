@@ -12,3 +12,7 @@ orbit-poc/version.env
 CHAT_02/
 !/README.md
 !/TENANT.md
+!/TEST_SUBSCRIPTION.md
+!/TEST_POLAR.md
+!/SPECIFICATIONS.md
+!/MONITORING.md
