@@ -90,6 +90,14 @@ The Overwatch application holds no passwords. It keeps:
 
 ## 3 · Grafana — tenant-isolated dashboards
 
+Grafana runs **two access modes at once**:
+- **Anonymous → a public Grafana org, Viewer role**: the free open-data
+  dashboards (orbit-telemetry, fleet-overview, ground-stations), embedded
+  in the public frontend, no login. This stays — open data is always free.
+- **Signed-in (OIDC) → the user's own tenant org, Editor role**: private
+  dashboards over private data. Invisible to anonymous visitors (they only
+  ever see the public org).
+
 One **Grafana organization per tenant organization**, provisioned
 automatically when the org is activated:
 
