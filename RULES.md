@@ -43,3 +43,7 @@ Conventions for humans and AI agents working on this project.
    English — no exceptions, regardless of the language of the conversation
    that produced them. (Public-facing product copy may be localized; this
    rule is about code and repository documentation.)
+12. **Always link issues and PRs.** Whenever an issue or pull request is
+   referenced in chat, provide its full URL
+   (https://github.com/confinia/overwatch/issues/N or /pull/N) so it is
+   one click away. A bare `#N` is not enough in conversation.
