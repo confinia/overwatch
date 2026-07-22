@@ -105,6 +105,10 @@ CREATE TABLE IF NOT EXISTS tenant_telemetry (
 );
 CREATE INDEX IF NOT EXISTS tenant_tlm_idx
     ON tenant_telemetry (tenant, satellite, field, ts DESC);
+-- Row-level security: per-org DB roles (provisioned on org creation) may
+-- read ONLY their own org's rows — the isolation guarantee behind each
+-- tenant's Grafana datasource, enforced by Postgres, not the app.
+ALTER TABLE tenant_telemetry ENABLE ROW LEVEL SECURITY;
 """
 
 
@@ -563,8 +567,39 @@ def _require_org(request: Request):
                        ON CONFLICT (sub, org) DO UPDATE SET last_seen = now(),
                          email = EXCLUDED.email, name = EXCLUDED.name""",
                     (c["sub"], org[0], c.get("email"), c.get("name")))
+        _provision_org_db(cur, org[0])
         cur.connection.commit()
     return c, org
+
+
+import hmac as _hmac
+ORG_DB_SECRET = os.environ.get("ORG_DB_SECRET", "")
+
+
+def _org_role(org_id: str) -> tuple[str, str]:
+    """Deterministic per-org DB role name + password (derived, never stored):
+    the read-only Postgres identity a tenant's Grafana datasource uses."""
+    role = "org_" + org_id.replace("-", "")[:24]
+    pw = _hmac.new(ORG_DB_SECRET.encode(), org_id.encode(), "sha256").hexdigest()[:32]
+    return role, pw
+
+
+def _provision_org_db(cur, org_id: str) -> None:
+    """Idempotently create the org's RLS-scoped read role + policy. The role
+    (non-superuser) is subject to RLS and can only SELECT this org's rows.
+    Requires ORG_DB_SECRET; no-op without it (self-host / tests may skip)."""
+    if not ORG_DB_SECRET:
+        return
+    role, pw = _org_role(org_id)
+    cur.execute("SELECT 1 FROM pg_roles WHERE rolname = %s", (role,))
+    if not cur.fetchone():
+        cur.execute(f'CREATE ROLE "{role}" LOGIN PASSWORD %s', (pw,))
+    cur.execute(f'GRANT SELECT ON tenant_telemetry TO "{role}"')
+    cur.execute("SELECT 1 FROM pg_policies WHERE tablename = 'tenant_telemetry' AND policyname = %s",
+                (role + "_pol",))
+    if not cur.fetchone():
+        cur.execute(f'CREATE POLICY "{role}_pol" ON tenant_telemetry '
+                    f'FOR SELECT TO "{role}" USING (tenant = %s::uuid)', (org_id,))
 
 
 def _kc_admin_token() -> str:
@@ -660,6 +695,7 @@ def create_org(request: Request, body: OrgCreate):
         cur.execute("""INSERT INTO tenant (key, name, email)
                        VALUES (%s::uuid, %s, %s) ON CONFLICT (key) DO NOTHING""",
                     (org_id, name, c.get("email", "")))
+        _provision_org_db(cur, org_id)
         cur.connection.commit()
     return {"id": org_id, "name": name,
             "note": "Sign in again so your session carries the organization."}
