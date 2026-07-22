@@ -109,6 +109,29 @@ def test_service_token_push_and_read(client, monkeypatch):
     assert series and series[0]["value"] == 20.5
 
 
+def test_delete_org_purges_data_keeps_tombstone(client, monkeypatch):
+    import psycopg2
+    org = str(uuid.uuid4())
+    _as_user(monkeypatch, str(uuid.uuid4()), org, "Temp Org")
+    tok = client.post("/v1/org/tokens", json={"label": "t"}).json()["token"]
+    client.post(f"/v1/tenants/{tok}/telemetry", json={"satellite": "TMP",
+        "points": [{"ts": "2026-07-22T10:00:00Z", "field": "f", "value": 1}]})
+
+    r = client.delete(f"/v1/orgs/{org}")
+    assert r.status_code == 200 and r.json()["deleted"] == org
+
+    conn = psycopg2.connect(os.environ["DB_DSN"])
+    with conn, conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM tenant_telemetry WHERE tenant=%s", (org,))
+        assert cur.fetchone()[0] == 0                         # data purged
+        cur.execute("SELECT archived_at FROM organization WHERE id=%s", (org,))
+        assert cur.fetchone()[0] is not None                 # tombstone kept
+    conn.close()
+
+    # a stale session for the deleted org is refused
+    assert client.get("/v1/org/satellites").status_code == 410
+
+
 def test_unknown_token_rejected(client):
     r = client.post(f"/v1/tenants/{uuid.uuid4()}/telemetry",
                     json={"satellite": "X", "points": []})
