@@ -35,6 +35,20 @@ def db():
     return psycopg2.connect(DB_DSN, cursor_factory=RealDictCursor)
 
 
+# A station can only hear a LEO satellite above its horizon (~2600 km ground
+# distance for typical altitudes). The reception timestamp does not always
+# align with the true frame time, so matching it to the continuous position
+# cache can land on a random orbit point; this great-circle guard drops those
+# physically impossible links (the station dot still shows; only the line to
+# the sub-satellite point is suppressed). 3000 km covers LEO up to ~800 km.
+HORIZON_KM = 3000
+_within_horizon = """
+    2*6371*asin(sqrt(power(sin(radians(p.lat - r.lat)/2), 2)
+      + cos(radians(r.lat))*cos(radians(p.lat))
+        *power(sin(radians(p.lon - r.lon)/2), 2))) <= %s
+"""
+
+
 @app.get("/api/satellites")
 def satellites():
     """Latest known position for each showcase satellite + metadata."""
@@ -71,9 +85,9 @@ def receptions(norad):
                   AND ts BETWEEN r.ts - interval '2 minutes'
                              AND r.ts + interval '2 minutes'
                 ORDER BY abs(extract(epoch FROM ts - r.ts)) LIMIT 1
-            ) p ON true
+            ) p ON """ + _within_horizon + """
             WHERE r.norad = %s AND r.ts > now() - interval '7 days'
-            ORDER BY r.ts DESC LIMIT 300""", (norad,))
+            ORDER BY r.ts DESC LIMIT 300""", (HORIZON_KM, norad,))
         return jsonify(cur.fetchall())
 
 
@@ -118,9 +132,9 @@ def station(observer):
                   AND ts BETWEEN r.ts - interval '2 minutes'
                              AND r.ts + interval '2 minutes'
                 ORDER BY abs(extract(epoch FROM ts - r.ts)) LIMIT 1
-            ) p ON true
+            ) p ON """ + _within_horizon + """
             WHERE r.observer = %s AND r.ts > now() - interval '7 days'
-            ORDER BY r.ts DESC LIMIT 500""", (observer,))
+            ORDER BY r.ts DESC LIMIT 500""", (HORIZON_KM, observer,))
         return jsonify(cur.fetchall())
 
 
