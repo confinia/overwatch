@@ -164,6 +164,7 @@ async function loadAccount(){
     const me = await r.json();
     if (me.organization){
       el.innerHTML = ` · <b>${me.organization.name}</b> ` +
+        `<a href="#" onclick="deleteOrg('${me.organization.id}','${me.organization.name}');return false" style="color:var(--dim)">delete org</a> · ` +
         `<a href="${API_BASE}/api/v1/auth/logout" style="color:var(--dim)">sign out</a>`;
       const inv = await (await fetch(`${API_BASE}/api/v1/org/satellites`)).json();
       const by = {};
@@ -184,6 +185,12 @@ async function loadAccount(){
   if (!orgInfo) showOpen = true;       // anonymous: always full open data
   applyOpenVisibility();
   renderList(allSats);
+}
+async function deleteOrg(id, name){
+  if (!confirm(`Delete organization "${name}"? This purges its private data — irreversible.`)) return;
+  const r = await fetch(`${API_BASE}/api/v1/orgs/${id}`, { method: "DELETE" });
+  if (r.ok) { alert("Organization deleted."); location.href = `${API_BASE}/api/v1/auth/logout`; }
+  else alert((await r.json().catch(()=>({}))).detail || "Could not delete the organization.");
 }
 async function createOrg(){
   const name = prompt("Organization name:");

@@ -67,6 +67,13 @@ The only organization data the SaaS owns is what Keycloak cannot know:
 quotas, subscription state (billing), service tokens, and the telemetry
 itself.
 
+**Deleting an organization** (`DELETE /api/v1/orgs/{id}`, org member of
+that org; also a frontend "delete org" action): purges the private data
+(telemetry, tokens, memberships, tenant) and deletes the Keycloak
+organization, but keeps a **tombstone** row (name, created_at,
+archived_at) so removals stay measurable (accounts dashboard, #28). A
+stale session still carrying a deleted org is refused (410). Irreversible.
+
 ## 2 · Overwatch SaaS — the organization registry
 
 The Overwatch application holds no passwords. It keeps:
