@@ -3,7 +3,7 @@ VM      := confinia-ovh-debian
 REMOTE  := ~/projects/overwatch
 CONFINIA:= ~/projects/confinia
 
-.PHONY: sync test stage promote rollback status deploy deploy-full ingest caddy edge logs ps down
+.PHONY: sync test stage promote rollback status deploy deploy-full ingest caddy edge clemsat-up clemsat-down logs ps down
 
 # Push the repo to the VM (secrets in .env stay VM-side, tarball stays local).
 # version.env is generated from the VERSION file; the generated Caddyfile and
@@ -86,6 +86,14 @@ ingest: sync
 		podman rm -f orbit-poc_ingest_1 2>/dev/null; \
 		cd $(REMOTE)/orbit-poc && podman-compose up -d --no-recreate ingest && \
 		podman update --restart=always orbit-poc_ingest_1'
+
+# CLEMSAT-1 demo (#27): provision a demo tenant + run the fake-satellite
+# generator pushing plausible telemetry through the public API.
+clemsat-up: sync
+	ssh $(VM) 'bash $(REMOTE)/deploy/clemsat.sh up'
+
+clemsat-down:
+	ssh $(VM) 'bash $(REMOTE)/deploy/clemsat.sh down'
 
 # v2 stack (Keycloak) — isolated compose project ovw2.
 v2-up: sync
