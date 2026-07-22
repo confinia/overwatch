@@ -47,3 +47,8 @@ Conventions for humans and AI agents working on this project.
    referenced in chat, provide its full URL
    (https://github.com/confinia/overwatch/issues/N or /pull/N) so it is
    one click away. A bare `#N` is not enough in conversation.
+13. **Every issue ships with a test.** Each issue must expose a unit or
+   end-to-end test that verifies its outcome and would catch its
+   regression. These tests live in the suites run by the CI gate
+   (`make test`), so they execute after every deployment. An issue is not
+   "done" without such a test.

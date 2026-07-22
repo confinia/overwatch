@@ -5,15 +5,15 @@ Do not edit by hand.
 
 | Suite | Result | Covers |
 |---|---|---|
-| subscription | 8 passed, 1 warning in 2.42s | signup, org isolation, service tokens, quotas |
-| polar | 6 passed in 2.04s | pro-account product, trial, discount codes |
+| subscription | 10 passed, 1 warning in 7.07s | signup, org isolation, service tokens, quotas |
+| polar | 6 passed in 1.61s | pro-account product, trial, discount codes |
 
-**Run:** 2026-07-22 10:26 UTC · host: VM (podman) · ALL GREEN ✅
+**Run:** 2026-07-22 20:36 UTC · host: VM (podman) · ALL GREEN ✅
 
 <details><summary>raw</summary>
 
 ```
-8 passed, 1 warning in 2.42s
-6 passed in 2.04s
+10 passed, 1 warning in 7.07s
+6 passed in 1.61s
 ```
 </details>
