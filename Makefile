@@ -3,7 +3,7 @@ VM      := confinia-ovh-debian
 REMOTE  := ~/projects/overwatch
 CONFINIA:= ~/projects/confinia
 
-.PHONY: sync stage promote rollback status deploy deploy-full ingest caddy edge logs ps down
+.PHONY: sync test stage promote rollback status deploy deploy-full ingest caddy edge logs ps down
 
 # Push the repo to the VM (secrets in .env stay VM-side, tarball stays local).
 # version.env is generated from the VERSION file; the generated Caddyfile and
@@ -31,7 +31,15 @@ sync:
 #   make deploy    -> stage + promote in one go (fast path, no manual gate)
 # Core singletons via compose, created only if absent; `make ingest` or
 # deploy-full to update them.
-stage: sync
+# Automated tests (CI gate) — runs both suites in throwaway containers on the
+# VM and writes TEST_RESULTS.md. `make stage` runs it first: no candidate is
+# built on a red suite. GitHub Actions workflow also exists (.github/) for
+# when a workflow-scoped token is available; this gate is the always-on path.
+test: sync
+	ssh $(VM) 'bash $(REMOTE)/deploy/run-tests.sh'
+	scp -q $(VM):$(REMOTE)/TEST_RESULTS.md ./TEST_RESULTS.md
+
+stage: test
 	ssh $(VM) 'set -e; cd $(REMOTE)/orbit-poc && test -f .env || cp .env.example .env; \
 		podman-compose up -d --no-recreate db ingest grafana otel-collector prometheus caddy; \
 		for c in $$(podman ps --format "{{.Names}}" | grep ^orbit-poc); do \
