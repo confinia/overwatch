@@ -65,8 +65,10 @@ CREATE TABLE IF NOT EXISTS organization (
     id         uuid PRIMARY KEY,
     name       text NOT NULL,
     active     boolean NOT NULL DEFAULT true,
-    created_at timestamptz NOT NULL DEFAULT now()
+    created_at timestamptz NOT NULL DEFAULT now(),
+    archived_at timestamptz            -- soft-delete tombstone (removals metric)
 );
+ALTER TABLE organization ADD COLUMN IF NOT EXISTS archived_at timestamptz;
 CREATE TABLE IF NOT EXISTS org_user (
     sub        uuid NOT NULL,
     org        uuid NOT NULL REFERENCES organization(id),
@@ -544,6 +546,10 @@ def _require_org(request: Request):
     if not org:
         raise HTTPException(403, "No organization yet: POST /api/v1/orgs {\"name\"}")
     with cursor() as cur:
+        cur.execute("SELECT archived_at FROM organization WHERE id = %s::uuid", (org[0],))
+        row = cur.fetchone()
+        if row and row[0]:
+            raise HTTPException(410, "This organization has been deleted.")
         # Order matters: organization and its tenant must exist before the
         # org_user row that references them (a user arriving from an upstream
         # Keycloak invitation has neither locally yet).
@@ -713,6 +719,35 @@ def org_token_list(request: Request):
         return [{"token": str(t)[:8] + "…", "label": l,
                  "created": c.isoformat(), "revoked": r}
                 for t, l, c, r in cur.fetchall()]
+
+
+@app.delete("/v1/orgs/{org_id}")
+def delete_org(request: Request, org_id: str):
+    """Delete the caller's own organization: purge its private data and its
+    Keycloak organization, keep a tombstone row (name, created_at,
+    archived_at) so removals stay measurable. Irreversible."""
+    c, org = _require_org(request)
+    if org[0] != org_id:
+        raise HTTPException(403, "You can only delete your own organization.")
+    # Purge private data (customer data goes), keep the org row as tombstone.
+    with cursor() as cur:
+        cur.execute("DELETE FROM tenant_telemetry WHERE tenant = %s::uuid", (org_id,))
+        cur.execute("DELETE FROM org_token WHERE org = %s::uuid", (org_id,))
+        cur.execute("DELETE FROM org_user WHERE org = %s::uuid", (org_id,))
+        cur.execute("DELETE FROM tenant WHERE key = %s::uuid", (org_id,))
+        cur.execute("""UPDATE organization SET active = false, archived_at = now()
+                       WHERE id = %s::uuid""", (org_id,))
+        cur.connection.commit()
+    # Delete the Keycloak organization (source of truth). Best-effort: the
+    # local purge already happened; log but do not fail the request.
+    try:
+        at = _kc_admin_token()
+        base = f"{KC_INTERNAL.rsplit('/realms/',1)[0]}/admin/realms/overwatch"
+        _rq.delete(f"{base}/organizations/{org_id}",
+                   headers={"Authorization": f"Bearer {at}"}, timeout=15)
+    except Exception as e:
+        print(f"[org-delete] Keycloak org {org_id} not removed: {e}")
+    return {"deleted": org_id, "name": org[1]}
 
 
 # --- Private tenants: push YOUR telemetry, observe it immediately ----------
