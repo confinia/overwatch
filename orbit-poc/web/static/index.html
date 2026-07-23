@@ -80,6 +80,11 @@
     background:var(--live); margin-right:6px; vertical-align:middle;
     animation:pulse 1.6s infinite; }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
+  #rxlegend { position:absolute; bottom:12px; left:10px; z-index:5; max-width:290px;
+    background:rgba(18,24,38,.9); border:1px solid var(--line); border-left:3px solid #f5a623;
+    border-radius:8px; padding:8px 12px; font-size:12px; color:var(--text); line-height:1.4; }
+  #rxlegend b { color:#f5a623; }
+  #rxlegend .sub { color:var(--dim); font-size:11px; margin-top:2px; }
   .maplibregl-popup-content { background:#121826; color:var(--text);
     border:1px solid var(--line); border-radius:8px; padding:10px 12px;
     font-size:12px; line-height:1.55; box-shadow:0 4px 18px rgba(0,0,0,.5); }
@@ -99,6 +104,7 @@
   <div id="left">
     <div id="map"></div>
     <div id="fleetbar" title="Fleet link status">loading fleet…</div>
+    <div id="rxlegend" style="display:none"></div>
     <div id="panel">
       <div class="head" id="panelHead">Select a satellite to inspect its telemetry</div>
       <div id="panelBody">
@@ -145,7 +151,7 @@ let showOpen = true;
 function applyOpenVisibility(){
   const vis = showOpen ? "visible" : "none";
   for (const l of ["sats","sats-hit","sat-labels","track","rx-links",
-                   "rx-links-hit","rx-stations","rx-stations-hit","rx-station-labels"]){
+                   "rx-links-glow","rx-endpoints","rx-links-hit","rx-stations","rx-stations-hit","rx-station-labels"]){
     try { if (map.getLayer(l)) map.setLayoutProperty(l, "visibility", vis); } catch(e){}
   }
   const fb = document.getElementById("fleetbar");
@@ -471,7 +477,13 @@ async function selectStation(observer){
   }
   map.getSource("rx-links").setData({ type:"FeatureCollection", features: links });
   map.getSource("rx-stations").setData({ type:"FeatureCollection", features: stations });
+  map.getSource("rx-endpoints").setData({ type:"FeatureCollection",
+    features: links.map(l => ({ type:"Feature",
+      geometry:{ type:"Point", coordinates: l.geometry.coordinates[1] }, properties:{} })) });
   const sats = Object.values(bySat).sort((a, b) => b.n - a.n);
+  setRxLegend(`<b>${observer.split("-")[0]}</b> — this station's receptions` +
+    `<div class="sub">${recs.length} frames across ${sats.length} satellites, last 7 days. ` +
+    `Each line points to where a satellite was when this station heard it.</div>`);
   body.innerHTML = `<div class="empty" style="overflow-y:auto; height:100%">` +
     `<b>${recs.length} receptions · ${sats.length} satellites (last 7 days)</b><br><br>` +
     sats.map(x => `${x.name} — ${x.n} frame${x.n>1?"s":""}, last ${age(x.last)}`).join("<br>") +
@@ -585,6 +597,21 @@ async function drawReceptions(norad){
                  observer: obs, n: a.n, first: a.first, last: a.last } }));
   map.getSource("rx-stations").setData({ type:"FeatureCollection", features: stations });
   map.getSource("rx-links").setData({ type:"FeatureCollection", features: links });
+  map.getSource("rx-endpoints").setData({ type:"FeatureCollection",
+    features: links.map(l => ({ type:"Feature",
+      geometry:{ type:"Point", coordinates: l.geometry.coordinates[1] }, properties:{} })) });
+  const frames = recs.length, nst = stations.length;
+  setRxLegend(nst
+    ? `<b>${nst} ground station${nst>1?"s":""}</b> heard this satellite` +
+      `<div class="sub">${frames} reception${frames>1?"s":""}, last 7 days — each orange line ` +
+      `points to where the satellite was when a volunteer station decoded a frame. Click one.</div>`
+    : "");
+}
+
+function setRxLegend(html){
+  const el = document.getElementById("rxlegend");
+  if (!el) return;
+  el.innerHTML = html; el.style.display = html ? "block" : "none";
 }
 
 let trackSourceAdded = false;
@@ -628,8 +655,15 @@ map.on("load", () => {
   // Reception network layers (populated when a satellite is selected).
   const empty = { type:"FeatureCollection", features: [] };
   map.addSource("rx-links", { type:"geojson", data: empty });
+  // Soft glow under the lines so the reception network reads at a glance.
+  map.addLayer({ id:"rx-links-glow", type:"line", source:"rx-links",
+    paint:{ "line-color":"#f5a623", "line-width":4, "line-opacity":0.18, "line-blur":3 }});
   map.addLayer({ id:"rx-links", type:"line", source:"rx-links",
-    paint:{ "line-color":"rgba(245,166,35,.45)", "line-width":1 }});
+    paint:{ "line-color":"rgba(245,166,35,.8)", "line-width":1.4 }});
+  // Endpoint dots: each line ends where the satellite WAS when heard.
+  map.addSource("rx-endpoints", { type:"geojson", data: empty });
+  map.addLayer({ id:"rx-endpoints", type:"circle", source:"rx-endpoints",
+    paint:{ "circle-radius":2.5, "circle-color":"#ffcf6b", "circle-opacity":0.7 }});
   // Invisible wide twin of rx-links: a 1px line is unclickable, this isn't.
   map.addLayer({ id:"rx-links-hit", type:"line", source:"rx-links",
     paint:{ "line-color":"#f5a623", "line-width":12, "line-opacity":0.001 }});
