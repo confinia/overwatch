@@ -52,3 +52,9 @@ Conventions for humans and AI agents working on this project.
    regression. These tests live in the suites run by the CI gate
    (`make test`), so they execute after every deployment. An issue is not
    "done" without such a test.
+14. **Surface business & marketing moves proactively.** Regularly — not
+   only when asked — prompt the founder about the business/marketing
+   actions that would improve the odds of making business: leads to
+   contact or follow up, meetings to book, content to publish, demos to
+   run, positioning, timing. Connect shipped features to concrete
+   commercial next steps; do not let the work stay purely technical.
