@@ -3,24 +3,21 @@
 orbit-poc.tar.gz
 .DS_Store
 
-# internal working docs — kept local only
-/*.md
+# Markdown is LOCAL-ONLY by default — it often carries strategic/internal
+# info. Only the docs explicitly meant to be public are allowlisted below.
+# (Never git add/commit/push markdown unless explicitly asked.)
+*.md
+!/README.md
+!/FAQ.md
+!/orbit-poc/README.md
+!/batch/README.md
+!/orbit-poc/clemsat/README.md
+!/orbit-poc/v2/README.md
+
 __pycache__/
 orbit-poc/deploy/caddy/Caddyfile
 orbit-poc/deploy/caddy/LIVE_COLOR
 orbit-poc/version.env
 CHAT_02/
-!/README.md
-!/TENANT.md
-!/TEST_SUBSCRIPTION.md
-!/TEST_POLAR.md
-!/SPECIFICATIONS.md
-!/MONITORING.md
-!/TEST_RESULTS.md
-SECURITY_ANALYSIS.md
-!/CESIUMJS.md
-MEDIA.md
-!/SATELLITE_VIEW.md
-!/PRO.md
-!/FAQ.md
 /SKYNOPY*
+contact/
