@@ -158,7 +158,7 @@ Steps 1–2 are a couple of days and already deliver the differentiator.
 ## Why it matters for Overwatch
 
 This is exactly the "control room" the product name promises, and it maps to
-the operator/AIT audience (framing B): a sovereign, self-hosted control room
+operator and AIT teams: a sovereign, self-hosted control room
 that a NewSpace ops team lays out across their own wall by writing URLs —
 no per-tenant custom UI, no backend layout engine. It reuses the existing
 views (globe, telemetry, receptions) as `/w/` windows; the tenant model

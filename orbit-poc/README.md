@@ -93,9 +93,8 @@ Positions and orbit tracks need **no account at all**.
   satellite's decoded schema differs; tighten it per satellite as you learn
   their frames.
 
-## Next step toward a product
+## Extending to private telemetry
 
-The paid conversation with a NewSpace operator (U-Space-type) is:
-"now pipe in *our* private telemetry instead of SatNOGS, in an isolated
-sovereign tenant." That is a datasource swap plus the auth-proxy — both of which
-this layout is built to accept without restructuring.
+The same layout accepts a private telemetry source in an isolated tenant
+(datasource swap + per-tenant auth) without restructuring — see
+[TENANT.md](../TENANT.md) for the multi-tenant model.
