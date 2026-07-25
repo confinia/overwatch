@@ -144,8 +144,9 @@
 const LOCAL = ["localhost", "127.0.0.1"].includes(location.hostname);
 const MIRROR = location.hostname.endsWith("github.io");
 const API_BASE = MIRROR ? "https://overwatch.confinia.io" : "";
-const GRAFANA = LOCAL ? "http://localhost:3001/grafana"
-                      : `${API_BASE}/grafana`;
+// Grafana is always same-origin under /grafana (behind caddy in every
+// deployment: production, staging, and self-host). LOCAL kept for the beacon.
+const GRAFANA = `${API_BASE}/grafana`;
 const DASH_UID = "orbit-telemetry";
 // Coarse pointer (phones/tablets): draw visibly bigger dots — a 4px target
 // is neither tappable nor perceived as tappable on a phone.
