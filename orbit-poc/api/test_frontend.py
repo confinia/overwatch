@@ -79,3 +79,10 @@ def test_reception_legend_anchored_top_right(html):   # #62
     # anchored to the top-right, not the bottom-left (border-left is unrelated)
     assert re.search(r"\btop:\s*\d", rule) and re.search(r"[; {]right:\s*\d", rule)
     assert "bottom:" not in rule and not re.search(r"[; {]left:\s*\d", rule)
+
+
+def test_track_splits_at_antimeridian(html):     # #66
+    # the ground track is split at the ±180 seam so it can't paint a chord/
+    # circle across the globe near the poles
+    assert "splitAntimeridian" in html
+    assert "MultiLineString" in html
