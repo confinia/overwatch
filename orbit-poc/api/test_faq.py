@@ -35,6 +35,15 @@ def test_faq_explains_how_to_track_more():
     assert "satnogs-decoders" in t
 
 
+def test_faq_explains_decoders_are_not_live_satellites():
+    t = _faq_text().lower()
+    # the "161 decoders but only ~23 satellites" answer: decoders != live sats,
+    # cut down by the freshness gate (dead/silent targets have no recent frames)
+    assert "161" in t
+    assert "silent" in t or "dead" in t or "decayed" in t
+    assert "freshness" in t or "7 days" in t or "7-day" in t
+
+
 def test_faq_covers_expected_questions():
     t = _faq_text()
     # a real FAQ, not a stub: several distinct question headings
