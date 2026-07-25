@@ -58,3 +58,12 @@ Conventions for humans and AI agents working on this project.
    contact or follow up, meetings to book, content to publish, demos to
    run, positioning, timing. Connect shipped features to concrete
    commercial next steps; do not let the work stay purely technical.
+15. **No internal business info in the git repo.** Never commit business-
+   sensitive content into tracked markdown (or any file): go-to-market
+   strategy, the product framings, lead/contact names and relationships,
+   pricing strategy and the incorporation rule, competitor assessments,
+   revenue plans, comm-log details. These live in gitignored working docs
+   (BUSINESS.md, TODO.md, MEDIA.md, SECURITY_ANALYSIS.md, …). Tracked docs
+   are product/architecture/marketing only (README, TENANT, SPECIFICATIONS,
+   MONITORING, SECURITY, PRO, SATELLITE_VIEW, CESIUMJS, TEST_*). Customer-
+   facing pricing on a marketing page is fine; internal strategy is not.
