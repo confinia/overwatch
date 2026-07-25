@@ -1,0 +1,91 @@
+# Overwatch — self-host (issue #53). One command, zero config:
+#
+#   docker compose -f docker-compose.selfhost.yml up
+#   → open http://localhost:8080
+#
+# Runs the full OPEN-DATA instance (globe + telemetry + API + Grafana). No
+# SatNOGS token needed (positions/orbits work without it; add one to light up
+# telemetry — see SATNOGS_TOKEN below). No Keycloak/Polar/tenants: the paid
+# multi-tenant machinery is a separate stack and OFF here by design.
+services:
+  db:
+    image: docker.io/library/postgres:16
+    environment:
+      POSTGRES_USER: orbit
+      POSTGRES_PASSWORD: orbit
+      POSTGRES_DB: orbit
+    volumes:
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - selfhost_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U orbit"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  ingest:
+    build: ./ingest
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_DSN: "dbname=orbit user=orbit password=orbit host=db port=5432"
+      ELEMENTS_INTERVAL: "21600"
+      CELESTRAK_GROUPS: ""
+      POSITION_INTERVAL: "15"
+      TELEMETRY_INTERVAL: "1800"
+      SATNOGS_TOKEN: ""          # optional: paste a free db.satnogs.org key to light up telemetry
+    restart: unless-stopped
+
+  web:
+    build: ./web
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_DSN: "dbname=orbit user=orbit password=orbit host=db port=5432"
+    restart: unless-stopped
+
+  api:
+    build: ./api
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_DSN: "dbname=orbit user=orbit password=orbit host=db port=5432"
+      REQUIRE_API_KEY: "false"
+      # ORG_DB_SECRET / POLAR / Keycloak unset -> tenants & billing OFF (self-host).
+    restart: unless-stopped
+
+  grafana:
+    image: docker.io/grafana/grafana:11.2.0
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Viewer"
+      GF_SECURITY_ALLOW_EMBEDDING: "true"
+      GF_SECURITY_COOKIE_SAMESITE: "disabled"
+      GF_USERS_DEFAULT_THEME: "dark"
+      GF_DASHBOARDS_MIN_REFRESH_INTERVAL: "15s"
+      GF_SERVER_ROOT_URL: "http://localhost:8080/grafana"
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+    volumes:
+      - selfhost_grafana:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    restart: unless-stopped
+
+  caddy:
+    image: docker.io/library/caddy:2.11.4-alpine
+    depends_on: [web, api, grafana]
+    volumes:
+      - ./deploy/caddy/Caddyfile.selfhost:/etc/caddy/Caddyfile:ro
+    ports:
+      - "8080:80"        # → http://localhost:8080
+    restart: unless-stopped
+
+volumes:
+  selfhost_pgdata:
+  selfhost_grafana:
