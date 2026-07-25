@@ -28,6 +28,34 @@ faked or empty health. The map answers "which satellites' health can we
 actually read right now?", not "what is in orbit?" (there are thousands of
 objects up there; almost none broadcast decodable open telemetry).
 
+## We have ~161 decoders — why only ~23 satellites?
+
+Because the 161 are **decoders (code), not living satellites**. A `.ksy` stays
+in the library forever, but the satellite it was written for may have reentered,
+died, or gone silent years ago. Each weekly sweep turns those 161 potential
+targets into the live set through three filters, in order:
+
+1. **Name/alias match against the live catalog** → "candidates." Some decoders
+   match no current catalog entry (renamed satellite, NORAD-ID mismatch) and are
+   never even tried.
+2. **7-day freshness gate** — the satellite must have SatNOGS frames less than 7
+   days old. This is the big cut: most decoder targets are **dead, decayed, or
+   silent** and have no recent frames.
+3. **Frames must actually decode** into several fields — format drift or partial
+   recent frames drop a few more.
+
+What survives all three = *a decoder exists **and** the satellite is alive
+**and** it was heard this week **and** its frames parse* ≈ 23.
+
+The nuance that surprises people: **writing more decoders is not the immediate
+bottleneck** from ~23. With 161 decoders already in hand, the levers that would
+raise the number *today* are (a) **widening the freshness window** (7 → 30/90
+days — trivial config, but you would start showing satellites that may actually
+be dead, a hit to honest state), and (b) **improving name/NORAD matching** to
+recover candidates lost to aliasing. New decoders raise the *future ceiling* —
+they matter for satellites not covered at all — while the freshness gate sets
+how many of the covered ones are live right now.
+
 ## Could Overwatch track more satellites? What would be missing?
 
 Yes. There are three independent levers, in rough order of effort:
