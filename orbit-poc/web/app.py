@@ -163,6 +163,18 @@ def index():
     return send_from_directory("static", "index.html")
 
 
+@app.get("/w/<view>")
+def window(view):
+    """Chromeless, URL-driven control-room windows (#49): /w/<view> serves
+    <view>.html. e.g. /w/spacecraft?sat=25544&chrome=0 is the dedicated
+    spacecraft view (#55), embeddable in a control-room grid. Query params are
+    read client-side by the page."""
+    safe = view.replace("/", "").replace("..", "").replace("\\", "")
+    if os.path.isfile(os.path.join(app.static_folder, f"{safe}.html")):
+        return send_from_directory("static", f"{safe}.html")
+    return ("unknown view", 404)
+
+
 @app.get("/api/version")
 def version():
     """SaaS + API version for the frontend badge. Single source of truth is
