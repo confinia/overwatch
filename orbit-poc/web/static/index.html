@@ -78,11 +78,43 @@
   .gcell { height:280px; } .gcell.wide { grid-column:1/-1; }
   @media (max-width:900px){ .ggrid { grid-template-columns:1fr; } }
   .empty { padding:22px 16px; font-size:12px; color:var(--dim); line-height:1.5; }
+  /* Native "latest decoded fields" panel (#46 colour-by-source, #42 click-to-fly).
+     Replaces the old Grafana table iframe so clicks reach the parent map. */
+  .fields-cell { height:280px; overflow:auto; background:#0d1117;
+    border:1px solid var(--line); border-radius:4px; padding:8px 10px; }
+  .fields-cell .fhdr { font-size:12px; color:var(--text); display:flex;
+    justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;
+    margin-bottom:6px; }
+  .fields-cell .fhdr b { font-weight:600; }
+  .flegend { font-size:10px; color:var(--dim); display:flex; gap:10px; }
+  .flegend .k { display:inline-block; width:8px; height:8px; border-radius:2px;
+    margin-right:3px; vertical-align:middle; }
+  .flegend .k.canonical { background:var(--accent); }
+  .flegend .k.telemetry { background:var(--text); }
+  .flegend .k.transport { background:var(--dim); }
+  table.fields { width:100%; border-collapse:collapse; font-size:12px; }
+  table.fields th { text-align:left; color:var(--dim); font-weight:500;
+    font-size:10px; text-transform:uppercase; letter-spacing:.3px;
+    padding:2px 6px; border-bottom:1px solid var(--line);
+    position:sticky; top:0; background:#0d1117; }
+  table.fields td { padding:3px 6px; border-bottom:1px solid rgba(31,42,61,.5); }
+  tr.fld { cursor:pointer; }
+  tr.fld:hover { background:#0e1a2e; }
+  tr.fld.sel { background:#12314a; box-shadow: inset 3px 0 0 #ffd98a; }
+  tr.fld .fname { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+  tr.fld .fval { text-align:right; font-variant-numeric:tabular-nums;
+    color:var(--text); white-space:nowrap; }
+  tr.fld .fage { color:var(--dim); text-align:right; white-space:nowrap; }
+  /* #46 category colours: canonical stands out, transport recedes */
+  tr.fld.canonical .fname { color:var(--accent); font-weight:600; }
+  tr.fld.telemetry .fname { color:var(--text); }
+  tr.fld.transport { opacity:.5; }
+  tr.fld.transport .fname { color:var(--dim); }
   .dot { display:inline-block; width:7px; height:7px; border-radius:50%;
     background:var(--live); margin-right:6px; vertical-align:middle;
     animation:pulse 1.6s infinite; }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
-  #rxlegend { position:absolute; bottom:12px; left:10px; z-index:5; max-width:290px;
+  #rxlegend { position:absolute; top:10px; right:10px; z-index:5; max-width:290px;
     background:rgba(18,24,38,.9); border:1px solid var(--line); border-left:3px solid #f5a623;
     border-radius:8px; padding:8px 12px; font-size:12px; color:var(--text); line-height:1.4; }
   #rxlegend b { color:#f5a623; }
@@ -271,6 +303,7 @@ map.on("style.load", () => map.setProjection({ type: "globe" }));
 
 let activeNorad = null;
 let activeStation = null;          // observer string when in station mode
+let rxLinkFeatures = [];           // current reception lines (for #42 field->line)
 let allStations = [];              // 7-day station aggregate (search + list)
 async function loadStations(){
   try { allStations = await j("/api/stations"); } catch (e) {}
@@ -494,6 +527,7 @@ async function selectStation(observer){
   map.getSource("rx-endpoints").setData({ type:"FeatureCollection",
     features: links.map(l => ({ type:"Feature",
       geometry:{ type:"Point", coordinates: l.geometry.coordinates[1] }, properties:{} })) });
+  rxLinkFeatures = links; clearPulse();
   const sats = Object.values(bySat).sort((a, b) => b.n - a.n);
   setRxLegend(`<b>${observer.split("-")[0]}</b> — this station's receptions` +
     `<div class="sub">${recs.length} frames across ${sats.length} satellites, last 7 days. ` +
@@ -569,20 +603,122 @@ async function embedDashboards(s){
   const has = re => rich.some(f => re.test(f));
   // Panel ids from grafana/dashboards/public/orbit-telemetry.json; each
   // `show` mirrors that panel's SQL field filter.
+  // "Latest decoded fields" (panel 4) is now a NATIVE table below, not a
+  // Grafana iframe — so a field click can reach the parent map (#42) and each
+  // field can be coloured by its source category (#46).
   const panels = [
     { id: 5, wide: true, show: true },  // orbit altitude: position cache, live for every satellite
     { id: 1, show: rich.includes("battery_v") || has(/volt|vbat|v_bat|bat[a-z_]*_v$|panel_v$/i) },
     { id: 2, show: has(/temp|bat[a-z_]*_t$/i) },
     { id: 3, show: rich.includes("battery_i") || has(/current|curr|_i_|amp/i) },
-    { id: 4, show: all.length > 0 },  // latest decoded fields (sparse data still belongs in a table)
     { id: 6, show: rich.includes("battery_pct") },
     { id: 7, show: all.length > 0 },  // frames per hour
     { id: 8, wide: true, show: rich.includes("battery_v") },  // battery vs sunlight fusion
   ];
-  body.innerHTML = `<div class="ggrid">` + panels.filter(p => p.show).map(p =>
+  const grafanaCells = panels.filter(p => p.show).map(p =>
     `<div class="gcell${p.wide ? " wide" : ""}"><iframe loading="lazy" ` +
     `src="${GRAFANA}/d-solo/${DASH_UID}/orbit-telemetry?${qs}&panelId=${p.id}"></iframe></div>`
-  ).join("") + `</div>`;
+  ).join("");
+  const fieldsCell = all.length
+    ? `<div class="gcell wide fields-cell">${fieldsPanelHTML(all)}</div>` : "";
+  body.innerHTML = `<div class="ggrid">` + fieldsCell + grafanaCells + `</div>`;
+  if (all.length) wireFieldRows();
+}
+
+// Native "latest decoded fields" table. Fields are grouped by source category
+// (#46): canonical health first, then payload telemetry, then transport/
+// framing metadata dimmed — signal above noise. Rows are clickable (#42).
+function fieldsPanelHTML(fields){
+  const rank = { canonical: 0, telemetry: 1, transport: 2 };
+  const rows = fields.slice().sort((a, b) =>
+    (rank[a.source] - rank[b.source]) || a.field.localeCompare(b.field));
+  const rowsHTML = rows.map(f =>
+    `<tr class="fld ${f.source}" data-ts="${Date.parse(f.last_seen)}" ` +
+    `title="Click to fly to the reception that carried this field">` +
+    `<td class="fname">${escapeHTML(f.field)}</td>` +
+    `<td class="fval">${fmtValue(f.last_value)}</td>` +
+    `<td class="fage">${age(f.last_seen)}</td></tr>`).join("");
+  return `<div class="fhdr"><b>Latest decoded fields</b>` +
+    `<span class="flegend">` +
+    `<span><i class="k canonical"></i>canonical</span>` +
+    `<span><i class="k telemetry"></i>telemetry</span>` +
+    `<span><i class="k transport"></i>transport</span></span></div>` +
+    `<table class="fields"><thead><tr><th>field</th><th style="text-align:right">latest</th>` +
+    `<th style="text-align:right">last seen</th></tr></thead><tbody>${rowsHTML}</tbody></table>`;
+}
+
+function escapeHTML(s){
+  return String(s).replace(/[&<>"]/g, c =>
+    ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]));
+}
+function fmtValue(v){
+  if (v === null || v === undefined || v === "") return "—";
+  if (typeof v === "number")
+    return Number.isInteger(v) ? String(v)
+      : String(Number(v.toFixed(3))).replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "");
+  return escapeHTML(v);
+}
+
+// #42: clicking a decoded field flies the globe to the reception that carried
+// it — the orange line whose timestamp is closest to when the field was last
+// decoded — and pulses that line. Matches client-side against the receptions
+// already drawn (rxLinkFeatures); no extra API call.
+function wireFieldRows(){
+  document.querySelectorAll("tr.fld").forEach(tr =>
+    tr.addEventListener("click", () => jumpToReception(Number(tr.dataset.ts), tr)));
+}
+function jumpToReception(fieldTs, tr){
+  if (!rxLinkFeatures.length){
+    setRxLegend(`<b>No located reception to fly to</b><div class="sub">No station ` +
+      `heard this satellite with a known position in the last 7 days.</div>`);
+    return;
+  }
+  let best = null, bestD = Infinity;
+  for (const f of rxLinkFeatures){
+    const d = Math.abs(f.properties.ts - fieldTs);
+    if (d < bestD){ bestD = d; best = f; }
+  }
+  if (!best) return;
+  document.querySelectorAll("tr.fld.sel").forEach(e => e.classList.remove("sel"));
+  if (tr) tr.classList.add("sel");
+  const end = best.geometry.coordinates[1];   // [sat_lon, sat_lat] — where it was
+  map.flyTo({ center: end, zoom: Math.max(map.getZoom(), 2.7), duration: 1400 });
+  pulseLink(best);
+  const dtMin = Math.round(bestD / 60000);
+  const when = dtMin <= 0 ? "at the same moment"
+    : `~${dtMin} min ${best.properties.ts < fieldTs ? "before" : "after"}`;
+  setRxLegend(`<b>Reception that carried this field</b><div class="sub">` +
+    `nearest frame ${when}, decoded by <b>${escapeHTML(best.properties.observer.split("-")[0])}</b> — ` +
+    `satellite was over ${best.properties.slat}°, ${best.properties.slon}°.</div>`);
+}
+let pulseTimer = null, pulseStep = 0;
+function clearPulse(){
+  clearTimeout(pulseTimer);
+  const hi = map.getSource("rx-hi"), pt = map.getSource("rx-hi-pt");
+  const empty = { type:"FeatureCollection", features: [] };
+  try { if (hi) hi.setData(empty); if (pt) pt.setData(empty); } catch (e) {}
+}
+function pulseLink(feature){
+  const hi = map.getSource("rx-hi"), pt = map.getSource("rx-hi-pt");
+  if (!hi || !pt) return;
+  hi.setData({ type:"FeatureCollection", features:[feature] });
+  pt.setData({ type:"FeatureCollection", features:[{ type:"Feature",
+    geometry:{ type:"Point", coordinates: feature.geometry.coordinates[1] }, properties:{} }] });
+  clearTimeout(pulseTimer); pulseStep = 0;
+  const tick = () => {
+    pulseStep++;
+    const k = Math.abs(Math.sin(pulseStep / 2));
+    try {
+      map.setPaintProperty("rx-hi", "line-width", 3 + 2.5 * k);
+      map.setPaintProperty("rx-hi-pt", "circle-radius", 5 + 3 * k);
+    } catch (e) {}
+    if (pulseStep < 12) pulseTimer = setTimeout(tick, 170);
+    else pulseTimer = setTimeout(() => {
+      try { hi.setData({ type:"FeatureCollection", features:[] });
+            pt.setData({ type:"FeatureCollection", features:[] }); } catch (e) {}
+    }, 1400);
+  };
+  tick();
 }
 
 // Ground stations that heard the selected satellite (last 7 days), with
@@ -614,6 +750,8 @@ async function drawReceptions(norad){
   map.getSource("rx-endpoints").setData({ type:"FeatureCollection",
     features: links.map(l => ({ type:"Feature",
       geometry:{ type:"Point", coordinates: l.geometry.coordinates[1] }, properties:{} })) });
+  rxLinkFeatures = links;                 // #42: fields click matches against these
+  clearPulse();
   const frames = recs.length, nst = stations.length;
   setRxLegend(nst
     ? `<b>${nst} ground station${nst>1?"s":""}</b> heard this satellite` +
@@ -681,6 +819,14 @@ map.on("load", () => {
   // Invisible wide twin of rx-links: a 1px line is unclickable, this isn't.
   map.addLayer({ id:"rx-links-hit", type:"line", source:"rx-links",
     paint:{ "line-color":"#f5a623", "line-width":12, "line-opacity":0.001 }});
+  // #42 highlight: the single reception line a clicked field flew to, pulsed.
+  map.addSource("rx-hi", { type:"geojson", data: empty });
+  map.addLayer({ id:"rx-hi", type:"line", source:"rx-hi",
+    paint:{ "line-color":"#ffd98a", "line-width":3.5, "line-opacity":0.95, "line-blur":0.6 }});
+  map.addSource("rx-hi-pt", { type:"geojson", data: empty });
+  map.addLayer({ id:"rx-hi-pt", type:"circle", source:"rx-hi-pt",
+    paint:{ "circle-radius":6, "circle-color":"#ffd98a", "circle-opacity":0.95,
+      "circle-stroke-width":2, "circle-stroke-color":"rgba(255,217,138,.35)" }});
   map.addSource("rx-stations", { type:"geojson", data: empty });
   map.addLayer({ id:"rx-stations", type:"circle", source:"rx-stations",
     paint:{ "circle-radius": TOUCH ? 6.5 : 3.5, "circle-color":"#f5a623",
