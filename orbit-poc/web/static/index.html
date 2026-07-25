@@ -97,6 +97,11 @@
   #ver { white-space:nowrap; } #ver a { color:var(--dim); border:1px solid var(--line);
     border-radius:9px; padding:1px 7px; font-size:10px; text-decoration:none; }
   #ver a:hover { color:var(--fg); }
+  a.action { color:var(--accent); font-weight:600; text-decoration:none; }
+  a.action:hover { text-decoration:underline; }
+  #siteftr { padding:10px 16px; border-top:1px solid var(--line); font-size:12px;
+    color:var(--dim); flex:0 0 auto; }
+  #siteftr a { color:var(--dim); text-decoration:none; } #siteftr a:hover { color:var(--fg); }
 </style>
 </head>
 <body>
@@ -122,6 +127,12 @@
     </header>
     <input id="search" type="search" placeholder="Search satellites (name or NORAD id)…"/>
     <div id="list"></div>
+    <div id="siteftr">
+      <a href="mailto:contact@confinia.io?subject=Overwatch">Contact</a> ·
+      <a href="/api/v1">API</a> ·
+      <a href="https://github.com/confinia/overwatch">Source</a> ·
+      <a href="/article.html">Write-up</a>
+    </div>
   </div>
 </div>
 <script>
@@ -180,12 +191,12 @@ async function loadAccount(){
       showOpen = localStorage.getItem("ovw_showOpen") === "1";   // default: private only
     } else {
       el.innerHTML = ` · ${me.email || "signed in"} — ` +
-        `<a href="#" onclick="createOrg();return false">create your organization</a> · ` +
+        `<a class="action" href="#" onclick="createOrg();return false">Create your organization</a> · ` +
         `<a href="${API_BASE}/api/v1/auth/logout" style="color:var(--dim)">sign out</a>`;
       orgInfo = null;
     }
   } catch (e) {
-    el.innerHTML = ` · <a href="${API_BASE}/api/v1/auth/login">Sign in / Register</a>`;
+    el.innerHTML = ` · <a class="action" href="${API_BASE}/api/v1/auth/login">Sign in / Register</a>`;
     orgInfo = null;
   }
   if (!orgInfo) showOpen = true;       // anonymous: always full open data
