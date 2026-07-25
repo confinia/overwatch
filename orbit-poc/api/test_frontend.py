@@ -4,6 +4,7 @@ Reads the served index.html and asserts the lead-capture affordances are
 present, so they can't silently regress.
 """
 import os
+import re
 import pytest
 
 HERE = os.path.dirname(__file__)
@@ -47,3 +48,34 @@ def test_every_page_links_favicon():            # #59
     for page in PAGES:
         t = open(os.path.join(STATIC, page), encoding="utf-8").read()
         assert 'rel="icon"' in t and "favicon.svg" in t, f"{page} missing favicon link"
+
+
+def test_native_fields_panel_replaces_grafana_table(html):   # #42/#46
+    # the decoded-fields panel is now native (clickable), not a Grafana iframe
+    assert "fieldsPanelHTML" in html and "fields-cell" in html
+    assert 'table class="fields"' in html
+    # Grafana panel id 4 (the old fields table) is no longer embedded
+    assert "{ id: 4," not in html
+
+
+def test_fields_coloured_by_source(html):        # #46
+    # each source category has a distinct style hook
+    for cat in ("canonical", "telemetry", "transport"):
+        assert f"tr.fld.{cat}" in html, f"missing colour rule for {cat}"
+
+
+def test_field_click_flies_to_reception(html):   # #42
+    # clicking a field jumps to the nearest reception line and pulses it
+    assert "jumpToReception" in html and "wireFieldRows" in html
+    assert "pulseLink" in html and "rxLinkFeatures" in html
+
+
+def test_reception_legend_anchored_top_right(html):   # #62
+    # the reception legend sits in the top-right of the map, not over the
+    # dashboards at the bottom of the left column
+    m = re.search(r"#rxlegend\s*\{[^}]*\}", html)
+    assert m, "no #rxlegend rule"
+    rule = m.group(0)
+    # anchored to the top-right, not the bottom-left (border-left is unrelated)
+    assert re.search(r"\btop:\s*\d", rule) and re.search(r"[; {]right:\s*\d", rule)
+    assert "bottom:" not in rule and not re.search(r"[; {]left:\s*\d", rule)

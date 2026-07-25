@@ -413,20 +413,51 @@ def receptions(norad: int, hours: int = Query(24, ge=1, le=168)):
                 for ts, obs, lat, lon in cur.fetchall()]
 
 
+def field_source(name: str) -> str:
+    """Classify a decoded telemetry field by origin, so the UI can separate real
+    satellite health from link-layer framing (#46). Pattern-based, derived at
+    read time — no schema change.
+
+      canonical : the normalized health fields our ingest derives
+      transport : AX.25 / CSP / framing metadata — not satellite health
+      telemetry : everything else — the raw decoded satellite values
+    """
+    n = name.lower()
+    if n in ("battery_v", "battery_i", "battery_pct"):
+        return "canonical"
+    if any(b in n for b in ("csp_header", "ax25", "packet_header",
+                            "primary_header", "secondary_header",
+                            "frame_header", "transfer_frame")):
+        return "transport"
+    if n in ("frame_length", "length", "crc", "crc16", "checksum", "fcs",
+             "syncword", "sync_word", "callsign", "dest_callsign",
+             "src_callsign", "source_callsign", "destination_callsign",
+             "frame_id", "packet_id", "sequence_count", "seq_count",
+             "spacecraft_id", "sat_id", "norad"):
+        return "transport"
+    return "telemetry"
+
+
 @app.get("/v1/telemetry/{norad}/fields")
 def telemetry_fields(norad: int):
     """Decoded fields available for this satellite (7-day window): raw beacon
-    fields plus the canonical battery_v / battery_i / battery_pct."""
+    fields plus the canonical battery_v / battery_i / battery_pct. Each field
+    carries its latest value and a `source` category (canonical / telemetry /
+    transport) so the UI can rank real health above link-layer framing (#46)."""
     with cursor() as cur:
         if not known_norad(cur, norad):
             raise HTTPException(404, f"Unknown NORAD id {norad} (see /v1/satellites).")
         cur.execute("""
-            SELECT field, count(*) AS points, max(ts) AS last_seen
+            SELECT field, count(*) AS points, max(ts) AS last_seen,
+                   (array_agg(value_num ORDER BY ts DESC))[1] AS last_num,
+                   (array_agg(value_txt ORDER BY ts DESC))[1] AS last_txt
             FROM telemetry
             WHERE norad = %s AND ts > now() - interval '7 days'
             GROUP BY field ORDER BY field""", (norad,))
-        return [{"field": f, "points": n, "last_seen": ts.isoformat()}
-                for f, n, ts in cur.fetchall()]
+        return [{"field": f, "points": n, "last_seen": ts.isoformat(),
+                 "source": field_source(f),
+                 "last_value": (num if num is not None else txt)}
+                for f, n, ts, num, txt in cur.fetchall()]
 
 
 @app.get("/v1/telemetry/{norad}")
