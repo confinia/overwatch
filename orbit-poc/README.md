@@ -85,6 +85,21 @@ Positions and orbit tracks need **no account at all**.
   seam where a **cookie/JWT auth-proxy** replaces anonymous access to give
   secure, multi-tenant embedding. That proxy is the productizable part.
 
+## Self-host (one command)
+
+```sh
+git clone https://github.com/confinia/overwatch
+cd overwatch/orbit-poc
+docker compose -f docker-compose.selfhost.yml up
+# open http://localhost:8080
+```
+
+Zero config: the open-data globe, telemetry API and Grafana come up with no
+setup. Positions and orbits work without any key; paste a free
+[db.satnogs.org](https://db.satnogs.org) API key into `SATNOGS_TOKEN`
+(docker-compose.selfhost.yml) to light up decoded telemetry. The paid
+multi-tenant stack (Keycloak/Polar) is separate and off by design.
+
 ## What to change first
 
 * `ingest/satellites.py` — the showcase set. Start here.
