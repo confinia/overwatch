@@ -10,6 +10,7 @@ LOGIC is what we test, not Keycloak itself (that is the E2E smoke test).
 """
 import os
 import uuid
+from datetime import datetime, timezone
 import pytest
 from fastapi.testclient import TestClient
 
@@ -99,9 +100,10 @@ def test_service_token_push_and_read(client, monkeypatch):
     _as_user(monkeypatch, str(uuid.uuid4()), org, "Push Co")
     tok = client.post("/v1/org/tokens", json={"label": "ground"}).json()["token"]
 
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")   # within the 24h read window
     r = client.post(f"/v1/tenants/{tok}/telemetry",
                     json={"satellite": "PUSH-1", "points": [
-                        {"ts": "2026-07-22T11:00:00Z", "field": "temp", "value": 20.5}]})
+                        {"ts": now, "field": "temp", "value": 20.5}]})
     assert r.status_code == 202 and r.json()["accepted"] == 1
 
     series = client.get("/v1/org/telemetry", params={
