@@ -1,0 +1,26 @@
+# Self-host routing (issue #53): one port, everything same-origin.
+# `docker compose -f docker-compose.selfhost.yml up` -> http://localhost:8080
+{
+	auto_https off
+	admin off
+}
+:80 {
+	encode zstd gzip
+	# Public product API at /api/v1 (service keeps /v1 internally).
+	handle /api/v1* {
+		uri strip_prefix /api
+		reverse_proxy api:8000
+	}
+	# Map's internal read API (/api/satellites, /api/track, …).
+	handle /api/* {
+		reverse_proxy web:8080
+	}
+	# Grafana under /grafana (same-origin embed).
+	handle /grafana* {
+		reverse_proxy grafana:3000
+	}
+	# Frontend.
+	handle {
+		reverse_proxy web:8080
+	}
+}
