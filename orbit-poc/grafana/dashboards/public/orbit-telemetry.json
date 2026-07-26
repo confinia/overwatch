@@ -368,10 +368,10 @@
       "title": "Reception summary (selected window)",
       "type": "stat",
       "gridPos": {
-        "h": 4,
-        "w": 24,
-        "x": 0,
-        "y": 65
+        "h": 6,
+        "w": 12,
+        "x": 12,
+        "y": 21
       },
       "options": {
         "reduceOptions": {
