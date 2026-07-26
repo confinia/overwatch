@@ -6,7 +6,7 @@
   ],
   "timezone": "utc",
   "schemaVersion": 39,
-  "version": 6,
+  "version": 7,
   "refresh": "30s",
   "time": {
     "from": "now-7d",
@@ -253,6 +253,94 @@
         {
           "format": "time_series",
           "rawSql": "SELECT date_trunc('hour', ts) AS time, count(DISTINCT ts)::float AS frames FROM telemetry WHERE norad = $norad GROUP BY 1 ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "Counters & uptime",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 34
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineInterpolation": "stepAfter"
+          }
+        }
+      },
+      "targets": [
+        {
+          "format": "time_series",
+          "rawSql": "SELECT ts AS time, field AS metric, value_num AS value FROM telemetry WHERE norad = $norad AND field ~* '(count|cnt|seqnum|uptime|reset|boot|reboot|packets|errors)' AND value_num IS NOT NULL ORDER BY ts"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "title": "Power",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 34
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "watt"
+        }
+      },
+      "targets": [
+        {
+          "format": "time_series",
+          "rawSql": "SELECT ts AS time, field AS metric, value_num AS value FROM telemetry WHERE norad = $norad AND field ~* '(pwr|power|watt|_w$|charge)' AND field <> 'battery_pct' AND value_num IS NOT NULL ORDER BY ts"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "title": "Modes & states",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 41
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineInterpolation": "stepAfter",
+            "fillOpacity": 12
+          }
+        }
+      },
+      "targets": [
+        {
+          "format": "time_series",
+          "rawSql": "SELECT ts AS time, field AS metric, value_num AS value FROM telemetry WHERE norad = $norad AND field ~* '(mode|state|status|flag|enabled|armed|active)' AND value_num IS NOT NULL ORDER BY ts"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "title": "Other numeric telemetry (auto — every decoded field not charted above)",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 48
+      },
+      "targets": [
+        {
+          "format": "time_series",
+          "rawSql": "SELECT ts AS time, field AS metric, value_num AS value FROM telemetry WHERE norad = $norad AND value_num IS NOT NULL AND field NOT IN ('battery_v','battery_i','battery_pct') AND field !~* '(volt|vbat|v_bat|_v$|temp|current|curr|_i_|amp|count|cnt|seqnum|uptime|reset|boot|reboot|packets|errors|pwr|power|watt|_w$|charge|mode|state|status|flag|enabled|armed|active|pct)' ORDER BY ts"
         }
       ]
     }

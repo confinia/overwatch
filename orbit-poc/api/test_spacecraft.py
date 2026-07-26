@@ -40,6 +40,11 @@ def test_spacecraft_has_operator_contact():             # operator POC card
     assert 'id="contact"' in t and "db.satnogs.org/satellite/" in t
 
 
+def test_spacecraft_links_curated_dashboard():          # #88
+    t = _page()
+    assert "s.satnogs_dashboard" in t and "curated SatNOGS dashboard" in t
+
+
 def test_spacecraft_is_honest_about_missing_data():      # honest-state
     t = _page()
     assert "no data" in t or "no battery telemetry" in t

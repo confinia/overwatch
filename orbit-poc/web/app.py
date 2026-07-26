@@ -3,6 +3,7 @@ Read-only position API for the map. Serves ONLY from the local cache.
 This is the boundary in action: the browser talks to us, we talk to Postgres,
 and nothing here ever calls CelesTrak or SatNOGS.
 """
+import json
 import os
 from flask import Flask, jsonify, request, send_from_directory
 import psycopg2
@@ -10,6 +11,16 @@ from psycopg2.extras import RealDictCursor
 
 DB_DSN = os.environ["DB_DSN"]
 app = Flask(__name__, static_folder="static", static_url_path="")
+
+# Per-satellite SatNOGS Telemetry Dashboard links (#88), discovered by
+# batch/resolve_satnogs_dashboards.py. Surfaced next to our own auto-grouped
+# panels so the mission team's curated dashboard is one click away.
+_DASH_PATH = os.path.join(os.path.dirname(__file__), "satnogs_dashboards.json")
+try:
+    with open(_DASH_PATH, encoding="utf-8") as _f:
+        SATNOGS_DASHBOARDS = json.load(_f)
+except (OSError, ValueError):
+    SATNOGS_DASHBOARDS = {}
 
 
 def _hours(default=168):
@@ -76,7 +87,12 @@ def satellites():
                 WHERE norad = s.norad
             ) tf ON true
             ORDER BY s.name""")
-        return jsonify(cur.fetchall())
+        rows = cur.fetchall()
+    for r in rows:
+        url = SATNOGS_DASHBOARDS.get(str(r["norad"]))
+        if url:
+            r["satnogs_dashboard"] = url
+    return jsonify(rows)
 
 
 @app.get("/api/receptions/<int:norad>")

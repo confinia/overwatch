@@ -161,6 +161,48 @@ def test_time_range_selector_drives_all_views(html):   # #71/#72
         assert frag in html, frag
 
 
+def test_satnogs_dashboard_linkout(html):              # #88
+    # each satellite with a curated SatNOGS Grafana dashboard gets a discovered
+    # "Telemetry Dashboard" link next to Operator; the map is resolved offline
+    # (batch/resolve_satnogs_dashboards.py) and served by /api/satellites.
+    import json
+    mp = os.path.join(WEB, "satnogs_dashboards.json")
+    assert os.path.isfile(mp), "missing discovered dashboard map"
+    m = json.load(open(mp, encoding="utf-8"))
+    assert isinstance(m, dict) and m, "dashboard map is empty"
+    for norad, url in m.items():
+        assert norad.isdigit(), f"non-norad key {norad}"
+        assert url.startswith("https://dashboard.satnogs.org/d/"), url
+    # API merges the map into each satellite row
+    app_py = open(os.path.join(WEB, "app.py"), encoding="utf-8").read()
+    assert "SATNOGS_DASHBOARDS" in app_py and '"satnogs_dashboard"' in app_py
+    # title bar renders the link only when the satellite has one (honest-state)
+    assert "s.satnogs_dashboard" in html and "Telemetry Dashboard ↗" in html
+
+
+def test_auto_grouped_telemetry_panels(html):          # #88
+    # every decoded numeric field lands in a chart: the shared dashboard gains
+    # category panels (counters, power, modes) plus a catch-all, and the
+    # frontend gates each one on the fields actually present (no per-sat
+    # curation, no empty panels).
+    import json
+    dash = os.path.join(HERE, "..", "grafana", "dashboards", "public",
+                        "orbit-telemetry.json")
+    d = json.load(open(dash, encoding="utf-8"))
+    ids = {p["id"] for p in d["panels"]}
+    for pid in (9, 10, 11, 12):
+        assert pid in ids, f"dashboard missing auto-group panel {pid}"
+    # panel 12 is the honest catch-all: it must negate the specific filters so
+    # it never double-charts a field another panel already owns
+    other = next(p for p in d["panels"] if p["id"] == 12)
+    sql = other["targets"][0]["rawSql"]
+    assert "!~*" in sql and "value_num IS NOT NULL" in sql
+    # frontend shows each new panel conditionally, mirroring the SQL filters
+    for tok in ("COUNT_RE", "POWER_RE", "MODE_RE", "hasOther",
+                "{ id: 9,", "{ id: 12,"):
+        assert tok in html, f"embed missing {tok}"
+
+
 def test_api_hours_param_is_bounded():                 # #71
     # both the web map API and the public /v1 fields API bound the window 1..168h
     app_py = open(os.path.join(WEB, "app.py"), encoding="utf-8").read()
