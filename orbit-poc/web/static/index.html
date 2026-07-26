@@ -22,10 +22,27 @@
     font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
   /* Layout: left column = globe (top half) over Grafana dashboards (bottom
      half); right column = full-height satellite list with search. */
-  #app { display:grid; grid-template-columns: 1fr 300px;
-    grid-template-rows: 100vh; height:100vh; overflow:hidden; }
-  #left { display:grid; grid-template-rows: 50vh 1fr; min-width:0; min-height:0;
+  /* Resizable/collapsible panes (#69): the right column width and the
+     globe/dashboards split are CSS vars the gutters drag; persisted per browser. */
+  :root { --side-w: 300px; --map-h: 50vh; }
+  #app { display:grid; grid-template-columns: 1fr var(--side-w);
+    grid-template-rows: 100vh; height:100vh; overflow:hidden; position:relative; }
+  #left { display:grid; grid-template-rows: var(--map-h) 1fr; min-width:0; min-height:0;
     position:relative; }
+  /* Drag handles sit on the pane borders; a faint line makes them discoverable,
+     brightening on hover/drag. When a pane is collapsed to 0 the handle rests on
+     the edge and is pulled back in to reveal it. */
+  .gutter { position:absolute; z-index:6; }
+  .gutter::before { content:""; position:absolute; background:var(--dim);
+    opacity:.25; transition:opacity .15s, background .15s; }
+  .gutter:hover::before, .gutter.drag::before { opacity:1; background:var(--accent); }
+  #gutter-side { top:0; bottom:0; width:10px; right:var(--side-w);
+    transform:translateX(5px); cursor:col-resize; }
+  #gutter-side::before { top:0; bottom:0; left:4px; width:2px; }
+  #gutter-map { left:0; right:0; height:10px; top:var(--map-h);
+    transform:translateY(-5px); cursor:row-resize; }
+  #gutter-map::before { left:0; right:0; top:4px; height:2px; }
+  @media (max-width: 900px) { .gutter { display:none; } }
   #map { height:100%; min-height:0; }
   /* Fleet health signal — floats over the globe, works on mobile too. */
   #fleetbar { position:absolute; top:10px; left:10px; z-index:5;
@@ -151,6 +168,7 @@
 <div id="app">
   <div id="left">
     <div id="map"></div>
+    <div id="gutter-map" class="gutter" title="Drag to resize · drag to the edge to hide the globe/dashboards"></div>
     <div id="fleetbar" title="Fleet link status">loading fleet…</div>
     <div id="rangebar" title="Time window for receptions, decoded fields and track"></div>
     <div id="rxlegend" style="display:none"></div>
@@ -178,6 +196,7 @@
       <a href="/article.html">Write-up</a>
     </div>
   </div>
+  <div id="gutter-side" class="gutter" title="Drag to resize · drag to the edge to hide the list"></div>
 </div>
 <script>
 // API + Grafana bases. Same-origin by default (VM behind caddy); the GitHub
@@ -992,7 +1011,54 @@ map.on("load", () => {
   refresh(); setInterval(refresh, 15000);
   loadStations(); setInterval(loadStations, 300000);
   loadAccount();
+  setupGutters();
 });
+
+// Resizable/collapsible panes (#69): drag a border gutter to resize; drag a
+// pane to the edge to hide it, then pull the gutter (which then rests on the
+// edge) back in to reveal it. Sizes persist per browser. The globe is WebGL,
+// so map.resize() runs after any size change.
+function setupGutters(){
+  const rs = document.documentElement.style;
+  const sw = localStorage.getItem("ovw_sideW"); if (sw) rs.setProperty("--side-w", sw);
+  const mh = localStorage.getItem("ovw_mapH");  if (mh) rs.setProperty("--map-h", mh);
+  if (map) map.resize();
+  dragGutter("gutter-side", e => {
+    let w = window.innerWidth - e.clientX;
+    w = Math.max(0, Math.min(w, window.innerWidth - 220));
+    if (w < 60) w = 0;                          // snap to hidden
+    rs.setProperty("--side-w", w + "px");
+    localStorage.setItem("ovw_sideW", w + "px");
+    if (map) map.resize();
+  });
+  dragGutter("gutter-map", e => {
+    const box = document.getElementById("left").getBoundingClientRect();
+    let h = e.clientY - box.top;
+    if (h < 60) h = 0; else if (h > box.height - 60) h = box.height;   // snap top/bottom
+    rs.setProperty("--map-h", h + "px");
+    localStorage.setItem("ovw_mapH", h + "px");
+    if (map) map.resize();
+  });
+}
+function dragGutter(id, onMove){
+  const el = document.getElementById(id);
+  if (!el) return;
+  let on = false;
+  el.addEventListener("pointerdown", e => {
+    on = true; el.classList.add("drag");
+    try { el.setPointerCapture(e.pointerId); } catch (_) {}
+    document.body.style.userSelect = "none"; e.preventDefault();
+  });
+  el.addEventListener("pointermove", e => { if (on) onMove(e); });
+  const end = e => {
+    if (!on) return;
+    on = false; el.classList.remove("drag"); document.body.style.userSelect = "";
+    try { el.releasePointerCapture(e.pointerId); } catch (_) {}
+    if (map) map.resize();
+  };
+  el.addEventListener("pointerup", end);
+  el.addEventListener("pointercancel", end);
+}
 </script>
 </body>
 </html>
