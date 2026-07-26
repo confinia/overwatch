@@ -97,6 +97,18 @@ def test_track_splits_at_antimeridian(html):     # #66
     assert "MultiLineString" in html
 
 
+def test_station_contact_operator_link(html):    # #80
+    assert "qrz.com/db/" in html and "Contact operator" in html
+
+
+def test_station_satellites_are_clickable(html): # #81
+    assert 'class="stsat"' in html and 'href="#${x.norad}"' in html
+
+
+def test_popup_links_use_accent_not_purple(html):  # #82
+    assert ".maplibregl-popup-content a" in html and ":visited" in html
+
+
 def test_track_line_is_clickable(html):          # #65
     # a wide hit-line + click handler open a popup with the track's satellite
     # and time window
