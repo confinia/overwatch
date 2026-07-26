@@ -35,6 +35,7 @@ from sgp4.api import Satrec, jday
 import numpy as np
 
 from satellites import SHOWCASE
+from calibration import calibrate
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s %(levelname)s %(message)s")
@@ -486,6 +487,7 @@ def _store_frames(norad, frames, decoder):
         if decoder and f.get("frame"):
             try:
                 fields = _decode_frame(decoder, f["frame"])
+                calibrate(decoder, fields)  # raw register -> physical units
             except Exception:
                 pass  # frame type not covered by the decoder — normal
         if not fields:
