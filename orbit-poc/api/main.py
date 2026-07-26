@@ -439,11 +439,15 @@ def field_source(name: str) -> str:
 
 
 @app.get("/v1/telemetry/{norad}/fields")
-def telemetry_fields(norad: int):
-    """Decoded fields available for this satellite (7-day window): raw beacon
-    fields plus the canonical battery_v / battery_i / battery_pct. Each field
-    carries its latest value and a `source` category (canonical / telemetry /
-    transport) so the UI can rank real health above link-layer framing (#46)."""
+def telemetry_fields(norad: int,
+                     hours: int = Query(168, ge=1, le=168,
+                                        description="Window in hours (1–168); default 7 days")):
+    """Decoded fields available for this satellite over the selected window
+    (default 7 days): raw beacon fields plus the canonical battery_v /
+    battery_i / battery_pct. Each field carries its latest value and a `source`
+    category (canonical / telemetry / transport) so the UI can rank real health
+    above link-layer framing (#46). The `hours` window matches the map's
+    receptions so both describe the same frames (#70/#71)."""
     with cursor() as cur:
         if not known_norad(cur, norad):
             raise HTTPException(404, f"Unknown NORAD id {norad} (see /v1/satellites).")
@@ -452,8 +456,8 @@ def telemetry_fields(norad: int):
                    (array_agg(value_num ORDER BY ts DESC))[1] AS last_num,
                    (array_agg(value_txt ORDER BY ts DESC))[1] AS last_txt
             FROM telemetry
-            WHERE norad = %s AND ts > now() - interval '7 days'
-            GROUP BY field ORDER BY field""", (norad,))
+            WHERE norad = %s AND ts > now() - %s * interval '1 hour'
+            GROUP BY field ORDER BY field""", (norad, hours))
         return [{"field": f, "points": n, "last_seen": ts.isoformat(),
                  "source": field_source(f),
                  "last_value": (num if num is not None else txt)}

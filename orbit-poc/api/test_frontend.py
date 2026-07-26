@@ -8,7 +8,8 @@ import re
 import pytest
 
 HERE = os.path.dirname(__file__)
-STATIC = os.path.join(HERE, "..", "web", "static")
+WEB = os.path.join(HERE, "..", "web")
+STATIC = os.path.join(WEB, "static")
 INDEX = os.path.join(STATIC, "index.html")
 PAGES = ("index.html", "pro.html", "article.html", "talk.html")
 
@@ -93,3 +94,29 @@ def test_track_line_is_clickable(html):          # #65
     # and time window
     assert "track-hit" in html and "onTrackClick" in html
     assert "Ground track" in html
+
+
+def test_track_shows_heard_pass_arcs(html):      # #70 (no orphan endpoints)
+    # the track is split into per-pass arcs, and the API returns only positions
+    # near a reception, so orange endpoints land on a visible arc (no flood)
+    assert "splitPasses" in html
+    app_py = open(os.path.join(WEB, "app.py"), encoding="utf-8").read()
+    assert "EXISTS" in app_py and "reception r" in app_py
+
+
+def test_time_range_selector_drives_all_views(html):   # #71/#72
+    assert "rangebar" in html and "rangeHours" in html and "RANGES" in html
+    # one selected range threaded into receptions, decoded fields and the
+    # heard-pass track arcs
+    for frag in ("/api/track/${norad}?heard=1&hours=",
+                 "/api/receptions/${norad}?hours=",
+                 "fields?hours="):
+        assert frag in html, frag
+
+
+def test_api_hours_param_is_bounded():                 # #71
+    # both the web map API and the public /v1 fields API bound the window 1..168h
+    app_py = open(os.path.join(WEB, "app.py"), encoding="utf-8").read()
+    assert "_hours" in app_py and "min(h, 168)" in app_py
+    main_py = open(os.path.join(HERE, "main.py"), encoding="utf-8").read()
+    assert "hours: int = Query(168, ge=1, le=168" in main_py
