@@ -557,7 +557,10 @@ async function select(s, auto = false){
   document.querySelectorAll(".sat").forEach(e=>e.classList.remove("active"));
   const head = document.getElementById("panelHead");
   const body = document.getElementById("panelBody");
-  head.textContent = `${s.name} — NORAD ${s.norad}`;
+  // Dedicated 3D spacecraft view (#55), opens as a control-room window (#49).
+  const view3d = `<a class="action" href="/w/spacecraft?sat=${s.norad}" ` +
+    `target="_blank" rel="noopener" title="Dedicated 3D spacecraft view">3D view ↗</a>`;
+  head.innerHTML = `${escapeHTML(s.name)} — NORAD ${s.norad} · ${view3d}`;
 
   // draw recent ground track + who-heard-it reception network
   await drawTrack(s.norad);

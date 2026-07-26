@@ -35,7 +35,7 @@ pip install -q -r api/requirements.txt pytest httpx requests >/dev/null 2>&1
 apt-get -qq update >/dev/null 2>&1 && apt-get -qq install -y postgresql-client >/dev/null 2>&1
 PGPASSWORD=orbit psql -h "$(echo $DB_DSN | sed -E "s/.*host=([^ ]+).*/\1/")" -U orbit -d orbit -f db/init.sql >/dev/null 2>&1
 cd api
-python -m pytest test_subscription.py test_rls.py test_frontend.py test_selfhost.py test_faq.py test_backup.py test_fields.py test_dashboards.py -q 2>&1 | tail -1
+python -m pytest test_subscription.py test_rls.py test_frontend.py test_selfhost.py test_faq.py test_backup.py test_fields.py test_dashboards.py test_spacecraft.py -q 2>&1 | tail -1
 python -m pytest test_polar.py -q 2>&1 | tail -1
 ' 2>&1)
 

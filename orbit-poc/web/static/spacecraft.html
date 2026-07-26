@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<title>Overwatch — spacecraft view</title>
+<style>
+  :root { --bg:#04070d; --panel:rgba(18,24,38,.86); --line:#1f2a3d; --text:#dfe7f5;
+          --accent:#5aa9ff; --live:#39d98a; --dim:#7c8aa5; --warn:#f5a623; --bad:#ff5c5c; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; overflow:hidden; background:var(--bg); color:var(--text);
+    font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+  #scene { position:fixed; inset:0; }
+  canvas { display:block; }
+  /* Chromeless (?chrome=0): hide the header + back link, keep the HUD panels. */
+  body.chromeless #topbar { display:none; }
+  #topbar { position:fixed; top:0; left:0; right:0; z-index:10; display:flex;
+    align-items:center; gap:12px; padding:10px 16px; font-size:13px;
+    background:linear-gradient(#04070dcc,#04070d00); }
+  #topbar a { color:var(--dim); text-decoration:none; }
+  #topbar a:hover { color:var(--text); }
+  #topbar b { color:var(--text); }
+  #hud { position:fixed; z-index:9; top:52px; right:14px; width:270px;
+    display:flex; flex-direction:column; gap:10px; max-height:calc(100% - 70px);
+    overflow:auto; }
+  body.chromeless #hud { top:14px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px;
+    padding:10px 12px; backdrop-filter:blur(3px); }
+  .card h2 { margin:0 0 7px; font-size:11px; text-transform:uppercase;
+    letter-spacing:.4px; color:var(--dim); font-weight:600; display:flex;
+    justify-content:space-between; align-items:center; }
+  .kv { display:flex; justify-content:space-between; font-size:13px; margin:3px 0;
+    font-variant-numeric:tabular-nums; }
+  .kv .v { color:var(--text); font-weight:600; }
+  .kv .v.dimmed { color:var(--dim); font-weight:400; }
+  .bar { height:7px; border-radius:4px; background:#0e1420; overflow:hidden; margin:5px 0 2px; }
+  .bar > span { display:block; height:100%; background:var(--live); }
+  .pill { font-size:11px; padding:2px 8px; border-radius:999px; font-weight:600; }
+  .pill.sun { background:rgba(245,166,35,.16); color:var(--warn); }
+  .pill.ecl { background:rgba(124,138,165,.16); color:var(--dim); }
+  .pill.live { background:rgba(57,217,138,.14); color:var(--live); }
+  .pill.stale { background:rgba(255,92,92,.14); color:var(--bad); }
+  .muted { color:var(--dim); font-size:12px; }
+  #satname { font-size:15px; font-weight:700; }
+  #thermal .kv .v { font-variant-numeric:tabular-nums; }
+  #loading { position:fixed; inset:0; display:flex; align-items:center;
+    justify-content:center; color:var(--dim); font-size:14px; z-index:20;
+    background:var(--bg); transition:opacity .5s; }
+  #loading.hidden { opacity:0; pointer-events:none; }
+  .legend { position:fixed; bottom:10px; left:14px; z-index:9; font-size:11px;
+    color:var(--dim); background:var(--panel); border:1px solid var(--line);
+    border-radius:8px; padding:6px 10px; max-width:320px; line-height:1.4; }
+  body.chromeless .legend { display:none; }
+</style>
+</head>
+<body>
+<div id="scene"></div>
+<div id="loading">Loading spacecraft…</div>
+<div id="topbar">
+  <a href="/" title="Back to the globe">← Overwatch</a>
+  <span id="crumb" class="muted"></span>
+</div>
+<div id="hud">
+  <div class="card">
+    <div id="satname">—</div>
+    <div class="muted" id="satmeta">acquiring…</div>
+    <div class="kv" style="margin-top:6px"><span>Data age</span>
+      <span class="v"><span id="agepill" class="pill live">—</span></span></div>
+  </div>
+  <div class="card" id="power">
+    <h2>Power <span id="sunstate" class="pill ecl">—</span></h2>
+    <div id="powerbody"><div class="muted">no data</div></div>
+  </div>
+  <div class="card" id="battery">
+    <h2>Battery</h2>
+    <div id="batterybody"><div class="muted">no data</div></div>
+  </div>
+  <div class="card" id="thermal">
+    <h2>Thermal</h2>
+    <div id="thermalbody"><div class="muted">no data</div></div>
+  </div>
+  <div class="card" id="attitude">
+    <h2>Attitude / ADCS</h2>
+    <div id="attitudebody"><div class="muted">nominal spin (no attitude telemetry)</div></div>
+  </div>
+  <div class="card" id="link">
+    <h2>Antenna link (TM/TC)</h2>
+    <div id="linkbody"><div class="muted">no data</div></div>
+  </div>
+</div>
+<div class="legend" id="legend">
+  A generic cubesat rendered over Earth. Live decoded telemetry drives the
+  panels; components with no data are shown as such — never faked.
+</div>
+
+<script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
+<script src="https://unpkg.com/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+// ---- URL state (control-room window vocabulary, #49) -----------------------
+const params = new URLSearchParams(location.search);
+const NORAD = Number(params.get("sat")) || null;
+if (params.get("chrome") === "0") document.body.classList.add("chromeless");
+
+const LOCAL = ["localhost", "127.0.0.1"].includes(location.hostname);
+const MIRROR = location.hostname.endsWith("github.io");
+const API_BASE = MIRROR ? "https://overwatch.confinia.io" : "";
+async function j(u){ const r = await fetch(API_BASE + u); if (!r.ok) throw new Error(u); return r.json(); }
+
+// Real Sentinel-2 cloudless (EOX) — the same basemap the globe uses, stitched
+// from a zoom level's tiles for detail. EOX serves CORS for our origin, so the
+// stitched canvas can be a WebGL texture. (Web Mercator; slight latitude
+// stretch near the poles is acceptable for a backdrop.)
+const EARTH_ZOOM = 3;   // 0 = 1 tile (whole world) … 3 = 8×8 tiles (2048 px)
+const eoxTile = (z, x, y) =>
+  `https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2024_3857/default/g/${z}/${y}/${x}.jpg`;
+
+// ---- telemetry -> component mapping (the testable core, #55) ---------------
+// Pure: given the fields array from /api/v1/telemetry/{norad}/fields, decide
+// which spacecraft components have data and extract their values. Never
+// invents a component that has no backing field (honest-state principle).
+function componentMap(fields){
+  const by = {};
+  for (const f of (fields || [])) by[String(f.field).toLowerCase()] = f;
+  const num = n => (by[n] && typeof by[n].last_value === "number") ? by[n].last_value : null;
+  const battery = { v: num("battery_v"), i: num("battery_i"), pct: num("battery_pct") };
+  const temps = (fields || [])
+    .filter(f => /temp/i.test(f.field) && typeof f.last_value === "number")
+    .map(f => ({ name: f.field, value: f.last_value }));
+  const attitude = (fields || [])
+    .filter(f => /(quat|(^|_)q[0-3]($|_)|gyro|omega|(ang(ular)?_)?rate|attitude|adcs)/i.test(f.field)
+                 && typeof f.last_value === "number")
+    .map(f => ({ name: f.field, value: f.last_value }));
+  return {
+    battery, hasBattery: battery.v != null || battery.pct != null || battery.i != null,
+    temps, hasThermal: temps.length > 0,
+    attitude, hasAttitude: attitude.length > 0,
+  };
+}
+
+// ---- approximate sunlit state from sub-point + UTC -------------------------
+// Rough but honest: subsolar point vs the satellite sub-point; a LEO craft
+// sees the sun a bit past the ground terminator (altitude), so widen by ~20°.
+function isSunlit(lat, lon, altKm, date){
+  if (lat == null || lon == null) return null;
+  const d = date || new Date();
+  const rad = Math.PI / 180;
+  const dayOfYear = Math.floor((d - new Date(Date.UTC(d.getUTCFullYear(), 0, 0))) / 86400000);
+  const decl = 23.44 * Math.sin(rad * (360 / 365) * (dayOfYear - 81)); // solar declination
+  const utcHours = d.getUTCHours() + d.getUTCMinutes() / 60 + d.getUTCSeconds() / 3600;
+  const subLon = -(utcHours - 12) * 15;   // subsolar longitude
+  const subLat = decl;
+  // angular distance between sub-satellite point and subsolar point
+  const c = Math.sin(lat * rad) * Math.sin(subLat * rad) +
+            Math.cos(lat * rad) * Math.cos(subLat * rad) * Math.cos((lon - subLon) * rad);
+  const ang = Math.acos(Math.max(-1, Math.min(1, c))) / rad;
+  const horizon = 90 + (altKm ? Math.acos(6371 / (6371 + altKm)) / rad : 0);
+  return ang < horizon;
+}
+
+// ---- format helpers --------------------------------------------------------
+function fmt(v, digits){
+  if (v == null) return "—";
+  if (typeof v === "number") return Number.isInteger(v) ? String(v) : v.toFixed(digits == null ? 2 : digits);
+  return String(v);
+}
+function ageStr(ts){
+  if (!ts) return "never";
+  const h = (Date.now() - Date.parse(ts)) / 3.6e6;
+  if (h < 1) return `${Math.max(1, Math.round(h * 60))} min`;
+  if (h < 48) return `${Math.round(h)} h`;
+  return `${Math.round(h / 24)} d`;
+}
+
+// ---- three.js scene --------------------------------------------------------
+let renderer, scene, camera, controls, sat, panelL, panelR, earth, sunLight, sun, moon;
+let spinRate = 0.15, disposed = false, moonAngle = 0;
+
+function buildScene(){
+  const el = document.getElementById("scene");
+  scene = new THREE.Scene();
+  camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 2000);
+  camera.position.set(0, 0.7, 3);   // close to the craft; Earth fills the backdrop
+  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.outputEncoding = THREE.sRGBEncoding;   // correct colours for the map tile
+  el.appendChild(renderer.domElement);
+
+  controls = new THREE.OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true; controls.dampingFactor = 0.08;
+  controls.minDistance = 1.2; controls.maxDistance = 120;   // close inspect … pull back to whole Earth
+
+  scene.add(new THREE.AmbientLight(0x33405a, 1.1));
+  sunLight = new THREE.DirectionalLight(0xffffff, 1.5);
+  sunLight.position.set(6, 3, 5);
+  scene.add(sunLight);
+
+  // Sun — a glowing sphere at the light's direction, with a soft halo, so the
+  // shading on Earth/craft matches where the light visibly comes from.
+  const sunDir = new THREE.Vector3(6, 3, 5).normalize();
+  sun = new THREE.Mesh(new THREE.SphereGeometry(9, 32, 32),
+    new THREE.MeshBasicMaterial({ color: 0xfff3c4 }));
+  sun.position.copy(sunDir).multiplyScalar(220);
+  const sunGlow = new THREE.Mesh(new THREE.SphereGeometry(16, 32, 32),
+    new THREE.MeshBasicMaterial({ color: 0xffdd88, transparent: true,
+      opacity: 0.22, side: THREE.BackSide }));
+  sunGlow.position.copy(sun.position);
+  sunLight.position.copy(sun.position);   // light originates from the sun
+  scene.add(sun); scene.add(sunGlow);
+
+  // Moon — lit by the sun, off to one side; the terminator makes it read as a
+  // phase rather than a flat disc. Orbits Earth slowly in animate().
+  moon = new THREE.Mesh(new THREE.SphereGeometry(5.4, 64, 64),   // ~0.27 Earth radius
+    new THREE.MeshStandardMaterial({ map: moonTexture(), roughness: 1, metalness: 0 }));
+  scene.add(moon);
+
+  // Earth backdrop — shaded blue marble with a subtle procedural surface and
+  // an atmosphere rim. No external texture (robust, self-contained).
+  // Planet-scale Earth: a ~20-unit body just below the craft, so the satellite
+  // (~1-2 units) reads as a small spacecraft in low orbit over a big curved
+  // limb — not a toy next to a same-size ball.
+  const EARTH_R = 20;
+  const earthGeo = new THREE.SphereGeometry(EARTH_R, 96, 96);
+  earth = new THREE.Mesh(earthGeo, earthMaterial());
+  earth.position.set(0, -(EARTH_R + 2), -3);   // ~2 units of altitude -> low-orbit horizon
+  scene.add(earth);
+  const atmo = new THREE.Mesh(new THREE.SphereGeometry(EARTH_R * 1.06, 64, 64),
+    new THREE.MeshBasicMaterial({ color: 0x5aa9ff, transparent: true, opacity: 0.16,
+      side: THREE.BackSide }));
+  atmo.position.copy(earth.position);
+  scene.add(atmo);
+
+  scene.add(starfield());
+  sat = buildSatellite();
+  scene.add(sat);
+
+  addEventListener("resize", onResize);
+  animate();
+}
+
+function earthTexture(){
+  // Stitch a zoom level's Mercator tiles into one canvas used as the sphere
+  // texture. Tiles fill in as they arrive over an ocean-blue base, so Earth is
+  // never a black ball even before/if tiles fail.
+  const z = EARTH_ZOOM, n = 1 << z, size = 256 * n;
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#24466f"; ctx.fillRect(0, 0, size, size);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.encoding = THREE.sRGBEncoding;
+  let loaded = 0; const total = n * n;
+  for (let x = 0; x < n; x++) for (let y = 0; y < n; y++){
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      ctx.drawImage(img, x * 256, y * 256, 256, 256);
+      if (++loaded === total || loaded % 8 === 0) tex.needsUpdate = true;
+    };
+    img.src = eoxTile(z, x, y);
+  }
+  return tex;
+}
+function earthMaterial(){
+  return new THREE.MeshStandardMaterial({ map: earthTexture(), roughness: 1, metalness: 0 });
+}
+
+// Procedural Moon — grey with a few craters; lit by the sun so it shows a
+// terminator (phase) rather than a flat disc.
+function moonTexture(){
+  const c = document.createElement("canvas"); c.width = 256; c.height = 128;
+  const g = c.getContext("2d");
+  g.fillStyle = "#9a9ca1"; g.fillRect(0, 0, 256, 128);
+  for (let i = 0; i < 60; i++){
+    const x = (i * 71) % 256, y = (i * 47) % 128, r = 2 + (i % 7);
+    g.fillStyle = i % 2 ? "rgba(120,122,128,.5)" : "rgba(210,212,216,.4)";
+    g.beginPath(); g.arc(x, y, r, 0, 7); g.fill();
+  }
+  const t = new THREE.CanvasTexture(c); t.encoding = THREE.sRGBEncoding;
+  return t;
+}
+
+function starfield(){
+  const n = 800, pos = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++){
+    // spread on a large sphere shell
+    const th = (i * 2.399963), ph = Math.acos(1 - 2 * ((i + 0.5) / n));
+    const r = 600;
+    pos[i*3] = r * Math.sin(ph) * Math.cos(th);
+    pos[i*3+1] = r * Math.sin(ph) * Math.sin(th);
+    pos[i*3+2] = r * Math.cos(ph);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  return new THREE.Points(geo, new THREE.PointsMaterial({ color: 0x9fb4d6, size: 1.6 }));
+}
+
+function buildSatellite(){
+  const g = new THREE.Group();
+  // body — gold-foil cubesat
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.7, 1.0),
+    new THREE.MeshStandardMaterial({ color: 0xb8912e, metalness: 0.7, roughness: 0.35,
+      emissive: 0x2a1e00 }));
+  g.add(body);
+  // solar panels — two wings
+  const panelMat = () => new THREE.MeshStandardMaterial({ color: 0x1b3b6b,
+    metalness: 0.4, roughness: 0.5, emissive: 0x000000 });
+  const wing = (sign) => {
+    const w = new THREE.Group();
+    const p = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.02, 0.7), panelMat());
+    p.rotation.z = Math.PI / 2; p.position.x = sign * 1.25;
+    const strut = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.55),
+      new THREE.MeshStandardMaterial({ color: 0x888888 }));
+    strut.rotation.z = Math.PI / 2; strut.position.x = sign * 0.5;
+    w.add(p); w.add(strut); w.userData.panel = p;
+    return w;
+  };
+  const wl = wing(-1), wr = wing(1);
+  panelL = wl.userData.panel; panelR = wr.userData.panel;
+  g.add(wl); g.add(wr);
+  // antenna — mast + small dish
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.5),
+    new THREE.MeshStandardMaterial({ color: 0xcccccc }));
+  mast.position.set(0, 0.6, 0); g.add(mast);
+  const dish = new THREE.Mesh(new THREE.SphereGeometry(0.14, 16, 16, 0, 6.28, 0, 1.3),
+    new THREE.MeshStandardMaterial({ color: 0xe8eef7, side: THREE.DoubleSide, metalness: .3 }));
+  dish.position.set(0, 0.85, 0); dish.rotation.x = Math.PI; g.add(dish);
+  return g;
+}
+
+function setPanelGlow(sunlit){
+  const c = sunlit ? 0x2a4d1a : 0x000000;   // faint green generation glow when lit
+  for (const p of [panelL, panelR]) if (p) p.material.emissive.setHex(c);
+}
+
+function onResize(){
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+}
+
+let last = 0;
+function animate(t){
+  if (disposed) return;
+  requestAnimationFrame(animate);
+  const dt = (t - last) / 1000 || 0; last = t;
+  if (sat) sat.rotation.y += spinRate * dt;
+  if (earth) earth.rotation.y += 0.02 * dt;
+  if (moon && earth){
+    moonAngle += 0.08 * dt;
+    moon.position.set(earth.position.x + Math.cos(moonAngle) * 60,
+                      earth.position.y + 14,
+                      earth.position.z + Math.sin(moonAngle) * 60);
+    moon.rotation.y += 0.01 * dt;
+  }
+  controls.update();
+  renderer.render(scene, camera);
+}
+
+function disposeScene(){
+  disposed = true;
+  scene && scene.traverse(o => {
+    if (o.geometry) o.geometry.dispose();
+    if (o.material){ (Array.isArray(o.material) ? o.material : [o.material])
+      .forEach(m => { for (const k in m) { const v = m[k]; if (v && v.isTexture) v.dispose(); } m.dispose(); }); }
+  });
+  renderer && renderer.dispose();
+}
+addEventListener("beforeunload", disposeScene);
+
+// ---- data + HUD ------------------------------------------------------------
+let satInfo = null;
+async function load(){
+  if (!NORAD){ document.getElementById("loading").textContent =
+    "No satellite selected — open /w/spacecraft?sat=<NORAD>."; return; }
+  buildScene();
+  await refresh();
+  document.getElementById("loading").classList.add("hidden");
+  setInterval(refresh, 15000);
+}
+
+async function refresh(){
+  try {
+    const sats = await j("/api/satellites");
+    satInfo = sats.find(s => s.norad === NORAD) || satInfo;
+  } catch (e) {}
+  let fields = [];
+  try { fields = await j(`/api/v1/telemetry/${NORAD}/fields`); } catch (e) {}
+  renderHUD(componentMap(fields));
+}
+
+function renderHUD(cm){
+  const s = satInfo || {};
+  document.getElementById("satname").textContent = s.name || `NORAD ${NORAD}`;
+  document.getElementById("crumb").innerHTML = s.name
+    ? `<b>${s.name}</b> · NORAD ${NORAD} · spacecraft view` : `NORAD ${NORAD}`;
+  const pos = (s.lat != null)
+    ? `${s.lat.toFixed(1)}°, ${s.lon.toFixed(1)}° · ${Math.round(s.alt_km || 0)} km` : "position acquiring…";
+  document.getElementById("satmeta").textContent = pos;
+
+  // data age
+  const agePill = document.getElementById("agepill");
+  const hrs = s.last_frame ? (Date.now() - Date.parse(s.last_frame)) / 3.6e6 : Infinity;
+  agePill.textContent = ageStr(s.last_frame);
+  agePill.className = "pill " + (hrs <= 24 ? "live" : "stale");
+
+  // power / sunlit
+  const sunlit = isSunlit(s.lat, s.lon, s.alt_km, new Date());
+  const sunEl = document.getElementById("sunstate");
+  if (sunlit == null){ sunEl.textContent = "—"; sunEl.className = "pill ecl"; }
+  else { sunEl.textContent = sunlit ? "SUNLIT" : "ECLIPSE";
+         sunEl.className = "pill " + (sunlit ? "sun" : "ecl"); }
+  setPanelGlow(!!sunlit);
+  spinRate = 0.15;
+  const chargeHint = cm.battery.i != null
+    ? (cm.battery.i > 0 ? "charging" : cm.battery.i < 0 ? "discharging" : "idle") : null;
+  document.getElementById("powerbody").innerHTML = (sunlit == null && chargeHint == null)
+    ? `<div class="muted">no data</div>`
+    : `<div class="kv"><span>Illumination</span><span class="v ${sunlit==null?'dimmed':''}">` +
+      `${sunlit == null ? "unknown" : sunlit ? "in sunlight" : "in eclipse"}</span></div>` +
+      (chargeHint ? `<div class="kv"><span>Battery flow</span><span class="v">${chargeHint}</span></div>` : "");
+
+  // battery
+  document.getElementById("batterybody").innerHTML = cm.hasBattery ? (
+    (cm.battery.v != null ? `<div class="kv"><span>Voltage</span><span class="v">${fmt(cm.battery.v)} V</span></div>` : "") +
+    (cm.battery.i != null ? `<div class="kv"><span>Current</span><span class="v">${fmt(cm.battery.i)} A</span></div>` : "") +
+    (cm.battery.pct != null ? `<div class="kv"><span>Charge</span><span class="v">${fmt(cm.battery.pct, 0)} %</span></div>` +
+       `<div class="bar"><span style="width:${Math.max(0, Math.min(100, cm.battery.pct))}%"></span></div>` : "")
+  ) : `<div class="muted">no battery telemetry</div>`;
+
+  // thermal
+  document.getElementById("thermalbody").innerHTML = cm.hasThermal
+    ? cm.temps.slice(0, 6).map(t =>
+        `<div class="kv"><span>${t.name}</span><span class="v">${fmt(t.value, 1)} °C</span></div>`).join("")
+    : `<div class="muted">no thermal telemetry</div>`;
+
+  // attitude
+  document.getElementById("attitudebody").innerHTML = cm.hasAttitude
+    ? cm.attitude.slice(0, 6).map(a =>
+        `<div class="kv"><span>${a.name}</span><span class="v">${fmt(a.value, 3)}</span></div>`).join("")
+    : `<div class="muted">nominal spin (no attitude telemetry)</div>`;
+
+  // link / antenna
+  document.getElementById("linkbody").innerHTML = s.last_frame
+    ? `<div class="kv"><span>Last frame</span><span class="v">${ageStr(s.last_frame)} ago</span></div>` +
+      `<div class="kv"><span>Downlink</span><span class="v">${hrs <= 1 ? "active" : hrs <= 24 ? "recent" : "quiet"}</span></div>`
+    : `<div class="muted">no frames heard (7 d)</div>`;
+}
+
+// expose the pure mapper for tests / console
+window.componentMap = componentMap;
+window.isSunlit = isSunlit;
+
+load();
+</script>
+</body>
+</html>
