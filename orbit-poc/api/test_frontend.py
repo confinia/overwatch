@@ -86,3 +86,10 @@ def test_track_splits_at_antimeridian(html):     # #66
     # circle across the globe near the poles
     assert "splitAntimeridian" in html
     assert "MultiLineString" in html
+
+
+def test_track_line_is_clickable(html):          # #65
+    # a wide hit-line + click handler open a popup with the track's satellite
+    # and time window
+    assert "track-hit" in html and "onTrackClick" in html
+    assert "Ground track" in html
