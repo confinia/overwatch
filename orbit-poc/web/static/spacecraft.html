@@ -180,8 +180,8 @@ let spinRate = 0.15, disposed = false, moonAngle = 0;
 function buildScene(){
   const el = document.getElementById("scene");
   scene = new THREE.Scene();
-  camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 1000);
-  camera.position.set(0, 1.2, 6);
+  camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 2000);
+  camera.position.set(0, 0.7, 3);   // close to the craft; Earth fills the backdrop
   renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.setSize(innerWidth, innerHeight);
@@ -190,7 +190,7 @@ function buildScene(){
 
   controls = new THREE.OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true; controls.dampingFactor = 0.08;
-  controls.minDistance = 3; controls.maxDistance = 24;
+  controls.minDistance = 1.2; controls.maxDistance = 120;   // close inspect … pull back to whole Earth
 
   scene.add(new THREE.AmbientLight(0x33405a, 1.1));
   sunLight = new THREE.DirectionalLight(0xffffff, 1.5);
@@ -200,10 +200,10 @@ function buildScene(){
   // Sun — a glowing sphere at the light's direction, with a soft halo, so the
   // shading on Earth/craft matches where the light visibly comes from.
   const sunDir = new THREE.Vector3(6, 3, 5).normalize();
-  sun = new THREE.Mesh(new THREE.SphereGeometry(2.4, 32, 32),
+  sun = new THREE.Mesh(new THREE.SphereGeometry(9, 32, 32),
     new THREE.MeshBasicMaterial({ color: 0xfff3c4 }));
-  sun.position.copy(sunDir).multiplyScalar(46);
-  const sunGlow = new THREE.Mesh(new THREE.SphereGeometry(4.2, 32, 32),
+  sun.position.copy(sunDir).multiplyScalar(220);
+  const sunGlow = new THREE.Mesh(new THREE.SphereGeometry(16, 32, 32),
     new THREE.MeshBasicMaterial({ color: 0xffdd88, transparent: true,
       opacity: 0.22, side: THREE.BackSide }));
   sunGlow.position.copy(sun.position);
@@ -212,18 +212,22 @@ function buildScene(){
 
   // Moon — lit by the sun, off to one side; the terminator makes it read as a
   // phase rather than a flat disc. Orbits Earth slowly in animate().
-  moon = new THREE.Mesh(new THREE.SphereGeometry(0.9, 48, 48),
+  moon = new THREE.Mesh(new THREE.SphereGeometry(5.4, 64, 64),   // ~0.27 Earth radius
     new THREE.MeshStandardMaterial({ map: moonTexture(), roughness: 1, metalness: 0 }));
   scene.add(moon);
 
   // Earth backdrop — shaded blue marble with a subtle procedural surface and
   // an atmosphere rim. No external texture (robust, self-contained).
-  const earthGeo = new THREE.SphereGeometry(3, 64, 64);
+  // Planet-scale Earth: a ~20-unit body just below the craft, so the satellite
+  // (~1-2 units) reads as a small spacecraft in low orbit over a big curved
+  // limb — not a toy next to a same-size ball.
+  const EARTH_R = 20;
+  const earthGeo = new THREE.SphereGeometry(EARTH_R, 96, 96);
   earth = new THREE.Mesh(earthGeo, earthMaterial());
-  earth.position.set(-2.4, -2.2, -4);
+  earth.position.set(0, -(EARTH_R + 2), -3);   // ~2 units of altitude -> low-orbit horizon
   scene.add(earth);
-  const atmo = new THREE.Mesh(new THREE.SphereGeometry(3.18, 48, 48),
-    new THREE.MeshBasicMaterial({ color: 0x5aa9ff, transparent: true, opacity: 0.14,
+  const atmo = new THREE.Mesh(new THREE.SphereGeometry(EARTH_R * 1.06, 64, 64),
+    new THREE.MeshBasicMaterial({ color: 0x5aa9ff, transparent: true, opacity: 0.16,
       side: THREE.BackSide }));
   atmo.position.copy(earth.position);
   scene.add(atmo);
@@ -283,14 +287,14 @@ function starfield(){
   for (let i = 0; i < n; i++){
     // spread on a large sphere shell
     const th = (i * 2.399963), ph = Math.acos(1 - 2 * ((i + 0.5) / n));
-    const r = 60;
+    const r = 600;
     pos[i*3] = r * Math.sin(ph) * Math.cos(th);
     pos[i*3+1] = r * Math.sin(ph) * Math.sin(th);
     pos[i*3+2] = r * Math.cos(ph);
   }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
-  return new THREE.Points(geo, new THREE.PointsMaterial({ color: 0x9fb4d6, size: 0.15 }));
+  return new THREE.Points(geo, new THREE.PointsMaterial({ color: 0x9fb4d6, size: 1.6 }));
 }
 
 function buildSatellite(){
@@ -345,9 +349,9 @@ function animate(t){
   if (earth) earth.rotation.y += 0.02 * dt;
   if (moon && earth){
     moonAngle += 0.08 * dt;
-    moon.position.set(earth.position.x + Math.cos(moonAngle) * 7,
-                      earth.position.y + 1.5,
-                      earth.position.z + Math.sin(moonAngle) * 7);
+    moon.position.set(earth.position.x + Math.cos(moonAngle) * 60,
+                      earth.position.y + 14,
+                      earth.position.z + Math.sin(moonAngle) * 60);
     moon.rotation.y += 0.01 * dt;
   }
   controls.update();
