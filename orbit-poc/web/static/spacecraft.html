@@ -112,6 +112,10 @@ const LOCAL = ["localhost", "127.0.0.1"].includes(location.hostname);
 const MIRROR = location.hostname.endsWith("github.io");
 const API_BASE = MIRROR ? "https://overwatch.confinia.io" : "";
 async function j(u){ const r = await fetch(API_BASE + u); if (!r.ok) throw new Error(u); return r.json(); }
+function escapeHTML(s){
+  return String(s).replace(/[&<>"]/g, c =>
+    ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]));
+}
 
 // Real Sentinel-2 cloudless (EOX) — the same basemap the globe uses, stitched
 // from a zoom level's tiles for detail. EOX serves CORS for our origin, so the
