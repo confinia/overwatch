@@ -8,7 +8,8 @@ import re
 import pytest
 
 HERE = os.path.dirname(__file__)
-STATIC = os.path.join(HERE, "..", "web", "static")
+WEB = os.path.join(HERE, "..", "web")
+STATIC = os.path.join(WEB, "static")
 INDEX = os.path.join(STATIC, "index.html")
 PAGES = ("index.html", "pro.html", "article.html", "talk.html")
 
