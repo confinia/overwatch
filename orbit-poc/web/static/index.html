@@ -41,6 +41,15 @@
   /* heard within the last hour: alive and glowing */
   .fdot.live { animation:pulse 1.6s infinite;
     box-shadow:0 0 7px 1px rgba(57,217,138,.8); }
+  /* Time-window selector — drives receptions, decoded fields and track (#71). */
+  #rangebar { position:absolute; top:10px; left:50%; transform:translateX(-50%);
+    z-index:5; background:rgba(18,24,38,.88); border:1px solid var(--line);
+    border-radius:8px; padding:3px; display:flex; gap:2px; align-items:center; }
+  #rangebar .lbl { color:var(--dim); font-size:11px; padding:0 6px; }
+  #rangebar button { background:none; border:0; color:var(--dim); cursor:pointer;
+    padding:4px 9px; border-radius:6px; font-size:12px; font-family:inherit; }
+  #rangebar button:hover { color:var(--text); }
+  #rangebar button.on { background:var(--accent); color:#04070d; font-weight:600; }
   #side { border-left:1px solid var(--line); background:var(--panel);
     display:flex; flex-direction:column; min-width:0; min-height:0; }
   /* Small screens: globe + dashboards only; satellites are picked by tapping
@@ -143,6 +152,7 @@
   <div id="left">
     <div id="map"></div>
     <div id="fleetbar" title="Fleet link status">loading fleet…</div>
+    <div id="rangebar" title="Time window for receptions, decoded fields and track"></div>
     <div id="rxlegend" style="display:none"></div>
     <div id="panel">
       <div class="head" id="panelHead">Select a satellite to inspect its telemetry</div>
@@ -185,6 +195,31 @@ const DASH_UID = "orbit-telemetry";
 // Coarse pointer (phones/tablets): draw visibly bigger dots — a 4px target
 // is neither tappable nor perceived as tappable on a phone.
 const TOUCH = window.matchMedia("(pointer: coarse)").matches;
+
+// Time window (hours) for receptions, decoded fields and track — one range
+// drives all three so they describe the same frames over the same window
+// (#70/#71/#72). Persisted per browser.
+const RANGES = [[1,"1h"],[6,"6h"],[24,"24h"],[72,"3d"],[168,"7d"]];
+let rangeHours = Number(localStorage.getItem("ovw_rangeHours"));
+if (!RANGES.some(r => r[0] === rangeHours)) rangeHours = 168;   // default 7 days
+function renderRangebar(){
+  const el = document.getElementById("rangebar");
+  if (!el) return;
+  el.innerHTML = `<span class="lbl">Range</span>` + RANGES.map(([h, l]) =>
+    `<button class="${h === rangeHours ? "on" : ""}" onclick="setRange(${h})">${l}</button>`).join("");
+}
+function setRange(h){
+  if (h === rangeHours) return;
+  rangeHours = h; localStorage.setItem("ovw_rangeHours", String(h));
+  renderRangebar();
+  // re-fetch the active view with the new window so map + fields stay coherent
+  if (activeStation) selectStation(activeStation);
+  else if (activeNorad != null && satsByNorad[activeNorad]){
+    const s = satsByNorad[activeNorad];
+    drawTrack(s.norad); drawReceptions(s.norad); embedDashboards(s);
+  }
+}
+renderRangebar();
 
 // Account: same OpenID token (cookie) as the API and Grafana. Signed out ->
 // sign-in/register link (Keycloak handles both); signed in without org ->
@@ -587,12 +622,12 @@ async function select(s, auto = false){
 async function embedDashboards(s){
   if (s.norad !== activeNorad) return;   // user moved on while the globe settled
   const body = document.getElementById("panelBody");
-  const qs = `orgId=1&var-norad=${s.norad}&theme=dark&from=now-7d&to=now`;
+  const qs = `orgId=1&var-norad=${s.norad}&theme=dark&from=now-${rangeHours}h&to=now`;
   // Ask the product API which telemetry fields exist (same 7-day window as
   // the dashboard) and embed only the panels that will actually show data.
   let all = null;
   try {
-    const r = await fetch(`${API_BASE}/api/v1/telemetry/${s.norad}/fields`);
+    const r = await fetch(`${API_BASE}/api/v1/telemetry/${s.norad}/fields?hours=${rangeHours}`);
     if (r.ok) all = await r.json();   // [{field, points, last_seen}]
   } catch (e) { /* /v1 unreachable (local dev): fall back below */ }
   if (s.norad !== activeNorad) return;
@@ -727,7 +762,7 @@ function pulseLink(feature){
 // Ground stations that heard the selected satellite (last 7 days), with
 // links to where the satellite was when heard (when history covers it).
 async function drawReceptions(norad){
-  const recs = await j(`/api/receptions/${norad}`);
+  const recs = await j(`/api/receptions/${norad}?hours=${rangeHours}`);
   const st = {};                     // observer -> aggregated station stats
   const links = [];
   for (const r of recs){
@@ -803,7 +838,7 @@ function onTrackClick(e){
 
 let trackSourceAdded = false;
 async function drawTrack(norad){
-  const pts = await j(`/api/track/${norad}`);
+  const pts = await j(`/api/track/${norad}?hours=${rangeHours}`);
   const coords = pts.map(p=>[p.lon, p.lat]);
   const ts = pts.map(p => new Date(p.ts).getTime()).filter(Boolean);
   const s = satsByNorad[norad] || {};

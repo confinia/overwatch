@@ -4,12 +4,22 @@ This is the boundary in action: the browser talks to us, we talk to Postgres,
 and nothing here ever calls CelesTrak or SatNOGS.
 """
 import os
-from flask import Flask, jsonify, send_from_directory
+from flask import Flask, jsonify, request, send_from_directory
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
 DB_DSN = os.environ["DB_DSN"]
 app = Flask(__name__, static_folder="static", static_url_path="")
+
+
+def _hours(default=168):
+    """Selected time window in hours, bounded 1h–7d (168h) to protect the
+    cache/DB. Drives receptions, track and fields so they share one window."""
+    try:
+        h = int(request.args.get("hours", default))
+    except (TypeError, ValueError):
+        h = default
+    return max(1, min(h, 168))
 
 # OpenTelemetry: every request becomes a trace; the collector's spanmetrics
 # connector turns them into per-route rate/latency/error metrics for the
@@ -71,9 +81,10 @@ def satellites():
 
 @app.get("/api/receptions/<int:norad>")
 def receptions(norad):
-    """Who heard this satellite in the last 7 days: receiving station
-    (Maidenhead-decoded) + the satellite's cached position at reception time
-    when our position history covers it."""
+    """Who heard this satellite in the selected window (default 7 days):
+    receiving station (Maidenhead-decoded) + the satellite's cached position at
+    reception time when our position history covers it."""
+    hours = _hours()
     with db() as conn, conn.cursor() as cur:
         cur.execute("""
             SELECT r.ts, r.observer, r.lat, r.lon,
@@ -86,19 +97,28 @@ def receptions(norad):
                              AND r.ts + interval '2 minutes'
                 ORDER BY abs(extract(epoch FROM ts - r.ts)) LIMIT 1
             ) p ON """ + _within_horizon + """
-            WHERE r.norad = %s AND r.ts > now() - interval '7 days'
-            ORDER BY r.ts DESC LIMIT 300""", (HORIZON_KM, norad,))
+            WHERE r.norad = %s AND r.ts > now() - %s * interval '1 hour'
+            ORDER BY r.ts DESC LIMIT 300""", (HORIZON_KM, norad, hours))
         return jsonify(cur.fetchall())
 
 
 @app.get("/api/track/<int:norad>")
 def track(norad):
-    """Recent ground track for one satellite (for drawing the orbit line)."""
+    """Ground track for one satellite over the selected window (default 7 days,
+    #72). Downsampled server-side to at most ~2000 points so a multi-day track
+    stays light; the frontend splits it at the antimeridian (#66)."""
+    hours = _hours()
     with db() as conn, conn.cursor() as cur:
         cur.execute("""
-            SELECT lat, lon, ts FROM position
-            WHERE norad = %s AND ts > now() - interval '100 minutes'
-            ORDER BY ts""", (norad,))
+            WITH t AS (
+                SELECT lat, lon, ts, row_number() OVER (ORDER BY ts) AS rn,
+                       count(*) OVER () AS total
+                FROM position
+                WHERE norad = %s AND ts > now() - %s * interval '1 hour'
+            )
+            SELECT lat, lon, ts FROM t
+            WHERE rn %% (GREATEST(total / 2000, 1))::int = 0 OR rn = total
+            ORDER BY ts""", (norad, hours))
         return jsonify(cur.fetchall())
 
 
