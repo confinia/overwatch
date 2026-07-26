@@ -794,7 +794,7 @@ async function drawReceptions(norad){
   setRxLegend(nst
     ? `<b>${nst} ground station${nst>1?"s":""}</b> heard this satellite` +
       `<div class="sub">${frames} reception${frames>1?"s":""}, last 7 days — each orange line ` +
-      `points to where the satellite was when a volunteer station decoded a frame. Click one.</div>`
+      `points to where the satellite was — on the blue arc of that pass — when a volunteer station decoded a frame. Click one.</div>`
     : "");
 }
 
@@ -817,6 +817,19 @@ function splitAntimeridian(coords){
   }
   return segs.filter(s => s.length > 1);
 }
+// The track now shows only the ARCS where the satellite was heard (one per
+// pass), so orange reception lines land on a visible orbit arc instead of
+// floating (#70), and 7 days of orbits don't flood the globe. Break the heard
+// points into passes on a time gap (>10 min = a different pass), then split
+// each pass at the antimeridian (#66) so no arc spans the ±180 seam.
+function splitPasses(pts){
+  const passes = [[]];
+  for (let i = 0; i < pts.length; i++){
+    if (i > 0 && (new Date(pts[i].ts) - new Date(pts[i-1].ts)) / 60000 > 10) passes.push([]);
+    passes[passes.length - 1].push([pts[i].lon, pts[i].lat]);
+  }
+  return passes.flatMap(splitAntimeridian);
+}
 
 // Popup for a clicked ground-track line (#65): who, when, how long.
 function onTrackClick(e){
@@ -832,20 +845,19 @@ function onTrackClick(e){
       `<b>${p.name}</b> · NORAD ${p.norad}<br>` +
       `${p.points} points over ${mins != null ? mins + " min" : "the recent orbit"}<br>` +
       (p.first ? `${utc(p.first)}<br>→ ${utc(p.last)}<br>` : "") +
-      `<span style="opacity:.7">Sub-satellite path for the recent pass.</span>`)
+      `<span style="opacity:.7">Orbit arcs where the satellite was heard — each reception lands on one.</span>`)
     .addTo(map);
 }
 
 let trackSourceAdded = false;
 async function drawTrack(norad){
   const pts = await j(`/api/track/${norad}?hours=${rangeHours}`);
-  const coords = pts.map(p=>[p.lon, p.lat]);
   const ts = pts.map(p => new Date(p.ts).getTime()).filter(Boolean);
   const s = satsByNorad[norad] || {};
   const geo = { type:"Feature",
     properties: { norad, name: s.name || `NORAD ${norad}`, points: pts.length,
       first: ts.length ? Math.min(...ts) : 0, last: ts.length ? Math.max(...ts) : 0 },
-    geometry:{ type:"MultiLineString", coordinates: splitAntimeridian(coords) }};
+    geometry:{ type:"MultiLineString", coordinates: splitPasses(pts) }};
   if (!trackSourceAdded){
     map.addSource("track", { type:"geojson", data:geo });
     map.addLayer({ id:"track", type:"line", source:"track",

@@ -104,21 +104,24 @@ def receptions(norad):
 
 @app.get("/api/track/<int:norad>")
 def track(norad):
-    """Ground track for one satellite over the selected window (default 7 days,
-    #72). Downsampled server-side to at most ~2000 points so a multi-day track
-    stays light; the frontend splits it at the antimeridian (#66)."""
+    """Ground-track arcs for the passes the satellite was actually HEARD on,
+    within the selected window (#72). Returns only position points near a
+    reception (±4 min), so each orange reception line lands on a short orbit arc
+    instead of floating (#70) — and the globe is not flooded by the full
+    multi-day track. The frontend splits these into per-pass segments (on a time
+    gap) and at the antimeridian (#66)."""
     hours = _hours()
     with db() as conn, conn.cursor() as cur:
         cur.execute("""
-            WITH t AS (
-                SELECT lat, lon, ts, row_number() OVER (ORDER BY ts) AS rn,
-                       count(*) OVER () AS total
-                FROM position
-                WHERE norad = %s AND ts > now() - %s * interval '1 hour'
-            )
-            SELECT lat, lon, ts FROM t
-            WHERE rn %% (GREATEST(total / 2000, 1))::int = 0 OR rn = total
-            ORDER BY ts""", (norad, hours))
+            SELECT p.lat, p.lon, p.ts
+            FROM position p
+            WHERE p.norad = %s AND p.ts > now() - %s * interval '1 hour'
+              AND EXISTS (
+                SELECT 1 FROM reception r
+                WHERE r.norad = p.norad
+                  AND r.ts BETWEEN p.ts - interval '4 minutes'
+                                AND p.ts + interval '4 minutes')
+            ORDER BY p.ts""", (norad, hours))
         return jsonify(cur.fetchall())
 
 

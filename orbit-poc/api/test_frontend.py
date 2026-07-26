@@ -96,6 +96,14 @@ def test_track_line_is_clickable(html):          # #65
     assert "Ground track" in html
 
 
+def test_track_shows_heard_pass_arcs(html):      # #70 (no orphan endpoints)
+    # the track is split into per-pass arcs, and the API returns only positions
+    # near a reception, so orange endpoints land on a visible arc (no flood)
+    assert "splitPasses" in html
+    app_py = open(os.path.join(WEB, "app.py"), encoding="utf-8").read()
+    assert "EXISTS" in app_py and "reception r" in app_py
+
+
 def test_time_range_selector_drives_all_views(html):   # #71/#72
     assert "rangebar" in html and "rangeHours" in html and "RANGES" in html
     # one selected range threaded into receptions, decoded fields and track
