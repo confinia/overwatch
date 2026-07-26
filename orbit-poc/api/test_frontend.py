@@ -112,6 +112,14 @@ def test_track_shows_heard_pass_arcs(html):      # #70 (no orphan endpoints)
     assert "EXISTS" in app_py and "reception r" in app_py
 
 
+def test_resizable_collapsible_panes(html):      # #69
+    assert 'id="gutter-side"' in html and 'id="gutter-map"' in html
+    assert "setupGutters" in html and "dragGutter" in html
+    assert "--side-w" in html and "--map-h" in html      # grid tracks are vars
+    assert "ovw_sideW" in html and "ovw_mapH" in html     # persisted per browser
+    assert "map.resize()" in html                          # WebGL re-render on change
+
+
 def test_time_range_selector_drives_all_views(html):   # #71/#72
     assert "rangebar" in html and "rangeHours" in html and "RANGES" in html
     # one selected range threaded into receptions, decoded fields and the
