@@ -36,12 +36,19 @@
   .gutter::before { content:""; position:absolute; background:var(--dim);
     opacity:.25; transition:opacity .15s, background .15s; }
   .gutter:hover::before, .gutter.drag::before { opacity:1; background:var(--accent); }
+  /* tiny 3-dot grip (⋮ / ⋯) so it's obvious the border can be pulled */
+  .gutter::after { content:""; position:absolute; top:50%; left:50%;
+    width:3px; height:3px; border-radius:50%; color:var(--dim);
+    background:currentColor; transition:color .15s; }
+  .gutter:hover::after, .gutter.drag::after { color:var(--accent); }
   #gutter-side { top:0; bottom:0; width:10px; right:var(--side-w);
     transform:translateX(5px); cursor:col-resize; }
   #gutter-side::before { top:0; bottom:0; left:4px; width:2px; }
+  #gutter-side::after { transform:translate(-50%,-50%); box-shadow:0 -6px 0, 0 6px 0; }
   #gutter-map { left:0; right:0; height:10px; top:var(--map-h);
     transform:translateY(-5px); cursor:row-resize; }
   #gutter-map::before { left:0; right:0; top:4px; height:2px; }
+  #gutter-map::after { transform:translate(-50%,-50%); box-shadow:-6px 0 0, 6px 0 0; }
   @media (max-width: 900px) { .gutter { display:none; } }
   #map { height:100%; min-height:0; }
   /* Fleet health signal — floats over the globe, works on mobile too. */
