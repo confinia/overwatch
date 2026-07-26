@@ -780,16 +780,44 @@ function splitAntimeridian(coords){
   return segs.filter(s => s.length > 1);
 }
 
+// Popup for a clicked ground-track line (#65): who, when, how long.
+function onTrackClick(e){
+  // defer to satellite dots / reception layers when they sit under the click
+  const over = ["sats-hit", "rx-stations-hit", "rx-links-hit"].filter(l => map.getLayer(l));
+  if (over.length && map.queryRenderedFeatures(e.point, { layers: over }).length) return;
+  const p = e.features[0].properties;
+  const utc = t => new Date(Number(t)).toUTCString().slice(5, -7) + " UTC";
+  const mins = (p.first && p.last) ? Math.round((Number(p.last) - Number(p.first)) / 60000) : null;
+  new maplibregl.Popup({ maxWidth: "280px" })
+    .setLngLat(e.lngLat)
+    .setHTML(`<b>Ground track</b><br>` +
+      `<b>${p.name}</b> · NORAD ${p.norad}<br>` +
+      `${p.points} points over ${mins != null ? mins + " min" : "the recent orbit"}<br>` +
+      (p.first ? `${utc(p.first)}<br>→ ${utc(p.last)}<br>` : "") +
+      `<span style="opacity:.7">Sub-satellite path for the recent pass.</span>`)
+    .addTo(map);
+}
+
 let trackSourceAdded = false;
 async function drawTrack(norad){
   const pts = await j(`/api/track/${norad}`);
   const coords = pts.map(p=>[p.lon, p.lat]);
-  const geo = { type:"Feature", geometry:{ type:"MultiLineString",
-    coordinates: splitAntimeridian(coords) }};
+  const ts = pts.map(p => new Date(p.ts).getTime()).filter(Boolean);
+  const s = satsByNorad[norad] || {};
+  const geo = { type:"Feature",
+    properties: { norad, name: s.name || `NORAD ${norad}`, points: pts.length,
+      first: ts.length ? Math.min(...ts) : 0, last: ts.length ? Math.max(...ts) : 0 },
+    geometry:{ type:"MultiLineString", coordinates: splitAntimeridian(coords) }};
   if (!trackSourceAdded){
     map.addSource("track", { type:"geojson", data:geo });
     map.addLayer({ id:"track", type:"line", source:"track",
       paint:{ "line-color":"#5aa9ff", "line-width":2, "line-opacity":.8 }});
+    // wide invisible twin so the thin track line is clickable (#65)
+    map.addLayer({ id:"track-hit", type:"line", source:"track",
+      paint:{ "line-color":"#5aa9ff", "line-width":12, "line-opacity":0.001 }});
+    map.on("click", "track-hit", onTrackClick);
+    map.on("mouseenter", "track-hit", () => map.getCanvas().style.cursor = "pointer");
+    map.on("mouseleave", "track-hit", () => map.getCanvas().style.cursor = "");
     trackSourceAdded = true;
   } else {
     map.getSource("track").setData(geo);
