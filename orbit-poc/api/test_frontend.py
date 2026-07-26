@@ -97,6 +97,10 @@ def test_track_splits_at_antimeridian(html):     # #66
     assert "MultiLineString" in html
 
 
+def test_satellite_title_has_operator_link(html):   # operator POC in title bar
+    assert "db.satnogs.org/satellite/" in html and "Operator ↗" in html
+
+
 def test_station_deeplink_guards_track_source(html):  # direct #station: link fix
     # landing straight on a #station: deep link selects no satellite first, so
     # the lazily-created track sources may not exist; clearing them must be guarded

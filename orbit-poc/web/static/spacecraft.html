@@ -90,6 +90,10 @@
     <h2>Antenna link (TM/TC)</h2>
     <div id="linkbody"><div class="muted">no data</div></div>
   </div>
+  <div class="card" id="contact">
+    <h2>Operator / point of contact</h2>
+    <div id="contactbody"><div class="muted">…</div></div>
+  </div>
 </div>
 <div class="legend" id="legend">
   A generic cubesat rendered over Earth. Live decoded telemetry drives the
@@ -447,6 +451,12 @@ function renderHUD(cm){
     ? `<div class="kv"><span>Last frame</span><span class="v">${ageStr(s.last_frame)} ago</span></div>` +
       `<div class="kv"><span>Downlink</span><span class="v">${hrs <= 1 ? "active" : hrs <= 24 ? "recent" : "quiet"}</span></div>`
     : `<div class="muted">no frames heard (7 d)</div>`;
+
+  // operator / point of contact — SatNOGS DB lists the mission team + website
+  document.getElementById("contactbody").innerHTML =
+    `<div class="muted" style="margin-bottom:4px">Who operates ${escapeHTML(s.name || "this satellite")}:</div>` +
+    `<a href="https://db.satnogs.org/satellite/${NORAD}" target="_blank" rel="noopener" ` +
+    `style="color:var(--accent)">Operator, website &amp; contact — SatNOGS DB ↗</a>`;
 }
 
 // expose the pure mapper for tests / console
