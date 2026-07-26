@@ -708,6 +708,8 @@ async function embedDashboards(s){
   // field can be coloured by its source category (#46).
   const panels = [
     { id: 5, wide: true, show: true },  // orbit altitude: position cache, live for every satellite
+    { id: 14, wide: true, show: true },  // #86 reception summary (frames / stations / last heard)
+    { id: 13, wide: true, show: true },  // #86 ground-station leaderboard — SatNOGS leads with this
     { id: 1, show: rich.includes("battery_v") || has(/volt|vbat|v_bat|bat[a-z_]*_v$|panel_v$/i) },
     { id: 2, show: has(/temp|bat[a-z_]*_t$/i) },
     { id: 3, show: rich.includes("battery_i") || has(/current|curr|_i_|amp/i) },
