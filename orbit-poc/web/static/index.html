@@ -637,7 +637,13 @@ async function select(s, auto = false){
   // Dedicated 3D spacecraft view (#55), opens as a control-room window (#49).
   const view3d = `<a class="action" href="/w/spacecraft?sat=${s.norad}" ` +
     `target="_blank" rel="noopener" title="Dedicated 3D spacecraft view">3D view ↗</a>`;
-  head.innerHTML = `${escapeHTML(s.name)} — NORAD ${s.norad} · ${view3d}`;
+  // Operator / point of contact — SatNOGS DB lists the mission team + website.
+  const opLink = `<a class="action" href="https://db.satnogs.org/satellite/${s.norad}" ` +
+    `target="_blank" rel="noopener" title="Operator, website & contact (SatNOGS DB)">Operator ↗</a>`;
+  const posOnly = s.has_telemetry ? "" :
+    ` <span style="color:var(--dim)">— position-only: encrypted or no open downlink; ` +
+    `orbit data below, no public health data (shown honestly, not faked)</span>`;
+  head.innerHTML = `${escapeHTML(s.name)} — NORAD ${s.norad} · ${view3d} · ${opLink}${posOnly}`;
 
   // draw recent ground track + who-heard-it reception network
   await drawTrack(s.norad);
@@ -645,11 +651,8 @@ async function select(s, auto = false){
 
   // Full dashboard in the bottom half. Every satellite has live data there
   // (the altitude panel reads the position cache); health panels fill only
-  // for satellites with open, locally-decodable telemetry.
-  if (!s.has_telemetry){
-    head.textContent += " — position-only: encrypted or no open downlink; " +
-      "orbit data below, no public health data (shown honestly, not faked)";
-  }
+  // for satellites with open, locally-decodable telemetry. (The position-only
+  // note is now part of the title head above, so the 3D/Operator links survive.)
   // Two-stage loading: the globe (tiles + flyTo) settles first; the Grafana
   // embeds only start once the map goes idle, so earth never competes with
   // dashboard iframes for bandwidth. A loading note holds the bottom panel.

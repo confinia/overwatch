@@ -35,6 +35,11 @@ def test_spacecraft_maps_expected_components():          # #55
         assert token in t, f"component mapping missing {token}"
 
 
+def test_spacecraft_has_operator_contact():             # operator POC card
+    t = _page()
+    assert 'id="contact"' in t and "db.satnogs.org/satellite/" in t
+
+
 def test_spacecraft_is_honest_about_missing_data():      # honest-state
     t = _page()
     assert "no data" in t or "no battery telemetry" in t
