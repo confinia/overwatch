@@ -108,10 +108,13 @@ const MIRROR = location.hostname.endsWith("github.io");
 const API_BASE = MIRROR ? "https://overwatch.confinia.io" : "";
 async function j(u){ const r = await fetch(API_BASE + u); if (!r.ok) throw new Error(u); return r.json(); }
 
-// Real Sentinel-2 cloudless (EOX) — the same basemap the globe uses. The
-// zoom-0 tile is the whole world in Web Mercator; EOX serves CORS for our
-// origin, so it can be used as a WebGL texture.
-const EARTH_TILE = "https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2024_3857/default/g/0/0/0.jpg";
+// Real Sentinel-2 cloudless (EOX) — the same basemap the globe uses, stitched
+// from a zoom level's tiles for detail. EOX serves CORS for our origin, so the
+// stitched canvas can be a WebGL texture. (Web Mercator; slight latitude
+// stretch near the poles is acceptable for a backdrop.)
+const EARTH_ZOOM = 3;   // 0 = 1 tile (whole world) … 3 = 8×8 tiles (2048 px)
+const eoxTile = (z, x, y) =>
+  `https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2024_3857/default/g/${z}/${y}/${x}.jpg`;
 
 // ---- telemetry -> component mapping (the testable core, #55) ---------------
 // Pure: given the fields array from /api/v1/telemetry/{norad}/fields, decide
@@ -171,8 +174,8 @@ function ageStr(ts){
 }
 
 // ---- three.js scene --------------------------------------------------------
-let renderer, scene, camera, controls, sat, panelL, panelR, earth, sunLight;
-let spinRate = 0.15, disposed = false;
+let renderer, scene, camera, controls, sat, panelL, panelR, earth, sunLight, sun, moon;
+let spinRate = 0.15, disposed = false, moonAngle = 0;
 
 function buildScene(){
   const el = document.getElementById("scene");
@@ -194,6 +197,25 @@ function buildScene(){
   sunLight.position.set(6, 3, 5);
   scene.add(sunLight);
 
+  // Sun — a glowing sphere at the light's direction, with a soft halo, so the
+  // shading on Earth/craft matches where the light visibly comes from.
+  const sunDir = new THREE.Vector3(6, 3, 5).normalize();
+  sun = new THREE.Mesh(new THREE.SphereGeometry(2.4, 32, 32),
+    new THREE.MeshBasicMaterial({ color: 0xfff3c4 }));
+  sun.position.copy(sunDir).multiplyScalar(46);
+  const sunGlow = new THREE.Mesh(new THREE.SphereGeometry(4.2, 32, 32),
+    new THREE.MeshBasicMaterial({ color: 0xffdd88, transparent: true,
+      opacity: 0.22, side: THREE.BackSide }));
+  sunGlow.position.copy(sun.position);
+  sunLight.position.copy(sun.position);   // light originates from the sun
+  scene.add(sun); scene.add(sunGlow);
+
+  // Moon — lit by the sun, off to one side; the terminator makes it read as a
+  // phase rather than a flat disc. Orbits Earth slowly in animate().
+  moon = new THREE.Mesh(new THREE.SphereGeometry(0.9, 48, 48),
+    new THREE.MeshStandardMaterial({ map: moonTexture(), roughness: 1, metalness: 0 }));
+  scene.add(moon);
+
   // Earth backdrop — shaded blue marble with a subtle procedural surface and
   // an atmosphere rim. No external texture (robust, self-contained).
   const earthGeo = new THREE.SphereGeometry(3, 64, 64);
@@ -214,20 +236,46 @@ function buildScene(){
   animate();
 }
 
+function earthTexture(){
+  // Stitch a zoom level's Mercator tiles into one canvas used as the sphere
+  // texture. Tiles fill in as they arrive over an ocean-blue base, so Earth is
+  // never a black ball even before/if tiles fail.
+  const z = EARTH_ZOOM, n = 1 << z, size = 256 * n;
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#24466f"; ctx.fillRect(0, 0, size, size);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.encoding = THREE.sRGBEncoding;
+  let loaded = 0; const total = n * n;
+  for (let x = 0; x < n; x++) for (let y = 0; y < n; y++){
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      ctx.drawImage(img, x * 256, y * 256, 256, 256);
+      if (++loaded === total || loaded % 8 === 0) tex.needsUpdate = true;
+    };
+    img.src = eoxTile(z, x, y);
+  }
+  return tex;
+}
 function earthMaterial(){
-  // Load the real EOX Sentinel-2 cloudless world tile as the sphere texture.
-  // Falls back to a solid ocean colour if the tile fails to load, so Earth is
-  // never a black ball. (Zoom-0 is Web Mercator; slight lat stretch near the
-  // poles is acceptable for a backdrop.)
-  const mat = new THREE.MeshStandardMaterial({ color: 0x24466f, roughness: 1, metalness: 0 });
-  const loader = new THREE.TextureLoader();
-  loader.setCrossOrigin("anonymous");
-  loader.load(EARTH_TILE,
-    tex => { tex.encoding = THREE.sRGBEncoding; mat.map = tex;
-             mat.color.setHex(0xffffff); mat.needsUpdate = true; },
-    undefined,
-    () => { /* keep the solid ocean colour on error */ });
-  return mat;
+  return new THREE.MeshStandardMaterial({ map: earthTexture(), roughness: 1, metalness: 0 });
+}
+
+// Procedural Moon — grey with a few craters; lit by the sun so it shows a
+// terminator (phase) rather than a flat disc.
+function moonTexture(){
+  const c = document.createElement("canvas"); c.width = 256; c.height = 128;
+  const g = c.getContext("2d");
+  g.fillStyle = "#9a9ca1"; g.fillRect(0, 0, 256, 128);
+  for (let i = 0; i < 60; i++){
+    const x = (i * 71) % 256, y = (i * 47) % 128, r = 2 + (i % 7);
+    g.fillStyle = i % 2 ? "rgba(120,122,128,.5)" : "rgba(210,212,216,.4)";
+    g.beginPath(); g.arc(x, y, r, 0, 7); g.fill();
+  }
+  const t = new THREE.CanvasTexture(c); t.encoding = THREE.sRGBEncoding;
+  return t;
 }
 
 function starfield(){
@@ -295,6 +343,13 @@ function animate(t){
   const dt = (t - last) / 1000 || 0; last = t;
   if (sat) sat.rotation.y += spinRate * dt;
   if (earth) earth.rotation.y += 0.02 * dt;
+  if (moon && earth){
+    moonAngle += 0.08 * dt;
+    moon.position.set(earth.position.x + Math.cos(moonAngle) * 7,
+                      earth.position.y + 1.5,
+                      earth.position.z + Math.sin(moonAngle) * 7);
+    moon.rotation.y += 0.01 * dt;
+  }
   controls.update();
   renderer.render(scene, camera);
 }
