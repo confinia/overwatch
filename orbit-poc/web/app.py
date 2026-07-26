@@ -104,16 +104,17 @@ def receptions(norad):
 
 @app.get("/api/track/<int:norad>")
 def track(norad):
-    """Default: the recent live ground track (last ~100 min) ending at the
-    satellite's current position — the 'where is it now' orbit line. With
-    ?heard=1, returns instead the heard-pass arcs over the selected window:
-    only position points near a reception (±4 min), so each orange reception
-    line lands on a short orbit arc instead of floating (#70), without flooding
-    the globe with the full multi-day track. The frontend splits the heard
-    points into per-pass segments (time gap) and at the antimeridian (#66)."""
+    """Default: the full ground track over the SELECTED window (`hours`, #79),
+    ending at the satellite's current position — downsampled server-side to
+    ~2000 points so a multi-day track stays light; the frontend fades/thins it
+    as the window grows so 7 days reads as a swath, not a flood. With ?heard=1,
+    returns instead the heard-pass arcs over the window: only position points
+    near a reception (±4 min), so each orange reception line lands on a short
+    orbit arc (#70). The frontend splits both into per-segment paths (time gap)
+    and at the antimeridian (#66)."""
+    hours = _hours()
     with db() as conn, conn.cursor() as cur:
         if request.args.get("heard"):
-            hours = _hours()
             cur.execute("""
                 SELECT p.lat, p.lon, p.ts
                 FROM position p
@@ -126,9 +127,15 @@ def track(norad):
                 ORDER BY p.ts""", (norad, hours))
         else:
             cur.execute("""
-                SELECT lat, lon, ts FROM position
-                WHERE norad = %s AND ts > now() - interval '100 minutes'
-                ORDER BY ts""", (norad,))
+                WITH t AS (
+                    SELECT lat, lon, ts, row_number() OVER (ORDER BY ts) AS rn,
+                           count(*) OVER () AS total
+                    FROM position
+                    WHERE norad = %s AND ts > now() - %s * interval '1 hour'
+                )
+                SELECT lat, lon, ts FROM t
+                WHERE rn %% (GREATEST(total / 2000, 1))::int = 0 OR rn = total
+                ORDER BY ts""", (norad, hours))
         return jsonify(cur.fetchall())
 
 
