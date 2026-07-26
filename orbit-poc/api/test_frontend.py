@@ -43,6 +43,14 @@ def test_favicon_files_exist():                 # #59
         assert os.path.exists(os.path.join(STATIC, name)), f"missing {name}"
 
 
+def test_every_page_links_github_source():      # #75
+    if not os.path.exists(STATIC):
+        pytest.skip("web/static not available in this run")
+    for page in PAGES + ("spacecraft.html",):
+        t = open(os.path.join(STATIC, page), encoding="utf-8").read()
+        assert "github.com/confinia/overwatch" in t, f"{page} has no Source link"
+
+
 def test_every_page_links_favicon():            # #59
     if not os.path.exists(STATIC):
         pytest.skip("web/static not available in this run")
