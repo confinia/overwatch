@@ -871,25 +871,25 @@ function onTrackClick(e){
       `<b>${p.name}</b> · NORAD ${p.norad}<br>` +
       `${p.points} points over ${mins != null ? mins + " min" : "the recent orbit"}<br>` +
       (p.first ? `${utc(p.first)}<br>→ ${utc(p.last)}<br>` : "") +
-      `<span style="opacity:.7">Recent orbit (solid blue) — the satellite is at the leading end. Dashed amber arcs mark earlier heard passes.</span>`)
+      `<span style="opacity:.7">Ground track over the selected window (solid blue) — the satellite is at the leading end. Dashed amber arcs mark heard passes.</span>`)
     .addTo(map);
 }
 
 let trackSourceAdded = false;
 async function drawTrack(norad){
   const s = satsByNorad[norad] || {};
-  // Two things at once: the bright recent LIVE orbit ending at the satellite's
-  // current position (the "where is it now" line), and dim heard-pass arcs for
-  // the selected window so reception endpoints land on a visible arc (#70).
+  // Two things at once: the blue ground track over the SELECTED window (#79),
+  // ending at the satellite's current position, and the dim amber heard-pass
+  // arcs so reception endpoints land on a visible arc (#70).
   const [live, heard] = await Promise.all([
-    j(`/api/track/${norad}`),
+    j(`/api/track/${norad}?hours=${rangeHours}`),
     j(`/api/track/${norad}?heard=1&hours=${rangeHours}`),
   ]);
   const lt = live.map(p => new Date(p.ts).getTime()).filter(Boolean);
   const liveGeo = { type:"Feature",
     properties: { norad, name: s.name || `NORAD ${norad}`, points: live.length,
       first: lt.length ? Math.min(...lt) : 0, last: lt.length ? Math.max(...lt) : 0 },
-    geometry:{ type:"MultiLineString", coordinates: splitAntimeridian(live.map(p=>[p.lon,p.lat])) }};
+    geometry:{ type:"MultiLineString", coordinates: splitPasses(live) }};
   const arcsGeo = { type:"Feature",
     geometry:{ type:"MultiLineString", coordinates: splitPasses(heard) }};
   if (!trackSourceAdded){
@@ -915,6 +915,15 @@ async function drawTrack(norad){
   } else {
     map.getSource("track").setData(liveGeo);
     map.getSource("track-arcs").setData(arcsGeo);
+  }
+  // Fade and thin the blue track as the window grows, so a 7-day path reads as
+  // a faint swath rather than a flood (#79); a short window stays a bright,
+  // clean orbit line.
+  const tw = rangeHours <= 6 ? 2.4 : rangeHours <= 24 ? 2 : rangeHours <= 72 ? 1.6 : 1.2;
+  const to = rangeHours <= 6 ? .9  : rangeHours <= 24 ? .7 : rangeHours <= 72 ? .5  : .35;
+  if (map.getLayer("track")){
+    map.setPaintProperty("track", "line-width", tw);
+    map.setPaintProperty("track", "line-opacity", to);
   }
 }
 

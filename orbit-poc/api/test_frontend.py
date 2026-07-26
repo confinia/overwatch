@@ -104,6 +104,15 @@ def test_track_line_is_clickable(html):          # #65
     assert "Ground track" in html
 
 
+def test_blue_track_spans_selected_range(html):  # #79
+    # the blue track follows the selected window and fades/thins for long ranges
+    assert "/api/track/${norad}?hours=" in html
+    assert 'setPaintProperty("track", "line-opacity"' in html
+    app_py = open(os.path.join(WEB, "app.py"), encoding="utf-8").read()
+    # default (non-heard) track is windowed + downsampled to ~2000 points
+    assert "row_number()" in app_py and "GREATEST(total" in app_py
+
+
 def test_track_shows_heard_pass_arcs(html):      # #70 (no orphan endpoints)
     # the track is split into per-pass arcs, and the API returns only positions
     # near a reception, so orange endpoints land on a visible arc (no flood)
