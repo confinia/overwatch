@@ -794,7 +794,7 @@ async function drawReceptions(norad){
   setRxLegend(nst
     ? `<b>${nst} ground station${nst>1?"s":""}</b> heard this satellite` +
       `<div class="sub">${frames} reception${frames>1?"s":""}, last 7 days — each orange line ` +
-      `points to where the satellite was — on the blue arc of that pass — when a volunteer station decoded a frame. Click one.</div>`
+      `points to where the satellite was — on the dashed amber arc of that pass — when a volunteer station decoded a frame. Click one.</div>`
     : "");
 }
 
@@ -845,7 +845,7 @@ function onTrackClick(e){
       `<b>${p.name}</b> · NORAD ${p.norad}<br>` +
       `${p.points} points over ${mins != null ? mins + " min" : "the recent orbit"}<br>` +
       (p.first ? `${utc(p.first)}<br>→ ${utc(p.last)}<br>` : "") +
-      `<span style="opacity:.7">Recent orbit — the satellite is at the leading end. Dim arcs mark earlier heard passes.</span>`)
+      `<span style="opacity:.7">Recent orbit (solid blue) — the satellite is at the leading end. Dashed amber arcs mark earlier heard passes.</span>`)
     .addTo(map);
 }
 
@@ -869,12 +869,16 @@ async function drawTrack(norad){
   if (!trackSourceAdded){
     map.addSource("track", { type:"geojson", data:liveGeo });
     map.addSource("track-arcs", { type:"geojson", data:arcsGeo });
-    // dim heard-pass arcs underneath
+    // Heard-pass arcs: DASHED AMBER — visually part of the orange reception
+    // network (where the satellite was when heard), distinct from the blue
+    // orbit in colour, width and style.
     map.addLayer({ id:"track-arcs", type:"line", source:"track-arcs",
-      paint:{ "line-color":"#5aa9ff", "line-width":1.5, "line-opacity":.35 }});
-    // bright recent live orbit on top, ending at the current satellite position
+      paint:{ "line-color":"#f5a623", "line-width":1.4, "line-opacity":.5,
+              "line-dasharray":[2, 2.5] }});
+    // Live orbit: SOLID BRIGHT BLUE, ending at the current satellite position —
+    // the "where is it now" path.
     map.addLayer({ id:"track", type:"line", source:"track",
-      paint:{ "line-color":"#5aa9ff", "line-width":2, "line-opacity":.85 }});
+      paint:{ "line-color":"#5aa9ff", "line-width":2.4, "line-opacity":.9 }});
     // wide invisible twin so the thin track line is clickable (#65)
     map.addLayer({ id:"track-hit", type:"line", source:"track",
       paint:{ "line-color":"#5aa9ff", "line-width":12, "line-opacity":0.001 }});

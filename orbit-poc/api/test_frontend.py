@@ -106,8 +106,9 @@ def test_track_shows_heard_pass_arcs(html):      # #70 (no orphan endpoints)
 
 def test_time_range_selector_drives_all_views(html):   # #71/#72
     assert "rangebar" in html and "rangeHours" in html and "RANGES" in html
-    # one selected range threaded into receptions, decoded fields and track
-    for frag in ("/api/track/${norad}?hours=",
+    # one selected range threaded into receptions, decoded fields and the
+    # heard-pass track arcs
+    for frag in ("/api/track/${norad}?heard=1&hours=",
                  "/api/receptions/${norad}?hours=",
                  "fields?hours="):
         assert frag in html, frag
