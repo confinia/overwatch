@@ -640,10 +640,16 @@ async function select(s, auto = false){
   // Operator / point of contact — SatNOGS DB lists the mission team + website.
   const opLink = `<a class="action" href="https://db.satnogs.org/satellite/${s.norad}" ` +
     `target="_blank" rel="noopener" title="Operator, website & contact (SatNOGS DB)">Operator ↗</a>`;
+  // The mission team's own curated SatNOGS dashboard, when one exists (#88) —
+  // discovered per satellite, shown next to our auto-grouped panels below.
+  const dashLink = s.satnogs_dashboard
+    ? ` · <a class="action" href="${s.satnogs_dashboard}" target="_blank" rel="noopener" ` +
+      `title="Mission team's curated SatNOGS Grafana dashboard">Telemetry Dashboard ↗</a>`
+    : "";
   const posOnly = s.has_telemetry ? "" :
     ` <span style="color:var(--dim)">— position-only: encrypted or no open downlink; ` +
     `orbit data below, no public health data (shown honestly, not faked)</span>`;
-  head.innerHTML = `${escapeHTML(s.name)} — NORAD ${s.norad} · ${view3d} · ${opLink}${posOnly}`;
+  head.innerHTML = `${escapeHTML(s.name)} — NORAD ${s.norad} · ${view3d} · ${opLink}${dashLink}${posOnly}`;
 
   // draw recent ground track + who-heard-it reception network
   await drawTrack(s.norad);
@@ -684,6 +690,17 @@ async function embedDashboards(s){
   // the 7-day window. One or two lone dots reads as an empty panel.
   const rich = all.filter(f => f.points >= 3).map(f => f.field);
   const has = re => rich.some(f => re.test(f));
+  // Auto-grouped category panels (#88): every decoded numeric field lands in a
+  // chart, so any satellite gets a dense SatNOGS-style view with no per-sat
+  // curation. COVERED_RE must mirror the union of every specific panel's SQL
+  // filter so the "Other numeric" catch-all (panel 12) shows exactly the
+  // fields nothing else charts.
+  const COUNT_RE = /count|cnt|seqnum|uptime|reset|boot|reboot|packets|errors/i;
+  const POWER_RE = /pwr|power|watt|_w$|charge/i;
+  const MODE_RE  = /mode|state|status|flag|enabled|armed|active/i;
+  const COVERED_RE = /volt|vbat|v_bat|_v$|temp|current|curr|_i_|amp|count|cnt|seqnum|uptime|reset|boot|reboot|packets|errors|pwr|power|watt|_w$|charge|mode|state|status|flag|enabled|armed|active|pct/i;
+  const CANON = ["battery_v", "battery_i", "battery_pct"];
+  const hasOther = rich.some(f => !COVERED_RE.test(f) && !CANON.includes(f));
   // Panel ids from grafana/dashboards/public/orbit-telemetry.json; each
   // `show` mirrors that panel's SQL field filter.
   // "Latest decoded fields" (panel 4) is now a NATIVE table below, not a
@@ -695,8 +712,12 @@ async function embedDashboards(s){
     { id: 2, show: has(/temp|bat[a-z_]*_t$/i) },
     { id: 3, show: rich.includes("battery_i") || has(/current|curr|_i_|amp/i) },
     { id: 6, show: rich.includes("battery_pct") },
+    { id: 10, show: has(POWER_RE) },   // #88 power (W)
+    { id: 9, show: has(COUNT_RE) },    // #88 counters & uptime
+    { id: 11, show: has(MODE_RE) },    // #88 modes & states (stepped)
     { id: 7, show: all.length > 0 },  // frames per hour
     { id: 8, wide: true, show: rich.includes("battery_v") },  // battery vs sunlight fusion
+    { id: 12, wide: true, show: hasOther },  // #88 catch-all: every other numeric field
   ];
   const grafanaCells = panels.filter(p => p.show).map(p =>
     `<div class="gcell${p.wide ? " wide" : ""}"><iframe loading="lazy" ` +
