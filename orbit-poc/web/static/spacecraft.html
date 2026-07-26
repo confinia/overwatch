@@ -108,6 +108,11 @@ const MIRROR = location.hostname.endsWith("github.io");
 const API_BASE = MIRROR ? "https://overwatch.confinia.io" : "";
 async function j(u){ const r = await fetch(API_BASE + u); if (!r.ok) throw new Error(u); return r.json(); }
 
+// Real Sentinel-2 cloudless (EOX) — the same basemap the globe uses. The
+// zoom-0 tile is the whole world in Web Mercator; EOX serves CORS for our
+// origin, so it can be used as a WebGL texture.
+const EARTH_TILE = "https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2024_3857/default/g/0/0/0.jpg";
+
 // ---- telemetry -> component mapping (the testable core, #55) ---------------
 // Pure: given the fields array from /api/v1/telemetry/{norad}/fields, decide
 // which spacecraft components have data and extract their values. Never
@@ -177,6 +182,7 @@ function buildScene(){
   renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.setSize(innerWidth, innerHeight);
+  renderer.outputEncoding = THREE.sRGBEncoding;   // correct colours for the map tile
   el.appendChild(renderer.domElement);
 
   controls = new THREE.OrbitControls(camera, renderer.domElement);
@@ -191,8 +197,7 @@ function buildScene(){
   // Earth backdrop — shaded blue marble with a subtle procedural surface and
   // an atmosphere rim. No external texture (robust, self-contained).
   const earthGeo = new THREE.SphereGeometry(3, 64, 64);
-  earth = new THREE.Mesh(earthGeo, new THREE.MeshStandardMaterial({
-    map: earthTexture(), roughness: 1, metalness: 0 }));
+  earth = new THREE.Mesh(earthGeo, earthMaterial());
   earth.position.set(-2.4, -2.2, -4);
   scene.add(earth);
   const atmo = new THREE.Mesh(new THREE.SphereGeometry(3.18, 48, 48),
@@ -209,18 +214,20 @@ function buildScene(){
   animate();
 }
 
-function earthTexture(){
-  const c = document.createElement("canvas"); c.width = 512; c.height = 256;
-  const g = c.getContext("2d");
-  g.fillStyle = "#12356b"; g.fillRect(0, 0, 512, 256);
-  // subtle mottling for depth (cloud/ocean variation), deterministic-ish
-  for (let i = 0; i < 900; i++){
-    const x = (i * 97) % 512, y = (i * 57) % 256, r = 4 + (i % 9);
-    g.fillStyle = i % 3 === 0 ? "rgba(30,80,150,.25)" : "rgba(200,220,255,.05)";
-    g.beginPath(); g.arc(x, y, r, 0, 7); g.fill();
-  }
-  const t = new THREE.CanvasTexture(c);
-  return t;
+function earthMaterial(){
+  // Load the real EOX Sentinel-2 cloudless world tile as the sphere texture.
+  // Falls back to a solid ocean colour if the tile fails to load, so Earth is
+  // never a black ball. (Zoom-0 is Web Mercator; slight lat stretch near the
+  // poles is acceptable for a backdrop.)
+  const mat = new THREE.MeshStandardMaterial({ color: 0x24466f, roughness: 1, metalness: 0 });
+  const loader = new THREE.TextureLoader();
+  loader.setCrossOrigin("anonymous");
+  loader.load(EARTH_TILE,
+    tex => { tex.encoding = THREE.sRGBEncoding; mat.map = tex;
+             mat.color.setHex(0xffffff); mat.needsUpdate = true; },
+    undefined,
+    () => { /* keep the solid ocean colour on error */ });
+  return mat;
 }
 
 function starfield(){
