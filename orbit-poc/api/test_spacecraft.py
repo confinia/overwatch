@@ -45,6 +45,16 @@ def test_spacecraft_links_curated_dashboard():          # #88
     assert "s.satnogs_dashboard" in t and "curated SatNOGS dashboard" in t
 
 
+def test_spacecraft_defines_helpers_it_calls():         # bug: escapeHTML undefined
+    # spacecraft.html is a standalone page (no shared JS with index.html), so any
+    # helper it calls must be defined in-page or renderHUD throws and the 3D view
+    # hangs on "Loading spacecraft..."
+    t = _page()
+    for fn in ("escapeHTML",):
+        if fn + "(" in t:
+            assert "function " + fn in t, f"{fn} is called but not defined in-page"
+
+
 def test_spacecraft_is_honest_about_missing_data():      # honest-state
     t = _page()
     assert "no data" in t or "no battery telemetry" in t

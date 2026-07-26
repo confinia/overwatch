@@ -176,6 +176,11 @@ def test_satnogs_dashboard_linkout(html):              # #88
     # API merges the map into each satellite row
     app_py = open(os.path.join(WEB, "app.py"), encoding="utf-8").read()
     assert "SATNOGS_DASHBOARDS" in app_py and '"satnogs_dashboard"' in app_py
+    # the runtime image must actually ship the map next to app.py (the gate
+    # copies all of web/, but the Dockerfile is selective) — else it loads empty
+    dockerfile = open(os.path.join(WEB, "Dockerfile"), encoding="utf-8").read()
+    assert "COPY satnogs_dashboards.json" in dockerfile, \
+        "Dockerfile must ship satnogs_dashboards.json into the image"
     # title bar renders the link only when the satellite has one (honest-state)
     assert "s.satnogs_dashboard" in html and "Telemetry Dashboard ↗" in html
 
