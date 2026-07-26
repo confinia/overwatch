@@ -97,6 +97,12 @@ def test_track_splits_at_antimeridian(html):     # #66
     assert "MultiLineString" in html
 
 
+def test_station_deeplink_guards_track_source(html):  # direct #station: link fix
+    # landing straight on a #station: deep link selects no satellite first, so
+    # the lazily-created track sources may not exist; clearing them must be guarded
+    assert 'for (const src of ["track", "track-arcs"])' in html
+
+
 def test_station_contact_operator_link(html):    # #80
     assert "qrz.com/db/" in html and "Contact operator" in html
 

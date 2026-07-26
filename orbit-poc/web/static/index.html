@@ -571,7 +571,14 @@ async function selectStation(observer){
   body.innerHTML = `<div class="empty"><span class="dot"></span>Loading receptions…</div>`;
   const recs = await j(`/api/station/${encodeURIComponent(observer)}`);
   if (activeStation !== observer) return;
-  map.getSource("track").setData({ type:"FeatureCollection", features: [] });
+  // A station has no satellite track; clear it — but guard the sources, which
+  // only exist once a satellite has been selected. Landing directly on a
+  // #station: deep link (e.g. the outreach links) selects no satellite first,
+  // so an unguarded setData here would throw and freeze on "Loading receptions".
+  for (const src of ["track", "track-arcs"]){
+    const s = map.getSource(src);
+    if (s) s.setData({ type:"FeatureCollection", features: [] });
+  }
   const bySat = {};
   const links = [], stations = [];
   let lat = null, lon = null;
