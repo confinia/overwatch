@@ -104,24 +104,31 @@ def receptions(norad):
 
 @app.get("/api/track/<int:norad>")
 def track(norad):
-    """Ground-track arcs for the passes the satellite was actually HEARD on,
-    within the selected window (#72). Returns only position points near a
-    reception (±4 min), so each orange reception line lands on a short orbit arc
-    instead of floating (#70) — and the globe is not flooded by the full
-    multi-day track. The frontend splits these into per-pass segments (on a time
-    gap) and at the antimeridian (#66)."""
-    hours = _hours()
+    """Default: the recent live ground track (last ~100 min) ending at the
+    satellite's current position — the 'where is it now' orbit line. With
+    ?heard=1, returns instead the heard-pass arcs over the selected window:
+    only position points near a reception (±4 min), so each orange reception
+    line lands on a short orbit arc instead of floating (#70), without flooding
+    the globe with the full multi-day track. The frontend splits the heard
+    points into per-pass segments (time gap) and at the antimeridian (#66)."""
     with db() as conn, conn.cursor() as cur:
-        cur.execute("""
-            SELECT p.lat, p.lon, p.ts
-            FROM position p
-            WHERE p.norad = %s AND p.ts > now() - %s * interval '1 hour'
-              AND EXISTS (
-                SELECT 1 FROM reception r
-                WHERE r.norad = p.norad
-                  AND r.ts BETWEEN p.ts - interval '4 minutes'
-                                AND p.ts + interval '4 minutes')
-            ORDER BY p.ts""", (norad, hours))
+        if request.args.get("heard"):
+            hours = _hours()
+            cur.execute("""
+                SELECT p.lat, p.lon, p.ts
+                FROM position p
+                WHERE p.norad = %s AND p.ts > now() - %s * interval '1 hour'
+                  AND EXISTS (
+                    SELECT 1 FROM reception r
+                    WHERE r.norad = p.norad
+                      AND r.ts BETWEEN p.ts - interval '4 minutes'
+                                    AND p.ts + interval '4 minutes')
+                ORDER BY p.ts""", (norad, hours))
+        else:
+            cur.execute("""
+                SELECT lat, lon, ts FROM position
+                WHERE norad = %s AND ts > now() - interval '100 minutes'
+                ORDER BY ts""", (norad,))
         return jsonify(cur.fetchall())
 
 

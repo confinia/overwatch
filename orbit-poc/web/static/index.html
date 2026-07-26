@@ -231,7 +231,7 @@ let orgInfo = null;
 let showOpen = true;
 function applyOpenVisibility(){
   const vis = showOpen ? "visible" : "none";
-  for (const l of ["sats","sats-hit","sat-labels","track","rx-links",
+  for (const l of ["sats","sats-hit","sat-labels","track","track-arcs","rx-links",
                    "rx-links-glow","rx-endpoints","rx-links-hit","rx-stations","rx-stations-hit","rx-station-labels"]){
     try { if (map.getLayer(l)) map.setLayoutProperty(l, "visibility", vis); } catch(e){}
   }
@@ -845,23 +845,36 @@ function onTrackClick(e){
       `<b>${p.name}</b> · NORAD ${p.norad}<br>` +
       `${p.points} points over ${mins != null ? mins + " min" : "the recent orbit"}<br>` +
       (p.first ? `${utc(p.first)}<br>→ ${utc(p.last)}<br>` : "") +
-      `<span style="opacity:.7">Orbit arcs where the satellite was heard — each reception lands on one.</span>`)
+      `<span style="opacity:.7">Recent orbit — the satellite is at the leading end. Dim arcs mark earlier heard passes.</span>`)
     .addTo(map);
 }
 
 let trackSourceAdded = false;
 async function drawTrack(norad){
-  const pts = await j(`/api/track/${norad}?hours=${rangeHours}`);
-  const ts = pts.map(p => new Date(p.ts).getTime()).filter(Boolean);
   const s = satsByNorad[norad] || {};
-  const geo = { type:"Feature",
-    properties: { norad, name: s.name || `NORAD ${norad}`, points: pts.length,
-      first: ts.length ? Math.min(...ts) : 0, last: ts.length ? Math.max(...ts) : 0 },
-    geometry:{ type:"MultiLineString", coordinates: splitPasses(pts) }};
+  // Two things at once: the bright recent LIVE orbit ending at the satellite's
+  // current position (the "where is it now" line), and dim heard-pass arcs for
+  // the selected window so reception endpoints land on a visible arc (#70).
+  const [live, heard] = await Promise.all([
+    j(`/api/track/${norad}`),
+    j(`/api/track/${norad}?heard=1&hours=${rangeHours}`),
+  ]);
+  const lt = live.map(p => new Date(p.ts).getTime()).filter(Boolean);
+  const liveGeo = { type:"Feature",
+    properties: { norad, name: s.name || `NORAD ${norad}`, points: live.length,
+      first: lt.length ? Math.min(...lt) : 0, last: lt.length ? Math.max(...lt) : 0 },
+    geometry:{ type:"MultiLineString", coordinates: splitAntimeridian(live.map(p=>[p.lon,p.lat])) }};
+  const arcsGeo = { type:"Feature",
+    geometry:{ type:"MultiLineString", coordinates: splitPasses(heard) }};
   if (!trackSourceAdded){
-    map.addSource("track", { type:"geojson", data:geo });
+    map.addSource("track", { type:"geojson", data:liveGeo });
+    map.addSource("track-arcs", { type:"geojson", data:arcsGeo });
+    // dim heard-pass arcs underneath
+    map.addLayer({ id:"track-arcs", type:"line", source:"track-arcs",
+      paint:{ "line-color":"#5aa9ff", "line-width":1.5, "line-opacity":.35 }});
+    // bright recent live orbit on top, ending at the current satellite position
     map.addLayer({ id:"track", type:"line", source:"track",
-      paint:{ "line-color":"#5aa9ff", "line-width":2, "line-opacity":.8 }});
+      paint:{ "line-color":"#5aa9ff", "line-width":2, "line-opacity":.85 }});
     // wide invisible twin so the thin track line is clickable (#65)
     map.addLayer({ id:"track-hit", type:"line", source:"track",
       paint:{ "line-color":"#5aa9ff", "line-width":12, "line-opacity":0.001 }});
@@ -870,7 +883,8 @@ async function drawTrack(norad){
     map.on("mouseleave", "track-hit", () => map.getCanvas().style.cursor = "");
     trackSourceAdded = true;
   } else {
-    map.getSource("track").setData(geo);
+    map.getSource("track").setData(liveGeo);
+    map.getSource("track-arcs").setData(arcsGeo);
   }
 }
 
