@@ -6,7 +6,7 @@
   ],
   "timezone": "utc",
   "schemaVersion": 39,
-  "version": 7,
+  "version": 8,
   "refresh": "30s",
   "time": {
     "from": "now-7d",
@@ -324,6 +324,70 @@
         {
           "format": "time_series",
           "rawSql": "SELECT ts AS time, field AS metric, value_num AS value FROM telemetry WHERE norad = $norad AND field ~* '(mode|state|status|flag|enabled|armed|active)' AND value_num IS NOT NULL ORDER BY ts"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "title": "Ground stations — frames received (this satellite, selected window)",
+      "type": "bargauge",
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 56
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "continuous-GrYlRd"
+          }
+        }
+      },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "showUnfilled": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": true
+        }
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT split_part(observer, '-', 1) AS station, count(*) AS frames FROM reception WHERE norad = $norad AND $__timeFilter(ts) GROUP BY 1 ORDER BY frames DESC LIMIT 15"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "title": "Reception summary (selected window)",
+      "type": "stat",
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 12,
+        "y": 21
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name",
+        "colorMode": "value"
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT count(*) AS \"Frames received\", count(DISTINCT observer) AS \"Ground stations\", max(ts) AS \"Last heard\" FROM reception WHERE norad = $norad AND $__timeFilter(ts)"
         }
       ]
     },

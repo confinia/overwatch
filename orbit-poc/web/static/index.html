@@ -566,7 +566,7 @@ async function selectStation(observer){
   const head = document.getElementById("panelHead");
   const body = document.getElementById("panelBody");
   head.innerHTML = `${escapeHTML(observer)} — volunteer ground station (SatNOGS) · ` +
-    `<a class="action" href="https://www.qrz.com/db/${encodeURIComponent(observer.split("-")[0])}" ` +
+    `<a class="action" href="https://www.qrz.com/db/${encodeURIComponent(baseCall(observer.split("-")[0]))}" ` +
     `target="_blank" rel="noopener" title="Look up / contact the operator">Contact operator ↗</a>`;
   body.innerHTML = `<div class="empty"><span class="dot"></span>Loading receptions…</div>`;
   const recs = await j(`/api/station/${encodeURIComponent(observer)}`);
@@ -690,17 +690,14 @@ async function embedDashboards(s){
   // the 7-day window. One or two lone dots reads as an empty panel.
   const rich = all.filter(f => f.points >= 3).map(f => f.field);
   const has = re => rich.some(f => re.test(f));
-  // Auto-grouped category panels (#88): every decoded numeric field lands in a
-  // chart, so any satellite gets a dense SatNOGS-style view with no per-sat
-  // curation. COVERED_RE must mirror the union of every specific panel's SQL
-  // filter so the "Other numeric" catch-all (panel 12) shows exactly the
-  // fields nothing else charts.
+  // Auto-grouped category panels (#88): decoded fields land in meaningful
+  // category charts (voltages, temps, currents, power, counters, modes) with no
+  // per-sat curation. The panel-12 "Other numeric" catch-all is intentionally
+  // NOT embedded here — it dumps every remaining field unlabelled (fine for
+  // debugging in Grafana, too noisy for this curated view).
   const COUNT_RE = /count|cnt|seqnum|uptime|reset|boot|reboot|packets|errors/i;
   const POWER_RE = /pwr|power|watt|_w$|charge/i;
   const MODE_RE  = /mode|state|status|flag|enabled|armed|active/i;
-  const COVERED_RE = /volt|vbat|v_bat|_v$|temp|current|curr|_i_|amp|count|cnt|seqnum|uptime|reset|boot|reboot|packets|errors|pwr|power|watt|_w$|charge|mode|state|status|flag|enabled|armed|active|pct/i;
-  const CANON = ["battery_v", "battery_i", "battery_pct"];
-  const hasOther = rich.some(f => !COVERED_RE.test(f) && !CANON.includes(f));
   // Panel ids from grafana/dashboards/public/orbit-telemetry.json; each
   // `show` mirrors that panel's SQL field filter.
   // "Latest decoded fields" (panel 4) is now a NATIVE table below, not a
@@ -708,6 +705,9 @@ async function embedDashboards(s){
   // field can be coloured by its source category (#46).
   const panels = [
     { id: 5, wide: true, show: true },  // orbit altitude: position cache, live for every satellite
+    { id: 14, show: true },            // #86 reception summary (half — pairs with frames/hour)
+    { id: 7, show: all.length > 0 },   // frames per hour (half — pairs with reception summary)
+    { id: 13, wide: true, show: true },  // #86 ground-station leaderboard — SatNOGS leads with this
     { id: 1, show: rich.includes("battery_v") || has(/volt|vbat|v_bat|bat[a-z_]*_v$|panel_v$/i) },
     { id: 2, show: has(/temp|bat[a-z_]*_t$/i) },
     { id: 3, show: rich.includes("battery_i") || has(/current|curr|_i_|amp/i) },
@@ -715,9 +715,7 @@ async function embedDashboards(s){
     { id: 10, show: has(POWER_RE) },   // #88 power (W)
     { id: 9, show: has(COUNT_RE) },    // #88 counters & uptime
     { id: 11, show: has(MODE_RE) },    // #88 modes & states (stepped)
-    { id: 7, show: all.length > 0 },  // frames per hour
     { id: 8, wide: true, show: rich.includes("battery_v") },  // battery vs sunlight fusion
-    { id: 12, wide: true, show: hasOther },  // #88 catch-all: every other numeric field
   ];
   const grafanaCells = panels.filter(p => p.show).map(p =>
     `<div class="gcell${p.wide ? " wide" : ""}"><iframe loading="lazy" ` +
@@ -754,6 +752,15 @@ function fieldsPanelHTML(fields){
 function escapeHTML(s){
   return String(s).replace(/[&<>"]/g, c =>
     ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]));
+}
+// Extract the home callsign for a QRZ lookup from a station label. Stations may
+// carry a portable suffix ("UT4UYF/M" → UT4UYF), a foreign prefix ("DL/F1ABC" →
+// F1ABC) or a descriptive name ("SA2KNG Omni UHF/VHF" → SA2KNG). QRZ records
+// live under the base call, and a slash URL-encodes to %2F which 404s.
+function baseCall(label){
+  const first = String(label || "").trim().split(/\s+/)[0];  // call is the first token
+  // home call is the longest /-separated part (M/P/QRP suffixes & DL/W prefixes are shorter)
+  return first.split("/").reduce((a, b) => b.length > a.length ? b : a, "");
 }
 function fmtValue(v){
   if (v === null || v === undefined || v === "") return "—";
@@ -1046,7 +1053,7 @@ map.on("load", () => {
         (p.first ? `${p.n} frame${p.n > 1 ? "s" : ""} heard from this satellite (7 d)<br>` +
           `first ${fmtT(p.first)}<br>last ${fmtT(p.last)}<br>` : `${p.n} receptions (7 d)<br>`) +
         (p.observer ? `<a href="#station:${encodeURIComponent(p.observer)}">All receptions by this station →</a><br>` : "") +
-        `<a href="https://www.qrz.com/db/${encodeURIComponent(p.name)}" target="_blank" rel="noopener">Contact operator ${p.name} (QRZ) ↗</a>`)
+        `<a href="https://www.qrz.com/db/${encodeURIComponent(baseCall(p.name))}" target="_blank" rel="noopener">Contact operator ${escapeHTML(p.name)} (QRZ) ↗</a>`)
       .addTo(map);
   });
   map.on("click", "rx-links-hit", e => {

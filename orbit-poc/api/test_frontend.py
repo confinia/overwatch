@@ -109,6 +109,12 @@ def test_station_deeplink_guards_track_source(html):  # direct #station: link fi
 
 def test_station_contact_operator_link(html):    # #80
     assert "qrz.com/db/" in html and "Contact operator" in html
+    # QRZ records live under the base callsign: a portable suffix ("UT4UYF/M")
+    # URL-encodes the slash to %2F and 404s. Both QRZ links must go through
+    # baseCall() to strip suffix/prefix/descriptive words.
+    assert "function baseCall" in html
+    assert "qrz.com/db/${encodeURIComponent(baseCall(" in html
+    assert "encodeURIComponent(observer.split" not in html  # old raw form gone
 
 
 def test_station_satellites_are_clickable(html): # #81
@@ -185,6 +191,25 @@ def test_satnogs_dashboard_linkout(html):              # #88
     assert "s.satnogs_dashboard" in html and "Telemetry Dashboard ↗" in html
 
 
+def test_ground_station_panels_from_reception(html):   # #86
+    # a generic ground-station leaderboard + reception summary, learned from
+    # SatNOGS dashboards (every one leads with a station leaderboard) and built
+    # from our own reception table — shown for every satellite, no curation.
+    import json
+    dash = os.path.join(HERE, "..", "grafana", "dashboards", "public",
+                        "orbit-telemetry.json")
+    d = json.load(open(dash, encoding="utf-8"))
+    by_id = {p["id"]: p for p in d["panels"]}
+    for pid in (13, 14):
+        assert pid in by_id, f"dashboard missing ground-station panel {pid}"
+        sql = by_id[pid]["targets"][0]["rawSql"]
+        assert "FROM reception" in sql and "norad = $norad" in sql
+        assert "$__timeFilter(ts)" in sql, "panel must honour the range selector"
+    assert by_id[13]["type"] == "bargauge"   # leaderboard
+    # both surfaced in the embed
+    assert "{ id: 13," in html and "{ id: 14," in html
+
+
 def test_auto_grouped_telemetry_panels(html):          # #88
     # every decoded numeric field lands in a chart: the shared dashboard gains
     # category panels (counters, power, modes) plus a catch-all, and the
@@ -203,9 +228,11 @@ def test_auto_grouped_telemetry_panels(html):          # #88
     sql = other["targets"][0]["rawSql"]
     assert "!~*" in sql and "value_num IS NOT NULL" in sql
     # frontend shows each new panel conditionally, mirroring the SQL filters
-    for tok in ("COUNT_RE", "POWER_RE", "MODE_RE", "hasOther",
-                "{ id: 9,", "{ id: 12,"):
+    for tok in ("COUNT_RE", "POWER_RE", "MODE_RE", "{ id: 9,"):
         assert tok in html, f"embed missing {tok}"
+    # the panel-12 catch-all stays in the dashboard JSON (debug in Grafana) but
+    # is intentionally NOT embedded in the curated view (too noisy)
+    assert "{ id: 12," not in html
 
 
 def test_api_hours_param_is_bounded():                 # #71
