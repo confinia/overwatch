@@ -21,6 +21,7 @@ import time
 from contextlib import asynccontextmanager, contextmanager
 
 import metering
+import polar
 
 import psycopg2
 import psycopg2.pool
@@ -122,6 +123,22 @@ CREATE TABLE IF NOT EXISTS org_usage (
     tc_count   bigint NOT NULL DEFAULT 0,
     updated_at timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (customer, period)
+);
+-- Billing entitlements on the organization (POLAR.md §7). Free by default;
+-- flipped to Pro by the Polar webhook. Entitlement checks read entitled_until.
+ALTER TABLE organization ADD COLUMN IF NOT EXISTS plan text NOT NULL DEFAULT 'free';
+ALTER TABLE organization ADD COLUMN IF NOT EXISTS polar_customer_id text;
+ALTER TABLE organization ADD COLUMN IF NOT EXISTS subscription_id text;
+ALTER TABLE organization ADD COLUMN IF NOT EXISTS sub_status text;
+ALTER TABLE organization ADD COLUMN IF NOT EXISTS freq_tier text NOT NULL DEFAULT 'standard';
+ALTER TABLE organization ADD COLUMN IF NOT EXISTS entitled_until timestamptz;
+-- Webhook idempotency + audit: process each delivery once.
+CREATE TABLE IF NOT EXISTS billing_event (
+    delivery_id text PRIMARY KEY,
+    type        text,
+    payload     jsonb,
+    received_at timestamptz NOT NULL DEFAULT now(),
+    processed   boolean NOT NULL DEFAULT false
 );
 """
 
@@ -929,6 +946,103 @@ def tenant_read(key: str, satellite: str, field: str,
         metering.record(cur, customer, "tm_request", 1, {"satellite": satellite, "field": field})
         cur.connection.commit()
         return out
+
+
+# --- Billing (Polar) — POLAR.md sandbox spike ------------------------------
+# Free -> Pro. Entitlement flips on the Polar webhook (source of truth), never on
+# the browser redirect. Stub-capable: the whole flow works without Polar creds.
+import json as _json
+import datetime as _dt
+
+PUBLIC_BASE = os.environ.get("PUBLIC_BASE", "https://overwatch.confinia.io")
+
+
+def _apply_billing_event(cur, ev):
+    """Flip an org's entitlement from a normalized Polar event (idempotent SQL)."""
+    org_id = ev.get("org_id")
+    if not org_id:
+        return
+    typ, status = ev.get("type", ""), ev.get("status")
+    active = (typ in ("subscription.active", "subscription.created",
+                      "subscription.updated", "order.created")
+              and status in ("active", "trialing", None))
+    if active:
+        cur.execute(
+            "UPDATE organization SET plan='pro', sub_status='active', subscription_id=%s, "
+            "entitled_until = COALESCE(%s::timestamptz, now() + interval '32 days') "
+            "WHERE id=%s::uuid",
+            (ev.get("subscription_id"), ev.get("until"), org_id))
+        _provision_org_db(cur, org_id)                 # ensure RLS role (idempotent)
+    elif typ == "subscription.canceled":
+        cur.execute("UPDATE organization SET sub_status='canceled' WHERE id=%s::uuid",
+                    (org_id,))                          # keep access until period end
+    elif typ == "subscription.revoked":
+        cur.execute("UPDATE organization SET plan='free', sub_status='revoked', "
+                    "entitled_until=now() WHERE id=%s::uuid", (org_id,))
+
+
+@app.post("/v1/billing/checkout")
+def billing_checkout(request: Request):
+    """Mint an embedded checkout for the caller's org — they never leave Overwatch."""
+    c, org = _require_org(request)
+    ck = polar.create_checkout(org[0], c.get("email", ""), f"{PUBLIC_BASE}/?upgraded=1")
+    return {"checkout_url": ck["url"], "checkout_id": ck["id"], "stub": ck["stub"]}
+
+
+@app.post("/v1/billing/webhook")
+async def billing_webhook(request: Request):
+    """Polar -> us: signature-verified, idempotent; the entitlement source of truth."""
+    raw = await request.body()
+    hdrs = {k.lower(): v for k, v in request.headers.items()}
+    if not polar.verify_webhook(raw, hdrs):
+        raise HTTPException(401, "bad webhook signature")
+    payload = _json.loads(raw or b"{}")
+    ev = polar.parse_event(payload)
+    delivery = hdrs.get("webhook-id") or hashlib.sha256(raw).hexdigest()
+    with cursor() as cur:
+        cur.execute("INSERT INTO billing_event (delivery_id, type, payload) "
+                    "VALUES (%s,%s,%s) ON CONFLICT (delivery_id) DO NOTHING",
+                    (delivery, ev.get("type"), _json.dumps(payload)))
+        if cur.rowcount == 0:                           # already processed -> idempotent
+            cur.connection.commit()
+            return {"ok": True, "duplicate": True}
+        _apply_billing_event(cur, ev)
+        cur.execute("UPDATE billing_event SET processed=true WHERE delivery_id=%s", (delivery,))
+        cur.connection.commit()
+    return {"ok": True, "type": ev.get("type")}
+
+
+@app.get("/v1/billing/status")
+def billing_status(request: Request):
+    """Org plan, entitlement and current-period usage — for the account UI."""
+    c, org = _require_org(request)
+    org_id = org[0]
+    with cursor() as cur:
+        cur.execute("SELECT plan, sub_status, entitled_until, freq_tier "
+                    "FROM organization WHERE id=%s::uuid", (org_id,))
+        plan, sub, until, tier = cur.fetchone() or ("free", None, None, "standard")
+        cur.execute("SELECT frames, tm_count, tc_count FROM org_usage "
+                    "WHERE customer=%s AND period=%s", (str(org_id), metering._period()))
+        u = cur.fetchone() or (0, 0, 0)
+    pro = bool(plan == "pro" and until and until > _dt.datetime.now(_dt.timezone.utc))
+    return {"plan": plan, "pro": pro, "sub_status": sub,
+            "entitled_until": until.isoformat() if until else None, "freq_tier": tier,
+            "usage": {"frames": u[0], "tm": u[1], "tc": u[2], "period": metering._period()}}
+
+
+@app.post("/v1/billing/dev/simulate-paid")
+def billing_simulate_paid(request: Request):
+    """DEV/sandbox only: simulate a completed payment for the caller's org so the
+    checkout -> webhook -> entitlement flow is provable in-app without Polar.
+    Refused in production."""
+    if polar.POLAR_ENV == "production":
+        raise HTTPException(403, "not available in production")
+    c, org = _require_org(request)
+    with cursor() as cur:
+        _apply_billing_event(cur, {"type": "subscription.active", "org_id": org[0],
+                                   "subscription_id": f"sim_{org[0]}", "status": "active"})
+        cur.connection.commit()
+    return {"ok": True, "simulated": True, "org": org[0]}
 
 
 # --- Keys (free during the beta; email = the design-partner conversation) ---
