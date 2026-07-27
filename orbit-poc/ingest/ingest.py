@@ -35,7 +35,7 @@ from sgp4.api import Satrec, jday
 import numpy as np
 
 from satellites import SHOWCASE
-from calibration import calibrate
+from calibration import calibrate, canonical_from, CANONICAL_SOURCES
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s %(levelname)s %(message)s")
@@ -496,15 +496,22 @@ def _store_frames(norad, frames, decoder):
         if not fields:
             continue
         decoded_n += 1
+        # decoders with an explicit canonical map (calibration.py) skip the
+        # generic heuristic, so a mislabelled rail can't become battery_v
+        explicit = decoder in CANONICAL_SOURCES
         for k, v in fields.items():
             if JUNK_FIELD_RE.search(k):
                 continue
             if isinstance(v, (int, float)) and not isinstance(v, bool):
                 rows.append((norad, ts, k, float(v), None))
-                for ck, cv in _canonical(k, v):
-                    rows.append((norad, ts, ck, cv, None))
+                if not explicit:
+                    for ck, cv in _canonical(k, v):
+                        rows.append((norad, ts, ck, cv, None))
             elif isinstance(v, str):
                 rows.append((norad, ts, k, None, v))
+        if explicit:
+            for ck, cv in canonical_from(decoder, fields):
+                rows.append((norad, ts, ck, cv, None))
     if rows:
         # dedupe on the PK — same canonical field can derive from several
         # source fields in one frame, and ON CONFLICT rejects in-batch dups

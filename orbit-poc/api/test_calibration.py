@@ -11,7 +11,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "ingest"))
 try:
-    from calibration import calibrate, CALIBRATION
+    from calibration import calibrate, canonical_from, CALIBRATION
 except Exception:                                    # pragma: no cover
     calibrate = None
 
@@ -37,6 +37,21 @@ def test_cubebel2_temperatures_become_physical():
     # every calibrated temperature is now physically plausible
     for k in (P + "adc_temp_1", P + "adc_temp_2", P + "tmp75_temp"):
         assert -60.0 <= f[k] <= 60.0, f"{k}={f[k]} implausible"
+
+
+@pytest.mark.skipif(calibrate is None, reason="ingest/calibration not available")
+def test_cubebel2_battery_v_from_vbus_not_trx_rail():   # Vlad's battery-voltage bug
+    # beacon_vbus is the bus/battery voltage (SatNOGS *0.001); the 5 V TRX rail
+    # ina226_pamp_voltage must NOT become battery_v
+    f = {
+        BEACON + "beacon_vbus": 4140,                 # raw -> 4.14 V
+        P + "ina226_pamp_voltage": 5.02,              # a TRX rail, must be ignored
+    }
+    calibrate("cubebel2", f)
+    assert abs(f[BEACON + "beacon_vbus"] - 4.14) < 0.001
+    canon = dict(canonical_from("cubebel2", f))
+    assert abs(canon["battery_v"] - 4.14) < 0.001     # battery_v comes from vbus
+    assert not (3.0 <= canon["battery_v"] <= 5.05 and abs(canon["battery_v"] - 5.02) < 0.01)
 
 
 @pytest.mark.skipif(calibrate is None, reason="ingest/calibration not available")
