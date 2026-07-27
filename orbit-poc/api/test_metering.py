@@ -39,3 +39,10 @@ def test_emit_dry_run_shape(caplog):
 def test_emit_never_raises_into_request():
     # even a bad customer / metadata must not raise (billing must never 500 a push)
     metering._emit(None, "tm_request", 1, None)
+
+
+def test_api_image_ships_metering():
+    # main.py imports metering at startup — the Dockerfile must COPY it or the
+    # api container crashes on boot (same class of bug as calibration.py)
+    df = os.path.join(os.path.dirname(__file__), "Dockerfile")
+    assert "COPY metering.py" in open(df, encoding="utf-8").read()
