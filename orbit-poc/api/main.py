@@ -20,6 +20,8 @@ import os
 import time
 from contextlib import asynccontextmanager, contextmanager
 
+import metering
+
 import psycopg2
 import psycopg2.pool
 from fastapi import FastAPI, HTTPException, Query, Request, Response
@@ -109,6 +111,18 @@ CREATE INDEX IF NOT EXISTS tenant_tlm_idx
 -- read ONLY their own org's rows — the isolation guarantee behind each
 -- tenant's Grafana datasource, enforced by Postgres, not the app.
 ALTER TABLE tenant_telemetry ENABLE ROW LEVEL SECURITY;
+-- Usage metering mirror (POLAR.md): per-customer, per-billing-period counters
+-- for private telemetry. Frames (ingest), TM/TC requests. Our source of truth
+-- for reconciliation; also emitted to Polar as usage events.
+CREATE TABLE IF NOT EXISTS org_usage (
+    customer   text NOT NULL,
+    period     text NOT NULL,                 -- YYYY-MM billing period (UTC)
+    frames     bigint NOT NULL DEFAULT 0,
+    tm_count   bigint NOT NULL DEFAULT 0,
+    tc_count   bigint NOT NULL DEFAULT 0,
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (customer, period)
+);
 """
 
 
@@ -877,6 +891,10 @@ def tenant_push(key: str, body: TenantPush):
                            SET value_num = EXCLUDED.value_num,
                                value_txt = EXCLUDED.value_txt""",
                         (key, body.satellite, p.ts, p.field, num, txt))
+        # meter private-telemetry ingest (POLAR.md) before commit, so usage and
+        # telemetry persist atomically; dry-run unless Polar is configured
+        metering.record(cur, key, "frame_ingested", len(body.points),
+                        {"satellite": body.satellite})
         cur.connection.commit()
     return {"accepted": len(body.points), "satellite": body.satellite}
 
@@ -899,13 +917,18 @@ def tenant_read(key: str, satellite: str, field: str,
                 hours: int = Query(24, ge=1, le=8760)):
     """Read back one of your series (also what your dashboards query)."""
     with cursor() as cur:
-        _tenant(cur, key)
+        row = _tenant(cur, key)
+        customer = str(row[2]) if len(row) > 2 else key   # same id push meters under
         cur.execute("""SELECT ts, value_num, value_txt FROM tenant_telemetry
                        WHERE tenant = %s::uuid AND satellite = %s AND field = %s
                          AND ts > now() - %s * interval '1 hour'
                        ORDER BY ts""", (key, satellite, field, hours))
-        return [{"ts": ts.isoformat(), "value": n if n is not None else t}
-                for ts, n, t in cur.fetchall()]
+        out = [{"ts": ts.isoformat(), "value": n if n is not None else t}
+               for ts, n, t in cur.fetchall()]
+        # meter the private telemetry read (TM request)
+        metering.record(cur, customer, "tm_request", 1, {"satellite": satellite, "field": field})
+        cur.connection.commit()
+        return out
 
 
 # --- Keys (free during the beta; email = the design-partner conversation) ---
