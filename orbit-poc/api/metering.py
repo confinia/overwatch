@@ -14,6 +14,14 @@ import logging
 import os
 
 log = logging.getLogger("metering")
+# Ensure usage events are always visible in container logs (billing audit trail),
+# independent of uvicorn's log config which otherwise swallows this logger's INFO.
+if not log.handlers:
+    _h = logging.StreamHandler()
+    _h.setFormatter(logging.Formatter("%(asctime)s metering: %(message)s"))
+    log.addHandler(_h)
+    log.setLevel(logging.INFO)
+    log.propagate = False
 
 # off | sandbox | production. Default off => dry-run (no creds needed).
 POLAR_ENV = os.environ.get("POLAR_ENV", "off").lower()
