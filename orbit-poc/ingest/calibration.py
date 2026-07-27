@@ -24,11 +24,17 @@ CALIBRATION = {
         ("adc_temp_2", {"wrap": 65536, "scale": 0.0078}),
         ("tmp75_temp", {"wrap": 256}),                        # 254.31 -> -1.69 C (signed)
         ("beacon_pamp_temp", {"scale": 0.001}),               # 3255 -> 3.26 C
-        # NOTE: battery voltage (beacon_vbus * 0.001) and the rest of the EPS
-        # map (battpack *0.008, slot *0.00125, sat_bus_c *0.7398, ...) are known
-        # from the same dashboard but live in the EPS-beacon frame type; add them
-        # here once confirmed against our own decode of an EPS beacon.
+        ("beacon_vbus", {"scale": 0.001}),                    # 4140..5053 -> 4.14..5.05 V (bus/battery)
     ],
+}
+
+# Per-decoder explicit canonical sources: canonical field <- a (calibrated) leaf.
+# When a decoder is listed here the generic heuristic (_canonical) is skipped for
+# it, so a wrong field can't masquerade as the canonical (e.g. CUBEBEL-2's 5 V
+# TRX rail `ina226_pamp_voltage` matched "volt" and became battery_v — Vlad's
+# battery-voltage bug). SatNOGS labels beacon_vbus (*0.001) the battery voltage.
+CANONICAL_SOURCES = {
+    "cubebel2": {"battery_v": "beacon_vbus"},
 }
 
 
@@ -52,3 +58,19 @@ def calibrate(decoder, fields):
                 fields[key] = v * t.get("scale", 1.0) + t.get("offset", 0.0)
                 break
     return fields
+
+
+def canonical_from(decoder, fields):
+    """Explicit canonical (name, value) pairs for a decoder, read from the
+    already-calibrated fields. Empty list if the decoder has no explicit map
+    (callers then fall back to the generic heuristic)."""
+    src = CANONICAL_SOURCES.get(decoder)
+    if not src:
+        return []
+    out = []
+    for canon, leaf in src.items():
+        for k, v in fields.items():
+            if k.endswith(leaf) and isinstance(v, (int, float)) and not isinstance(v, bool):
+                out.append((canon, float(v)))
+                break
+    return out
