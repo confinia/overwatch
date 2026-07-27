@@ -22,6 +22,14 @@ try:
 except (OSError, ValueError):
     SATNOGS_DASHBOARDS = {}
 
+# Per-satellite country of origin (#99), ISO-2, for a flag in the list.
+_COUNTRY_PATH = os.path.join(os.path.dirname(__file__), "satellite_countries.json")
+try:
+    with open(_COUNTRY_PATH, encoding="utf-8") as _f:
+        SATELLITE_COUNTRIES = json.load(_f)
+except (OSError, ValueError):
+    SATELLITE_COUNTRIES = {}
+
 
 def _hours(default=168):
     """Selected time window in hours, bounded 1h–7d (168h) to protect the
@@ -92,6 +100,9 @@ def satellites():
         url = SATNOGS_DASHBOARDS.get(str(r["norad"]))
         if url:
             r["satnogs_dashboard"] = url
+        cc = SATELLITE_COUNTRIES.get(str(r["norad"]))
+        if cc:
+            r["country"] = cc
     return jsonify(rows)
 
 

@@ -167,6 +167,31 @@ def test_time_range_selector_drives_all_views(html):   # #71/#72
         assert frag in html, frag
 
 
+def test_reception_click_shows_distance(html):         # #94
+    # clicking a reception shows how far the station reached (great-circle km);
+    # distance is precomputed on the link feature from both endpoints
+    assert "function haversineKm" in html
+    assert "km: Math.round(haversineKm(" in html
+    assert "km away" in html
+
+
+def test_satellite_country_flag(html):                 # #99
+    import json
+    mp = os.path.join(WEB, "satellite_countries.json")
+    assert os.path.isfile(mp), "missing country map"
+    m = json.load(open(mp, encoding="utf-8"))
+    assert isinstance(m, dict) and m
+    for norad, cc in m.items():
+        assert norad.isdigit() and len(cc) == 2 and cc.isalpha(), (norad, cc)
+    app_py = open(os.path.join(WEB, "app.py"), encoding="utf-8").read()
+    assert "SATELLITE_COUNTRIES" in app_py and '"country"' in app_py
+    # frontend renders a flag prefix from the ISO-2 code in the list rows
+    assert "function flag(" in html and "0x1F1E6" in html
+    assert "s.country ? flag(s.country)" in html
+    dockerfile = open(os.path.join(WEB, "Dockerfile"), encoding="utf-8").read()
+    assert "COPY satellite_countries.json" in dockerfile
+
+
 def test_satnogs_dashboard_linkout(html):              # #88
     # each satellite with a curated SatNOGS Grafana dashboard gets a discovered
     # "Telemetry Dashboard" link next to Operator; the map is resolved offline

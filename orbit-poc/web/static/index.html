@@ -524,7 +524,7 @@ function renderList(sats){
     const heard = " · " + (s.last_frame
       ? "heard " + age(s.last_frame) : "no frames yet");
     div.innerHTML =
-      `<div class="row"><span class="name"><span class="sdot fdot ${linkStatus(s)}${isLive(s) ? " live" : ""}"></span>${s.name}</span></div>
+      `<div class="row"><span class="name"><span class="sdot fdot ${linkStatus(s)}${isLive(s) ? " live" : ""}"></span>${s.country ? flag(s.country) + " " : ""}${s.name}</span></div>
        <div class="meta">NORAD ${s.norad} · ${pos}${heard}</div>`;
     div.onclick = () => select(s);
     list.appendChild(div);
@@ -590,7 +590,8 @@ async function selectStation(observer){
       links.push({ type:"Feature", geometry:{ type:"LineString",
         coordinates:[[r.lon, r.lat], [r.sat_lon, r.sat_lat]] },
         properties:{ observer, ts:new Date(r.ts).getTime(),
-                     slat:r.sat_lat.toFixed(1), slon:r.sat_lon.toFixed(1) } });
+                     slat:r.sat_lat.toFixed(1), slon:r.sat_lon.toFixed(1),
+                     km: Math.round(haversineKm(r.lat, r.lon, r.sat_lat, r.sat_lon)) } });
     }
   }
   if (lat != null){
@@ -762,6 +763,22 @@ function baseCall(label){
   // home call is the longest /-separated part (M/P/QRP suffixes & DL/W prefixes are shorter)
   return first.split("/").reduce((a, b) => b.length > a.length ? b : a, "");
 }
+// ISO-2 country code -> flag emoji via regional-indicator letters (#99).
+// No image assets; empty for unknown/multi-country (honest-state).
+function flag(cc){
+  if (!/^[A-Za-z]{2}$/.test(cc || "")) return "";
+  return String.fromCodePoint(...[...cc.toUpperCase()]
+    .map(c => 0x1F1E6 + c.charCodeAt(0) - 65));
+}
+// Great-circle distance (km) between two lat/lon points — #94: how far a
+// station's antenna reached to catch a satellite (station -> sub-satellite point).
+function haversineKm(lat1, lon1, lat2, lon2){
+  const R = 6371, rad = Math.PI / 180;
+  const dLat = (lat2 - lat1) * rad, dLon = (lon2 - lon1) * rad;
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(a)));
+}
 function fmtValue(v){
   if (v === null || v === undefined || v === "") return "—";
   if (typeof v === "number")
@@ -849,7 +866,8 @@ async function drawReceptions(norad){
         geometry:{ type:"LineString",
           coordinates:[[r.lon, r.lat], [r.sat_lon, r.sat_lat]] },
         properties:{ observer:r.observer, ts:t,
-                     slat:r.sat_lat.toFixed(1), slon:r.sat_lon.toFixed(1) } });
+                     slat:r.sat_lat.toFixed(1), slon:r.sat_lon.toFixed(1),
+                     km: Math.round(haversineKm(r.lat, r.lon, r.sat_lat, r.sat_lon)) } });
     }
   }
   const stations = Object.entries(st).map(([obs, a]) => ({ type:"Feature",
@@ -1065,7 +1083,8 @@ map.on("load", () => {
       .setHTML(`<b>Radio reception</b><br>` +
         `<b>${p.observer.split("-")[0]}</b> decoded a frame from ` +
         `<b>${sat ? sat.name : "the satellite"}</b><br>${fmtT(p.ts)}<br>` +
-        `satellite was over ${p.slat}°, ${p.slon}° at that moment`)
+        `satellite was over ${p.slat}°, ${p.slon}° at that moment` +
+        (p.km != null ? `<br><b>heard ${Number(p.km).toLocaleString()} km away</b>` : ""))
       .addTo(map);
   });
   for (const l of ["rx-stations-hit", "rx-links-hit"]) {
