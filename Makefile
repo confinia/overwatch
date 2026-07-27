@@ -3,7 +3,7 @@ VM      := confinia-ovh-debian
 REMOTE  := ~/projects/overwatch
 CONFINIA:= ~/projects/confinia
 
-.PHONY: sync test stage promote rollback status deploy deploy-full ingest caddy edge clemsat-up clemsat-down logs ps down
+.PHONY: sync test stage promote rollback status deploy deploy-full ingest caddy edge clemsat-up clemsat-down sandbox-up sandbox-down sandbox-logs logs ps down
 
 # Push the repo to the VM (secrets in .env stay VM-side, tarball stays local).
 # version.env is generated from the VERSION file; the generated Caddyfile and
@@ -104,6 +104,21 @@ v2-up: sync
 
 v2-logs:
 	ssh $(VM) 'podman logs --tail=80 ovw2_keycloak_1'
+
+# Isolated SANDBOX stack (compose project ovw-sandbox) — its OWN Postgres,
+# api/web/grafana, pointed at Polar SANDBOX. Shares nothing with prod; billing
+# validation here can never touch prod data or real money. Needs sandbox/.env.
+sandbox-up: sync
+	ssh $(VM) 'set -e; cd $(REMOTE)/orbit-poc/sandbox && test -f .env || { echo "sandbox/.env missing on VM (cp .env.example .env and fill it)"; exit 1; }; \
+		podman-compose -p ovw-sandbox -f docker-compose.yml up -d --build 2>&1 | tail -3; \
+		for c in $$(podman ps --format "{{.Names}}" | grep ^ovw-sandbox); do podman update --restart=always $$c >/dev/null; done; \
+		echo "sandbox up: api 127.0.0.1:8087 · web :8088 · grafana :8089 (own DB, isolated)"'
+
+sandbox-down:
+	ssh $(VM) 'cd $(REMOTE)/orbit-poc/sandbox && podman-compose -p ovw-sandbox -f docker-compose.yml down'
+
+sandbox-logs:
+	ssh $(VM) 'podman logs --tail=100 ovw-sandbox_api_1'
 
 logs:
 	ssh $(VM) 'cd $(REMOTE)/orbit-poc && podman-compose logs --tail=100'

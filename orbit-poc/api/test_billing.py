@@ -9,10 +9,25 @@ import sys
 sys.path.insert(0, os.path.dirname(__file__))
 import polar
 
+# Opt into the stub for these unit tests. Set the module flag directly (not via
+# env) so it holds regardless of when polar was first imported by another test.
+polar.ALLOW_STUB = True
 
-def test_off_by_default_is_stub():
+
+def test_off_by_default_not_configured():
     assert polar.POLAR_ENV == "off"
-    assert not polar.configured()
+    assert not polar.configured()                # no real Polar creds
+    assert polar.stub_allowed()                  # but stub is opted-in here
+
+
+def test_production_is_inert_without_real_secret(monkeypatch):
+    # a public prod (POLAR_ENV set, no real webhook secret) must reject every
+    # webhook — the public stub secret is never honored there
+    monkeypatch.setattr(polar, "POLAR_ENV", "production")
+    monkeypatch.setattr(polar, "WEBHOOK_SECRET", "")
+    monkeypatch.setattr(polar, "ALLOW_STUB", True)
+    assert polar._secret() == ""
+    assert not polar.verify_webhook(b'{"x":1}', {"webhook-signature": "sha256=deadbeef"})
 
 
 def test_checkout_returns_in_app_stub_url():

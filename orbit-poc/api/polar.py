@@ -20,6 +20,11 @@ ORG_TOKEN = os.environ.get("POLAR_ORG_TOKEN", "").strip()
 PRODUCT_PRO = os.environ.get("POLAR_PRODUCT_ID_PRO", "").strip()
 WEBHOOK_SECRET = os.environ.get("POLAR_WEBHOOK_SECRET", "").strip()
 _STUB_SECRET = "stub-webhook-secret"
+# The stub webhook secret is public (it's in this source). It is opt-in via
+# POLAR_ALLOW_STUB and NEVER honored in production, so a public prod running with
+# no real secret stays inert (every webhook 401s) instead of letting anyone flip
+# an org to Pro. Only the isolated sandbox stack sets POLAR_ALLOW_STUB=1.
+ALLOW_STUB = os.environ.get("POLAR_ALLOW_STUB", "").lower() in ("1", "true", "yes")
 
 
 def configured() -> bool:
@@ -27,8 +32,15 @@ def configured() -> bool:
     return POLAR_ENV in ("sandbox", "production") and bool(ORG_TOKEN and PRODUCT_PRO)
 
 
+def stub_allowed() -> bool:
+    """Stub billing (public secret, simulate endpoint) is allowed here?"""
+    return ALLOW_STUB and POLAR_ENV != "production"
+
+
 def _secret() -> str:
-    return WEBHOOK_SECRET or (_STUB_SECRET if POLAR_ENV == "off" else "")
+    if WEBHOOK_SECRET:
+        return WEBHOOK_SECRET
+    return _STUB_SECRET if stub_allowed() else ""      # inert when not allowed
 
 
 def create_checkout(org_id: str, email: str, success_url: str) -> dict:

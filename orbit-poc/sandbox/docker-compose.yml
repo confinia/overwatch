@@ -1,0 +1,83 @@
+# Overwatch SANDBOX — a fully isolated stack for Polar billing validation.
+#
+#   podman-compose -p ovw-sandbox -f docker-compose.yml up -d --build
+#   (via `make sandbox-up` — see the Makefile)
+#
+# Isolation is the whole point: its OWN Postgres (own volume), OWN api/web/grafana,
+# pointed at Polar's SANDBOX. It shares NOTHING with production (prod is
+# orbit-poc_db_1 + blue/green). Billing/metering validation here can never touch
+# prod data or real money. Binds to 127.0.0.1 only; a public webhook host is
+# wired separately via the edge when needed.
+#
+# Secrets (Polar sandbox token/product/webhook secret, GF admin pw, ORG_DB_SECRET)
+# live in ./.env on the VM — copy .env.example and fill it. Never committed.
+
+services:
+  db:
+    image: docker.io/library/postgres:16
+    environment:
+      POSTGRES_USER: orbit
+      POSTGRES_PASSWORD: orbit
+      POSTGRES_DB: orbit
+    volumes:
+      - ../db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - sb_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U orbit"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build: ../api
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_DSN: "dbname=orbit user=orbit password=orbit host=db port=5432"
+      REQUIRE_API_KEY: "false"
+      PUBLIC_BASE: "http://127.0.0.1:8088"
+      # Polar SANDBOX. With real sandbox creds in .env, POLAR_ALLOW_STUB can be
+      # dropped; keep it =1 to validate the flow before creds exist.
+      POLAR_ENV: "sandbox"
+      POLAR_ALLOW_STUB: "1"
+    env_file:
+      - .env            # POLAR_ORG_TOKEN / POLAR_PRODUCT_ID_PRO / POLAR_WEBHOOK_SECRET / meter ids / ORG_DB_SECRET
+    ports:
+      - "127.0.0.1:8087:8000"
+    restart: unless-stopped
+
+  web:
+    build: ../web
+    depends_on:
+      - api
+    environment:
+      DB_DSN: "dbname=orbit user=orbit password=orbit host=db port=5432"
+    ports:
+      - "127.0.0.1:8088:8080"
+    restart: unless-stopped
+
+  grafana:
+    image: docker.io/grafana/grafana:11.2.0
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Viewer"
+      GF_SECURITY_ALLOW_EMBEDDING: "true"
+      GF_SECURITY_COOKIE_SAMESITE: "disabled"
+      GF_USERS_DEFAULT_THEME: "dark"
+    env_file:
+      - .env            # GF_SECURITY_ADMIN_PASSWORD
+    volumes:
+      - sb_grafana:/var/lib/grafana
+      - ../grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "127.0.0.1:8089:3000"
+    restart: unless-stopped
+
+volumes:
+  sb_pgdata:
+  sb_grafana:

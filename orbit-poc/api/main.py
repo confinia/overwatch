@@ -1034,9 +1034,9 @@ def billing_status(request: Request):
 def billing_simulate_paid(request: Request):
     """DEV/sandbox only: simulate a completed payment for the caller's org so the
     checkout -> webhook -> entitlement flow is provable in-app without Polar.
-    Refused in production."""
-    if polar.POLAR_ENV == "production":
-        raise HTTPException(403, "not available in production")
+    Only where the stub is explicitly allowed (POLAR_ALLOW_STUB, never prod)."""
+    if not polar.stub_allowed():
+        raise HTTPException(403, "stub billing not enabled here")
     c, org = _require_org(request)
     with cursor() as cur:
         _apply_billing_event(cur, {"type": "subscription.active", "org_id": org[0],
