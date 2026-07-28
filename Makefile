@@ -12,8 +12,7 @@ sync:
 	printf 'OVERWATCH_VERSION=%s\n' "$$(tr -d '[:space:]' < VERSION)" > orbit-poc/version.env
 	rsync -av --delete \
 		--exclude 'orbit-poc.tar.gz' \
-		--exclude 'orbit-poc/.env' \
-		--exclude 'orbit-poc/v2/.env' \
+		--exclude '.env' \
 		--exclude 'orbit-poc/deploy/geoip' \
 		--exclude 'orbit-poc/deploy/caddy/Caddyfile' \
 		--exclude 'orbit-poc/deploy/caddy/LIVE_COLOR' \
