@@ -52,3 +52,16 @@ def test_sandbox_has_own_caddy_on_8190():
 def test_api_debug_port_is_8191():
     assert re.search(r'127\.0\.0\.1:8191:8000', open(COMPOSE).read()), \
         "sandbox api debug port must be 8191 (not 8087)"
+
+
+def test_grafana_has_db_password_matching_db():
+    # #117: the datasource provisioning resolves password: $__env{DB_PASSWORD};
+    # the sandbox grafana must set it to the sandbox db password, or every panel
+    # 400s ("No data" + norad templating error).
+    compose = open(COMPOSE).read()
+    db_pw = re.search(r'POSTGRES_PASSWORD:\s*"?(\w+)"?', compose)
+    gf_pw = re.search(r'DB_PASSWORD:\s*"?(\w+)"?', compose)
+    assert db_pw and gf_pw, "sandbox compose must set POSTGRES_PASSWORD and DB_PASSWORD"
+    assert gf_pw.group(1) == db_pw.group(1), (
+        f"grafana DB_PASSWORD ({gf_pw.group(1)}) must equal db "
+        f"POSTGRES_PASSWORD ({db_pw.group(1)})")

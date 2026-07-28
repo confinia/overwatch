@@ -92,6 +92,11 @@ services:
       GF_USERS_DEFAULT_THEME: "dark"
       GF_SERVER_ROOT_URL: "https://sandbox.overwatch.confinia.io/grafana"
       GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      # The datasource provisioning resolves password: $__env{DB_PASSWORD}. The
+      # sandbox db password is the hardcoded 'orbit' (POSTGRES_PASSWORD above),
+      # so provide it here — else the datasource auth fails and every panel 400s
+      # ("No data" + norad templating error).
+      DB_PASSWORD: "orbit"
     env_file:
       - .env            # GF_SECURITY_ADMIN_PASSWORD
     volumes:
