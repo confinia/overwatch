@@ -42,6 +42,7 @@ http://overwatch.confinia.io {
 		X-Content-Type-Options "nosniff"
 		Referrer-Policy "strict-origin-when-cross-origin"
 		Content-Security-Policy "frame-ancestors 'self' https://confinia.github.io"
+		X-Overwatch-Env "production"
 		-Server
 	}
 
@@ -123,6 +124,7 @@ http://staging.overwatch.confinia.io {
 		Strict-Transport-Security "max-age=31536000"
 		X-Content-Type-Options "nosniff"
 		X-Robots-Tag "noindex, nofollow"
+		X-Overwatch-Env "staging"
 		-Server
 	}
 
