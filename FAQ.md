@@ -28,6 +28,20 @@ faked or empty health. The map answers "which satellites' health can we
 actually read right now?", not "what is in orbit?" (there are thousands of
 objects up there; almost none broadcast decodable open telemetry).
 
+## Does a satellite's telemetry format have to be publicly documented?
+
+No — **a public decoder is the bar, not a published format.** What matters is that
+an open decoder exists in [satnogs-decoders](https://gitlab.com/librespacefoundation/satnogs/satnogs-decoders)
+(a `.ksy` Kaitai definition) that turns the raw beacon into fields. The raw byte
+format does *not* need to be on the satellite team's website.
+
+A community-contributed decoder is exactly what qualifies. A mission team member
+can hand the format to a volunteer who writes the `.ksy` and contributes it
+upstream — and from then on Overwatch can decode that satellite. Overwatch runs
+the satnogs-decoders modules directly on the raw frames, so **anything the
+community has decoded, we can surface.** So "can you track satellite X?" reduces
+to: (1) is there a public decoder for it, and (2) have we heard recent frames?
+
 ## We have ~161 decoders — why only ~23 satellites?
 
 Because the 161 are **decoders (code), not living satellites**. A `.ksy` stays
