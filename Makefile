@@ -112,10 +112,14 @@ sandbox-up: sync
 	ssh $(VM) 'set -e; cd $(REMOTE)/orbit-poc/sandbox && test -f .env || { echo "sandbox/.env missing on VM (cp .env.example .env and fill it)"; exit 1; }; \
 		podman-compose -p ovw-sandbox -f docker-compose.yml up -d --build 2>&1 | tail -3; \
 		for c in $$(podman ps --format "{{.Names}}" | grep ^ovw-sandbox); do podman update --restart=always $$c >/dev/null; done; \
-		echo "sandbox up: api 127.0.0.1:8087 · web :8088 · grafana :8089 (own DB, isolated)"'
+		podman network connect ovw-sandbox_default orbit-poc_caddy_1 2>/dev/null || true; \
+		echo "sandbox up: https://sandbox.overwatch.confinia.io (basic-auth) · api :8087 · own DB, isolated"'
 
+# Detach the prod caddy from the sandbox net BEFORE removing the stack (else the
+# network is in use). Prod routing is unaffected (the sandbox vhost just 502s).
 sandbox-down:
-	ssh $(VM) 'cd $(REMOTE)/orbit-poc/sandbox && podman-compose -p ovw-sandbox -f docker-compose.yml down'
+	ssh $(VM) 'podman network disconnect ovw-sandbox_default orbit-poc_caddy_1 2>/dev/null || true; \
+		cd $(REMOTE)/orbit-poc/sandbox && podman-compose -p ovw-sandbox -f docker-compose.yml down'
 
 sandbox-logs:
 	ssh $(VM) 'podman logs --tail=100 ovw-sandbox_api_1'
