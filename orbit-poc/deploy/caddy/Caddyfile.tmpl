@@ -143,3 +143,44 @@ http://staging.overwatch.confinia.io {
 		reverse_proxy %CANDIDATE%_web_1:8080
 	}
 }
+
+# ---- sandbox — isolated CLONE with Polar in sandbox mode --------------------
+# Its own DB/ingest/api/web/grafana (compose project ovw-sandbox), reachable
+# here via the ovw-sandbox_default network (declared on the caddy service).
+# Basic-auth-gated like staging, EXCEPT the Polar webhook path, which must stay
+# open for Polar to POST to (it is signature-verified, not user-authenticated).
+http://sandbox.overwatch.confinia.io {
+	encode zstd gzip
+
+	# everything is behind basic auth except the Polar webhook endpoint
+	@protected {
+		not path /api/v1/billing/webhook*
+	}
+	basic_auth @protected {
+		clement $2a$14$w0vTUn7Lvvm3M7Pw0BslOembaNJwBnav7plJTSfzlfqr90huAcu7m
+	}
+
+	header {
+		X-Content-Type-Options "nosniff"
+		X-Robots-Tag "noindex, nofollow"
+		X-Overwatch-Env "sandbox"
+		-Server
+	}
+
+	handle /api/v1* {
+		uri strip_prefix /api
+		reverse_proxy ovw-sandbox_api_1:8000
+	}
+
+	handle /v1* {
+		redir * /api{uri} 308
+	}
+
+	handle /grafana* {
+		reverse_proxy ovw-sandbox_grafana_1:3000
+	}
+
+	handle {
+		reverse_proxy ovw-sandbox_web_1:8080
+	}
+}

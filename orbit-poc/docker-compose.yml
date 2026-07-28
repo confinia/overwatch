@@ -74,6 +74,9 @@ services:
     networks:
       - default
       - v2net          # reach the isolated v2 stack (keycloak) by DNS
+    # NOTE: the ovw-sandbox network is attached OUT OF BAND by `make sandbox-up`
+    # (podman network connect), NOT declared here — so base ops never depend on
+    # the sandbox stack existing (a down sandbox must never break prod caddy).
     restart: unless-stopped
 
   grafana:

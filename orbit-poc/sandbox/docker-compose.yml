@@ -1,0 +1,102 @@
+# Overwatch SANDBOX — a public, fully isolated CLONE of production for Polar
+# billing validation, served at https://sandbox.overwatch.confinia.io.
+#
+#   make sandbox-up   (podman-compose -p ovw-sandbox -f docker-compose.yml up -d --build)
+#
+# Isolation is the whole point: OWN Postgres (own volume), OWN ingest / api / web
+# / grafana — it shares NOTHING with prod (orbit-poc_db_1 + blue/green). Pointed
+# at Polar SANDBOX. Billing/metering here can never touch prod data or real money.
+#
+# Public entry: the confinia edge terminates TLS for sandbox.overwatch.confinia.io
+# -> the overwatch caddy (orbit-poc/deploy/caddy/Caddyfile.tmpl), which basic-auth-
+# gates it (except the Polar webhook path, which Polar must reach) and reverse-
+# proxies to this stack's containers over the ovw-sandbox_default network. DNS for
+# the subdomain is the one prerequisite you own.
+#
+# Secrets in ./.env (Polar sandbox creds, SATNOGS_TOKEN, GF admin pw,
+# ORG_DB_SECRET) — copy .env.example and fill. Never committed.
+
+services:
+  db:
+    image: docker.io/library/postgres:16
+    environment:
+      POSTGRES_USER: orbit
+      POSTGRES_PASSWORD: orbit
+      POSTGRES_DB: orbit
+    volumes:
+      - ../db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - sb_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U orbit"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # Clone the public fleet into the sandbox DB (same ingest as prod). Optional:
+  # comment out to run a data-empty sandbox focused purely on private billing.
+  ingest:
+    build: ../ingest
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_DSN: "dbname=orbit user=orbit password=orbit host=db port=5432"
+      ELEMENTS_INTERVAL: "21600"
+      CELESTRAK_GROUPS: ""
+      POSITION_INTERVAL: "15"
+      TELEMETRY_INTERVAL: "1800"
+    env_file:
+      - .env            # SATNOGS_TOKEN
+    restart: unless-stopped
+
+  api:
+    build: ../api
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_DSN: "dbname=orbit user=orbit password=orbit host=db port=5432"
+      REQUIRE_API_KEY: "false"
+      PUBLIC_BASE: "https://sandbox.overwatch.confinia.io"
+      # Polar SANDBOX. Keep POLAR_ALLOW_STUB=1 to validate before real creds;
+      # once .env has real sandbox creds + a webhook secret it talks to Polar.
+      POLAR_ENV: "sandbox"
+      POLAR_ALLOW_STUB: "1"
+    env_file:
+      - .env            # POLAR_* / ORG_DB_SECRET
+    ports:
+      - "127.0.0.1:8087:8000"   # direct internal access (e.g. webhook testing)
+    restart: unless-stopped
+
+  web:
+    build: ../web
+    depends_on:
+      - api
+    environment:
+      DB_DSN: "dbname=orbit user=orbit password=orbit host=db port=5432"
+    restart: unless-stopped
+
+  grafana:
+    image: docker.io/grafana/grafana:11.2.0
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Viewer"
+      GF_SECURITY_ALLOW_EMBEDDING: "true"
+      GF_SECURITY_COOKIE_SAMESITE: "disabled"
+      GF_USERS_DEFAULT_THEME: "dark"
+      GF_SERVER_ROOT_URL: "https://sandbox.overwatch.confinia.io/grafana"
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+    env_file:
+      - .env            # GF_SECURITY_ADMIN_PASSWORD
+    volumes:
+      - sb_grafana:/var/lib/grafana
+      - ../grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../grafana/dashboards:/var/lib/grafana/dashboards:ro
+    restart: unless-stopped
+
+volumes:
+  sb_pgdata:
+  sb_grafana:
