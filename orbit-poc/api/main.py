@@ -989,6 +989,16 @@ def billing_checkout(request: Request):
     return {"checkout_url": ck["url"], "checkout_id": ck["id"], "stub": ck["stub"]}
 
 
+@app.post("/v1/billing/portal")
+def billing_portal(request: Request):
+    """Link the caller's org to its Polar customer portal — where the end-user
+    downloads invoices/receipts and manages the subscription. Polar (Merchant of
+    Record) owns invoicing; we only mint the session and return its URL."""
+    c, org = _require_org(request)
+    ps = polar.create_customer_session(org[0], f"{PUBLIC_BASE}/?from=portal")
+    return {"portal_url": ps["url"], "stub": ps["stub"]}
+
+
 @app.post("/v1/billing/webhook")
 async def billing_webhook(request: Request):
     """Polar -> us: signature-verified, idempotent; the entitlement source of truth."""

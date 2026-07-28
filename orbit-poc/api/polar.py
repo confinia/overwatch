@@ -60,6 +60,25 @@ def create_checkout(org_id: str, email: str, success_url: str) -> dict:
     return {"id": d.get("id"), "url": d.get("url"), "stub": False}
 
 
+def create_customer_session(org_id: str, return_url: str) -> dict:
+    """Return {url, stub}. As Merchant of Record, Polar hosts the customer
+    portal where the end-user downloads invoices/receipts and manages the
+    subscription — we just mint a session and hand back its portal URL. The
+    customer is addressed by external_customer_id = our org id (set at checkout).
+    Stub URL (own status page) when Polar isn't configured, so it stays testable."""
+    if not configured():
+        return {"url": f"/v1/billing/status?org={org_id}", "stub": True}
+    import requests
+    r = requests.post(
+        f"{API_BASE}/v1/customer-sessions/",
+        headers={"Authorization": f"Bearer {ORG_TOKEN}"},
+        json={"external_customer_id": str(org_id), "return_url": return_url},
+        timeout=10)
+    r.raise_for_status()
+    d = r.json()
+    return {"url": d.get("customer_portal_url"), "stub": False}
+
+
 def sign(raw: bytes) -> str:
     """Produce a valid signature header value for the current secret (tests/sim)."""
     return "sha256=" + hmac.new(_secret().encode(), raw, hashlib.sha256).hexdigest()
