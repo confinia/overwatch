@@ -111,9 +111,15 @@ v2-logs:
 # Needs sandbox/.env. The platform edge proxies the sandbox host -> :8190.
 sandbox-up: sync
 	ssh $(VM) 'set -e; cd $(REMOTE)/orbit-poc/sandbox && test -f .env || { echo "sandbox/.env missing on VM (cp .env.example .env and fill it)"; exit 1; }; \
+		podman-compose -p ovw-sandbox -f docker-compose.yml down 2>/dev/null || true; \
 		podman-compose -p ovw-sandbox -f docker-compose.yml up -d --build 2>&1 | tail -3; \
 		for c in $$(podman ps --format "{{.Names}}" | grep ^ovw-sandbox); do podman update --restart=always $$c >/dev/null; done; \
 		echo "sandbox up: https://sandbox.overwatch.confinia.io (basic-auth) · caddy :8190 · api :8191 · own DB, isolated"'
+# NOTE the implicit `down` above: podman-compose `up` collides on existing
+# container names instead of recreating them, so without it a redeploy silently
+# keeps the OLD containers (new image/config not applied). `down` keeps the named
+# volumes (sb_pgdata/sb_grafana/sb_caddy_*), so sandbox data survives — only a
+# brief recreate. This makes `make sandbox-up` a deterministic clean redeploy.
 
 # Fully self-contained: no prod caddy attachment to undo (the sandbox owns its
 # caddy on :8190). Prod routing is never involved.
