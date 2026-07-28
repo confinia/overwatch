@@ -167,6 +167,15 @@ def test_time_range_selector_drives_all_views(html):   # #71/#72
         assert frag in html, frag
 
 
+def test_grafana_cold_load_reloads_once(html):         # #105
+    # a cold Grafana session paints the home page in the bottom iframes; the
+    # embed reloads each d-solo iframe once (what a manual refresh does) until
+    # the session is warm
+    assert "gfReady" in html
+    assert "coldReload" in html and "this.dataset.r" in html
+    assert "this.src=s" in html or "this.src = s" in html
+
+
 def test_reception_click_shows_distance(html):         # #94
     # clicking a reception shows how far the station reached (great-circle km);
     # distance is precomputed on the link feature from both endpoints

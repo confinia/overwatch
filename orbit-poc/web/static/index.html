@@ -225,6 +225,11 @@ const API_BASE = MIRROR ? "https://overwatch.confinia.io" : "";
 // deployment: production, staging, and self-host). LOCAL kept for the beacon.
 const GRAFANA = `${API_BASE}/grafana`;
 const DASH_UID = "orbit-telemetry";
+// #105: on the very first (cold) visit the Grafana anonymous session isn't
+// established, so d-solo iframes can paint the Grafana home page ("Welcome to
+// Grafana") instead of the panel — exactly what a manual reload fixes. We do
+// that reload once, automatically, until the session is warm.
+let gfReady = false;
 // Coarse pointer (phones/tablets): draw visibly bigger dots — a 4px target
 // is neither tappable nor perceived as tappable on a phone.
 const TOUCH = window.matchMedia("(pointer: coarse)").matches;
@@ -675,6 +680,10 @@ async function embedDashboards(s){
   if (s.norad !== activeNorad) return;   // user moved on while the globe settled
   const body = document.getElementById("panelBody");
   const qs = `orgId=1&var-norad=${s.norad}&theme=dark&from=now-${rangeHours}h&to=now`;
+  // #105: reload a d-solo iframe once on the first cold embed (what a manual
+  // refresh does) so a Grafana-home first paint becomes the real panel.
+  const coldReload = gfReady ? "" :
+    ` onload="if(!this.dataset.r){this.dataset.r=1;const s=this.src;setTimeout(()=>{this.src=s},700)}"`;
   // Ask the product API which telemetry fields exist (same 7-day window as
   // the dashboard) and embed only the panels that will actually show data.
   let all = null;
@@ -684,7 +693,8 @@ async function embedDashboards(s){
   } catch (e) { /* /v1 unreachable (local dev): fall back below */ }
   if (s.norad !== activeNorad) return;
   if (all === null) {
-    body.innerHTML = `<iframe src="${GRAFANA}/d/${DASH_UID}/orbit-telemetry?${qs}&kiosk"></iframe>`;
+    body.innerHTML = `<iframe${coldReload} src="${GRAFANA}/d/${DASH_UID}/orbit-telemetry?${qs}&kiosk"></iframe>`;
+    gfReady = true;
     return;
   }
   // A field only justifies a chart if it can draw a line: >= 3 points in
@@ -719,12 +729,13 @@ async function embedDashboards(s){
     { id: 8, wide: true, show: rich.includes("battery_v") },  // battery vs sunlight fusion
   ];
   const grafanaCells = panels.filter(p => p.show).map(p =>
-    `<div class="gcell${p.wide ? " wide" : ""}"><iframe loading="lazy" ` +
+    `<div class="gcell${p.wide ? " wide" : ""}"><iframe loading="lazy"${coldReload} ` +
     `src="${GRAFANA}/d-solo/${DASH_UID}/orbit-telemetry?${qs}&panelId=${p.id}"></iframe></div>`
   ).join("");
   const fieldsCell = all.length
     ? `<div class="gcell wide fields-cell">${fieldsPanelHTML(all)}</div>` : "";
   body.innerHTML = `<div class="ggrid">` + fieldsCell + grafanaCells + `</div>`;
+  gfReady = true;                          // one cold reload done; session warm
   if (all.length) wireFieldRows();
 }
 
