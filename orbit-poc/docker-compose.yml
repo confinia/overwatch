@@ -22,8 +22,9 @@ services:
     image: docker.io/library/postgres:16
     environment:
       POSTGRES_USER: orbit
-      POSTGRES_PASSWORD: orbit
       POSTGRES_DB: orbit
+    env_file:
+      - .env          # POSTGRES_PASSWORD — never committed
     volumes:
       - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
       - pgdata:/var/lib/postgresql/data
@@ -39,7 +40,7 @@ services:
       db:
         condition: service_healthy
     environment:
-      DB_DSN: "dbname=orbit user=orbit password=orbit host=db port=5432"
+      # DB_DSN comes from .env (never committed) — see .env.example
       ELEMENTS_INTERVAL: "21600"   # 6h — respect CelesTrak update cadence
       # Bulk constellations (one CelesTrak request per group per cadence).
       # Empty = telemetry-only showcase (product decision 2026-07-18).

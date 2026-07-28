@@ -7,7 +7,8 @@ datasources:
     url: db:5432
     user: orbit
     secureJsonData:
-      password: orbit
+      # from the DB_PASSWORD env var (grafana loads .env; never committed)
+      password: $__env{DB_PASSWORD}
     jsonData:
       database: orbit
       sslmode: disable

@@ -12,7 +12,7 @@ services:
     image: docker.io/library/postgres:16
     environment:
       POSTGRES_USER: orbit
-      POSTGRES_PASSWORD: orbit
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-orbit}
       POSTGRES_DB: orbit
     volumes:
       - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
@@ -29,7 +29,7 @@ services:
       db:
         condition: service_healthy
     environment:
-      DB_DSN: "dbname=orbit user=orbit password=orbit host=db port=5432"
+      DB_DSN: "dbname=orbit user=orbit password=${DB_PASSWORD:-orbit} host=db port=5432"
       ELEMENTS_INTERVAL: "21600"
       CELESTRAK_GROUPS: ""
       POSITION_INTERVAL: "15"
@@ -43,7 +43,7 @@ services:
       db:
         condition: service_healthy
     environment:
-      DB_DSN: "dbname=orbit user=orbit password=orbit host=db port=5432"
+      DB_DSN: "dbname=orbit user=orbit password=${DB_PASSWORD:-orbit} host=db port=5432"
     restart: unless-stopped
 
   api:
@@ -52,7 +52,7 @@ services:
       db:
         condition: service_healthy
     environment:
-      DB_DSN: "dbname=orbit user=orbit password=orbit host=db port=5432"
+      DB_DSN: "dbname=orbit user=orbit password=${DB_PASSWORD:-orbit} host=db port=5432"
       REQUIRE_API_KEY: "false"
       # ORG_DB_SECRET / POLAR / Keycloak unset -> tenants & billing OFF (self-host).
     restart: unless-stopped
