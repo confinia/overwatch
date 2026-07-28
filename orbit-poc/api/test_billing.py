@@ -55,6 +55,14 @@ def test_parse_event_resolves_org_and_sub():
     assert ev["status"] == "active"
 
 
+def test_customer_session_returns_stub_url():
+    # portal link falls back to an in-app URL when Polar isn't configured, so the
+    # "invoices / manage subscription" flow stays testable with no creds
+    ps = polar.create_customer_session("org-123", "https://x/back")
+    assert ps["stub"] is True
+    assert "org-123" in ps["url"] and ps["url"].startswith("/v1/billing/")
+
+
 def test_api_image_ships_polar():
     df = os.path.join(os.path.dirname(__file__), "Dockerfile")
     assert "COPY polar.py" in open(df, encoding="utf-8").read()
