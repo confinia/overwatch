@@ -30,12 +30,12 @@ OUT=$(podman run --rm --network "$NET" \
   -v "$PWD/deploy/backup.sh:/dr/backup.sh:ro" -v "$PWD/deploy/restore.sh:/dr/restore.sh:ro" \
   docker.io/library/python:3.12-slim bash -c '
 set -e
-cd /tmp && cp -r /src/api . && cp -r /src/db . && cp -r /src/web . && cp -r /src/grafana . && cp -r /src/ingest . && cp -r /src/sandbox . && cp /src/docker-compose.selfhost.yml . && cp /faq/FAQ.md . && mkdir -p deploy/caddy && cp /src/deploy/caddy/Caddyfile.selfhost deploy/caddy/ && cp /dr/backup.sh /dr/restore.sh deploy/
+cd /tmp && cp -r /src/api . && cp -r /src/db . && cp -r /src/web . && cp -r /src/grafana . && cp -r /src/ingest . && cp -r /src/sandbox . && cp /src/docker-compose.selfhost.yml . && cp /faq/FAQ.md . && mkdir -p deploy/caddy && cp /src/deploy/caddy/Caddyfile.selfhost /src/deploy/caddy/Caddyfile.tmpl deploy/caddy/ && cp /dr/backup.sh /dr/restore.sh deploy/
 pip install -q -r api/requirements.txt pytest httpx requests >/dev/null 2>&1
 apt-get -qq update >/dev/null 2>&1 && apt-get -qq install -y postgresql-client >/dev/null 2>&1
 PGPASSWORD=orbit psql -h "$(echo $DB_DSN | sed -E "s/.*host=([^ ]+).*/\1/")" -U orbit -d orbit -f db/init.sql >/dev/null 2>&1
 cd api
-python -m pytest test_subscription.py test_rls.py test_frontend.py test_selfhost.py test_faq.py test_backup.py test_fields.py test_dashboards.py test_spacecraft.py test_calibration.py test_metering.py test_billing.py test_sandbox_ports.py -q 2>&1 | tail -1
+python -m pytest test_subscription.py test_rls.py test_frontend.py test_selfhost.py test_faq.py test_backup.py test_fields.py test_dashboards.py test_spacecraft.py test_calibration.py test_metering.py test_billing.py test_sandbox_ports.py test_env_headers.py -q 2>&1 | tail -1
 python -m pytest test_polar.py -q 2>&1 | tail -1
 ' 2>&1)
 
