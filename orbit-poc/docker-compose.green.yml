@@ -6,10 +6,10 @@ services:
   web:
     build: ./web
     environment:
-      DB_DSN: "dbname=orbit user=orbit password=orbit host=db port=5432"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318"
       OTEL_SERVICE_NAME: "overwatch-web"
     env_file:
+      - .env          # DB_DSN — never committed
       - version.env
     ports:
       - "127.0.0.1:9081:8080"
@@ -18,7 +18,7 @@ services:
   api:
     build: ./api
     environment:
-      DB_DSN: "dbname=orbit user=orbit password=orbit host=db port=5432"
+      # DB_DSN comes from .env (never committed)
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318"
       OTEL_SERVICE_NAME: "overwatch-api"
       REQUIRE_API_KEY: "false"
