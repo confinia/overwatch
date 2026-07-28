@@ -65,7 +65,10 @@ services:
     env_file:
       - .env            # POLAR_* / ORG_DB_SECRET
     ports:
-      - "127.0.0.1:8087:8000"   # direct internal access (e.g. webhook testing)
+      # Dedicated sandbox port range 8190-8199 (see the platform edge Caddyfile
+      # for the VM-wide reservation table). 8191 = api debug/webhook-test port;
+      # NOT 8087 (taken by mapmax_web_1 on the VM).
+      - "127.0.0.1:8191:8000"
     restart: unless-stopped
 
   web:
@@ -97,6 +100,27 @@ services:
       - ../grafana/dashboards:/var/lib/grafana/dashboards:ro
     restart: unless-stopped
 
+  # The sandbox's OWN application caddy — dedicated port 8190 (range 8190-8199).
+  # The platform upstream edge proxies sandbox.overwatch.confinia.io here; this
+  # caddy routes to web/api/grafana within the ovw-sandbox network. Self-
+  # contained: it replaces the old out-of-band attach of the prod caddy, so a
+  # down sandbox can never affect prod routing.
+  caddy:
+    image: docker.io/library/caddy:2
+    depends_on:
+      - web
+      - api
+      - grafana
+    ports:
+      - "127.0.0.1:8190:80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - sb_caddy_data:/data
+      - sb_caddy_config:/config
+    restart: unless-stopped
+
 volumes:
   sb_pgdata:
   sb_grafana:
+  sb_caddy_data:
+  sb_caddy_config:

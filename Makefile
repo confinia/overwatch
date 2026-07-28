@@ -105,20 +105,20 @@ v2-logs:
 	ssh $(VM) 'podman logs --tail=80 ovw2_keycloak_1'
 
 # Isolated SANDBOX stack (compose project ovw-sandbox) — its OWN Postgres,
-# api/web/grafana, pointed at Polar SANDBOX. Shares nothing with prod; billing
-# validation here can never touch prod data or real money. Needs sandbox/.env.
+# api/web/grafana AND its OWN caddy on the dedicated port 8190 (range
+# 8190-8199), pointed at Polar SANDBOX. Shares nothing with prod (not even the
+# app caddy); billing validation here can never touch prod data or real money.
+# Needs sandbox/.env. The platform edge proxies the sandbox host -> :8190.
 sandbox-up: sync
 	ssh $(VM) 'set -e; cd $(REMOTE)/orbit-poc/sandbox && test -f .env || { echo "sandbox/.env missing on VM (cp .env.example .env and fill it)"; exit 1; }; \
 		podman-compose -p ovw-sandbox -f docker-compose.yml up -d --build 2>&1 | tail -3; \
 		for c in $$(podman ps --format "{{.Names}}" | grep ^ovw-sandbox); do podman update --restart=always $$c >/dev/null; done; \
-		podman network connect ovw-sandbox_default orbit-poc_caddy_1 2>/dev/null || true; \
-		echo "sandbox up: https://sandbox.overwatch.confinia.io (basic-auth) · api :8087 · own DB, isolated"'
+		echo "sandbox up: https://sandbox.overwatch.confinia.io (basic-auth) · caddy :8190 · api :8191 · own DB, isolated"'
 
-# Detach the prod caddy from the sandbox net BEFORE removing the stack (else the
-# network is in use). Prod routing is unaffected (the sandbox vhost just 502s).
+# Fully self-contained: no prod caddy attachment to undo (the sandbox owns its
+# caddy on :8190). Prod routing is never involved.
 sandbox-down:
-	ssh $(VM) 'podman network disconnect ovw-sandbox_default orbit-poc_caddy_1 2>/dev/null || true; \
-		cd $(REMOTE)/orbit-poc/sandbox && podman-compose -p ovw-sandbox -f docker-compose.yml down'
+	ssh $(VM) 'cd $(REMOTE)/orbit-poc/sandbox && podman-compose -p ovw-sandbox -f docker-compose.yml down'
 
 sandbox-logs:
 	ssh $(VM) 'podman logs --tail=100 ovw-sandbox_api_1'
