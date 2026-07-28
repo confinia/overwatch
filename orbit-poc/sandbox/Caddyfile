@@ -1,0 +1,44 @@
+# Overwatch SANDBOX — the sandbox's OWN application caddy (compose service
+# `caddy`, published on 127.0.0.1:8190). The platform upstream edge terminates
+# TLS for sandbox.overwatch.confinia.io and reverse-proxies here; this caddy is
+# self-contained in the ovw-sandbox network and reaches the stack by service
+# name (api / web / grafana). It shares NOTHING with the prod app caddy
+# (orbit-poc_caddy_1:8090) — a down sandbox cannot affect prod routing.
+#
+# Basic-auth-gated like staging, EXCEPT the Polar webhook path, which must stay
+# open for Polar to POST to (it is signature-verified, not user-authenticated).
+:80 {
+	encode zstd gzip
+
+	# everything is behind basic auth except the Polar webhook endpoint
+	@protected {
+		not path /api/v1/billing/webhook*
+	}
+	basic_auth @protected {
+		clement $2a$14$w0vTUn7Lvvm3M7Pw0BslOembaNJwBnav7plJTSfzlfqr90huAcu7m
+	}
+
+	header {
+		X-Content-Type-Options "nosniff"
+		X-Robots-Tag "noindex, nofollow"
+		X-Overwatch-Env "sandbox"
+		-Server
+	}
+
+	handle /api/v1* {
+		uri strip_prefix /api
+		reverse_proxy api:8000
+	}
+
+	handle /v1* {
+		redir * /api{uri} 308
+	}
+
+	handle /grafana* {
+		reverse_proxy grafana:3000
+	}
+
+	handle {
+		reverse_proxy web:8080
+	}
+}

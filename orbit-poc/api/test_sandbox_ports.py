@@ -1,0 +1,54 @@
+"""Guards issue #111: the sandbox stack must live in its OWN dedicated TCP
+port range (8190-8199) and must NOT reuse prod's ports (808x/908x/8090) or any
+arbitrary port that could collide with another product on the VM (the original
+8087 clashed with mapmax_web_1).
+
+Parses orbit-poc/sandbox/docker-compose.yml + Caddyfile textually (no yaml dep).
+"""
+import os
+import re
+
+HERE = os.path.dirname(__file__)
+SANDBOX = os.path.join(HERE, "..", "sandbox")
+COMPOSE = os.path.join(SANDBOX, "docker-compose.yml")
+CADDYFILE = os.path.join(SANDBOX, "Caddyfile")
+
+RESERVED = range(8190, 8200)              # 8190-8199 inclusive
+PROD_PORTS = {8081, 8082, 8090, 9081, 9082}   # overwatch prod blue/green + caddy
+
+
+def _published_host_ports(text):
+    # matches `- "127.0.0.1:8190:80"` and `- "127.0.0.1:8191:8000"`
+    return [int(p) for p in re.findall(r'127\.0\.0\.1:(\d+):\d+', text)]
+
+
+def test_all_sandbox_ports_in_reserved_range():
+    ports = _published_host_ports(open(COMPOSE).read())
+    assert ports, "no 127.0.0.1-published ports found in sandbox compose"
+    for p in ports:
+        assert p in RESERVED, f"sandbox port {p} outside reserved 8190-8199"
+
+
+def test_sandbox_does_not_reuse_prod_ports():
+    ports = set(_published_host_ports(open(COMPOSE).read()))
+    assert ports.isdisjoint(PROD_PORTS), (
+        f"sandbox reuses prod port(s): {ports & PROD_PORTS}")
+
+
+def test_no_8087_collision():
+    # 8087 is taken by mapmax_web_1 on the VM — must never be used by the sandbox
+    assert 8087 not in _published_host_ports(open(COMPOSE).read())
+
+
+def test_sandbox_has_own_caddy_on_8190():
+    compose = open(COMPOSE).read()
+    assert re.search(r'127\.0\.0\.1:8190:80', compose), \
+        "sandbox caddy must publish 8190"
+    # the caddy service must exist and mount the sandbox Caddyfile
+    assert "./Caddyfile:/etc/caddy/Caddyfile" in compose
+    assert os.path.exists(CADDYFILE), "sandbox/Caddyfile missing"
+
+
+def test_api_debug_port_is_8191():
+    assert re.search(r'127\.0\.0\.1:8191:8000', open(COMPOSE).read()), \
+        "sandbox api debug port must be 8191 (not 8087)"
