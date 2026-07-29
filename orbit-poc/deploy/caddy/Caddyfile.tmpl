@@ -146,7 +146,37 @@ http://staging.overwatch.confinia.io {
 	}
 }
 
-# The sandbox (sandbox.overwatch.confinia.io) is NOT served here: it runs its
-# OWN caddy on the dedicated port 8190 (compose project ovw-sandbox, see
-# orbit-poc/sandbox/Caddyfile). The platform upstream edge proxies the sandbox
-# host straight to 127.0.0.1:8190, so a down sandbox never touches this caddy.
+# ---- production API on its own hostname ------------------------------------
+# api.overwatch.confinia.io serves the public API at the root (/v1/...), with
+# no /api prefix. /api/v1/... keeps working here too: FastAPI runs with
+# root_path=/api, so its docs and openapi.json resolve URLs under that prefix —
+# stripping it lets /v1/docs work on this host as well.
+http://api.overwatch.confinia.io {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Overwatch-Env "production"
+		-Server
+	}
+
+	handle /api/v1* {
+		uri strip_prefix /api
+		reverse_proxy %CANDIDATE%_api_1:8000
+	}
+
+	handle /v1* {
+		reverse_proxy %CANDIDATE%_api_1:8000
+	}
+
+	handle {
+		redir * /v1 308
+	}
+}
+
+# The sandbox (sandbox.overwatch.confinia.io, sandbox.api.overwatch.confinia.io)
+# is NOT served here: it runs its OWN caddy on the dedicated port 8190 (compose
+# project ovw-sandbox, see orbit-poc/sandbox/Caddyfile). The platform upstream
+# edge proxies the sandbox hosts straight to 127.0.0.1:8190, so a down sandbox
+# never touches this caddy.

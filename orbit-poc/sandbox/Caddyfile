@@ -1,18 +1,22 @@
 # Overwatch SANDBOX — the sandbox's OWN application caddy (compose service
 # `caddy`, published on 127.0.0.1:8190). The platform upstream edge terminates
-# TLS for sandbox.overwatch.confinia.io and reverse-proxies here; this caddy is
-# self-contained in the ovw-sandbox network and reaches the stack by service
-# name (api / web / grafana). It shares NOTHING with the prod app caddy
-# (orbit-poc_caddy_1:8090) — a down sandbox cannot affect prod routing.
+# TLS for sandbox.overwatch.confinia.io + sandbox.api.overwatch.confinia.io and
+# reverse-proxies here; this caddy is self-contained in the ovw-sandbox network
+# and reaches the stack by service name (api / web / grafana). It shares NOTHING
+# with the prod app caddy (orbit-poc_caddy_1:8090) — a down sandbox cannot
+# affect prod routing.
 #
 # Basic-auth-gated like staging, EXCEPT the Polar webhook path, which must stay
 # open for Polar to POST to (it is signature-verified, not user-authenticated).
-:80 {
+
+# Shared by both sandbox hosts: the gate and the self-identifying headers.
+(sandbox_common) {
 	encode zstd gzip
 
 	# everything is behind basic auth except the Polar webhook endpoint
+	# (on either host spelling, so moving the webhook never locks Polar out)
 	@protected {
-		not path /api/v1/billing/webhook*
+		not path /api/v1/billing/webhook* /v1/billing/webhook*
 	}
 	basic_auth @protected {
 		clement $2a$14$w0vTUn7Lvvm3M7Pw0BslOembaNJwBnav7plJTSfzlfqr90huAcu7m
@@ -24,6 +28,13 @@
 		X-Overwatch-Env "sandbox"
 		-Server
 	}
+}
+
+# ---- sandbox site ----------------------------------------------------------
+# `:80` stays as a fallback so direct access to 127.0.0.1:8190 (health checks,
+# debugging) keeps working when no matching Host header is sent.
+http://sandbox.overwatch.confinia.io, :80 {
+	import sandbox_common
 
 	# Identity: the ONE shared Keycloak serves /auth — realm overwatch-sandbox
 	# (dedicated to this env; prod uses realm overwatch on the same instance).
@@ -47,5 +58,26 @@
 
 	handle {
 		reverse_proxy web:8080
+	}
+}
+
+# ---- sandbox API on its own hostname ---------------------------------------
+# Serves the API at the root (/v1/...). /api/v1/... also works here: FastAPI
+# runs with root_path=/api, so its docs and openapi.json resolve URLs under
+# that prefix — stripping it lets /v1/docs work on this host too.
+http://sandbox.api.overwatch.confinia.io {
+	import sandbox_common
+
+	handle /api/v1* {
+		uri strip_prefix /api
+		reverse_proxy api:8000
+	}
+
+	handle /v1* {
+		reverse_proxy api:8000
+	}
+
+	handle {
+		redir * /v1 308
 	}
 }
