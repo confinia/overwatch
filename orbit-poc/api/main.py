@@ -985,7 +985,8 @@ def _apply_billing_event(cur, ev):
 def billing_checkout(request: Request):
     """Mint an embedded checkout for the caller's org — they never leave Overwatch."""
     c, org = _require_org(request)
-    ck = polar.create_checkout(org[0], c.get("email", ""), f"{PUBLIC_BASE}/?upgraded=1")
+    ck = polar.create_checkout(org[0], c.get("email", ""),
+                               f"{PUBLIC_BASE}/w/account?upgraded=1")
     return {"checkout_url": ck["url"], "checkout_id": ck["id"], "stub": ck["stub"]}
 
 
@@ -995,7 +996,7 @@ def billing_portal(request: Request):
     downloads invoices/receipts and manages the subscription. Polar (Merchant of
     Record) owns invoicing; we only mint the session and return its URL."""
     c, org = _require_org(request)
-    ps = polar.create_customer_session(org[0], f"{PUBLIC_BASE}/?from=portal")
+    ps = polar.create_customer_session(org[0], f"{PUBLIC_BASE}/w/account")
     return {"portal_url": ps["url"], "stub": ps["stub"]}
 
 
