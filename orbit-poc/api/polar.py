@@ -88,20 +88,32 @@ def sign(raw: bytes) -> str:
     return "sha256=" + hmac.new(_secret().encode(), raw, hashlib.sha256).hexdigest()
 
 
-def _sw_key() -> bytes:
-    """standard-webhooks signing key: base64-decode the part after whsec_."""
+def _sw_keys() -> list:
+    """Candidate standard-webhooks signing keys. Polar's docs pass the FULL
+    secret string (base64-encoded) to the standardwebhooks lib — the key is then
+    the secret string's own bytes. The svix spec instead base64-decodes the part
+    after whsec_. Accept every plausible interpretation so verification is robust
+    to either (#121: real deliveries 401ed under the svix-only reading)."""
     s = _secret()
+    keys = [s.encode()]
     if s.startswith("whsec_"):
         b64 = s[len("whsec_"):]
-        return base64.b64decode(b64 + "=" * (-len(b64) % 4))
-    return s.encode()
+        keys.append(b64.encode())
+        try:
+            keys.append(base64.b64decode(b64 + "=" * (-len(b64) % 4)))
+        except Exception:
+            pass
+    return keys
+
+
+def _sw_sign(key: bytes, msg_id: str, timestamp: str, raw: bytes) -> str:
+    signed = f"{msg_id}.{timestamp}.".encode() + raw
+    return base64.b64encode(hmac.new(key, signed, hashlib.sha256).digest()).decode()
 
 
 def sign_standard(msg_id: str, timestamp: str, raw: bytes) -> str:
     """standard-webhooks signature for `id.timestamp.body` (tests/sim)."""
-    signed = f"{msg_id}.{timestamp}.".encode() + raw
-    digest = hmac.new(_sw_key(), signed, hashlib.sha256).digest()
-    return "v1," + base64.b64encode(digest).decode()
+    return "v1," + _sw_sign(_sw_keys()[0], msg_id, timestamp, raw)
 
 
 _SW_TOLERANCE = 300     # seconds of allowed webhook-timestamp clock skew
@@ -121,9 +133,9 @@ def verify_webhook(raw: bytes, headers: dict) -> bool:
                 return False
         except ValueError:
             return False
-        want = sign_standard(msg_id, ts, raw).split(",", 1)[1]
+        wants = [_sw_sign(k, msg_id, ts, raw) for k in _sw_keys()]
         return any(
-            v == "v1" and hmac.compare_digest(want, s)
+            v == "v1" and any(hmac.compare_digest(w, s) for w in wants)
             for v, _, s in (p.partition(",") for p in sig_header.split()))
     # legacy scaffold/stub scheme: HMAC-hex over the raw body
     sig = sig_header or headers.get("x-polar-signature") or ""
