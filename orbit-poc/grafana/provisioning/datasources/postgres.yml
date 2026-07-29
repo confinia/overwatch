@@ -5,10 +5,13 @@ datasources:
     type: postgres
     access: proxy
     url: db:5432
-    user: orbit
+    # Least-privilege role (#129): Grafana's datasource proxy executes arbitrary
+    # SQL for any caller, including the anonymous Viewer the public embeds need.
+    # The role IS the boundary: SELECT on the public tables only, NOBYPASSRLS —
+    # never the app's `orbit` role, which can read private tenant data.
+    user: grafana_ro
     secureJsonData:
-      # from the DB_PASSWORD env var (grafana loads .env; never committed)
-      password: $__env{DB_PASSWORD}
+      password: $__env{GRAFANA_DB_PASSWORD}
     jsonData:
       database: orbit
       sslmode: disable

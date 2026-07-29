@@ -53,6 +53,9 @@ services:
         condition: service_healthy
     environment:
       DB_DSN: "dbname=orbit user=orbit password=${DB_PASSWORD:-orbit} host=db port=5432"
+      # Least-privilege role for the Grafana datasource (#129): the API
+      # provisions it at startup with SELECT on the public tables only.
+      GRAFANA_DB_PASSWORD: "${GRAFANA_DB_PASSWORD:-grafana_ro_local}"
       REQUIRE_API_KEY: "false"
       # ORG_DB_SECRET / POLAR / Keycloak unset -> tenants & billing OFF (self-host).
     restart: unless-stopped
@@ -63,6 +66,9 @@ services:
       db:
         condition: service_healthy
     environment:
+      # Anonymous can run arbitrary SQL through the datasource proxy, so the
+      # datasource authenticates as the least-privilege grafana_ro role (#129).
+      GRAFANA_DB_PASSWORD: "${GRAFANA_DB_PASSWORD:-grafana_ro_local}"
       GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_ROLE: "Viewer"
       GF_SECURITY_ALLOW_EMBEDDING: "true"
