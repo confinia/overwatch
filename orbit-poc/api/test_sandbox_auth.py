@@ -39,6 +39,14 @@ def test_no_hardcoded_prod_realm_in_admin_calls():
     assert "admin/realms/{KC_REALM}" in src
 
 
+def test_no_hardcoded_callback_host():
+    # the OAuth redirect_uri must derive from PUBLIC_BASE so each env logs in
+    # on its own host (prod hardcoding broke sandbox login with a 400)
+    src = open(MAIN).read()
+    assert "overwatch.confinia.io/api/v1/auth/callback" not in src
+    assert src.count("{PUBLIC_BASE}/api/v1/auth/callback") == 2
+
+
 def test_env_example_documents_kc_secrets():
     env = open(os.path.join(SANDBOX, ".env.example")).read()
     for key in ("OVERWATCH_CLIENT_SECRET", "KC_ADMIN_USERNAME", "KC_ADMIN_PASSWORD"):

@@ -686,7 +686,7 @@ def auth_login():
     state = _secrets.token_urlsafe(16)
     url = (f"{KC_ISSUER}/protocol/openid-connect/auth?client_id={KC_CLIENT_ID}"
            f"&response_type=code&scope=openid+profile+email+organization"
-           f"&redirect_uri=https://overwatch.confinia.io/api/v1/auth/callback"
+           f"&redirect_uri={PUBLIC_BASE}/api/v1/auth/callback"
            f"&state={state}")
     resp = RedirectResponse(url)
     resp.set_cookie("ovw_state", state, max_age=600, httponly=True,
@@ -702,7 +702,7 @@ def auth_callback(request: Request, code: str = "", state: str = ""):
     r = _rq.post(f"{KC_INTERNAL}/protocol/openid-connect/token",
                  data={"grant_type": "authorization_code", "code": code,
                        "client_id": KC_CLIENT_ID, "client_secret": KC_CLIENT_SECRET,
-                       "redirect_uri": "https://overwatch.confinia.io/api/v1/auth/callback"},
+                       "redirect_uri": f"{PUBLIC_BASE}/api/v1/auth/callback"},
                  timeout=15)
     if r.status_code != 200:
         raise HTTPException(502, "Token exchange failed")
