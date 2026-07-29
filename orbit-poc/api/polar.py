@@ -6,13 +6,17 @@ against a shared test secret — so the whole billing flow (checkout -> webhook 
 entitlement) is testable with no Polar account and no money. Set the sandbox env
 vars (POLAR.md §3) and the same code talks to real Polar sandbox, no code change.
 
-NOTE: verify_webhook here is a simple HMAC-over-body for the scaffold. Before
-enabling real sandbox, replace it with Polar's actual standard-webhooks (svix)
-scheme (webhook-id/webhook-timestamp/webhook-signature over `id.ts.body`).
+verify_webhook speaks BOTH schemes (#121): real Polar deliveries are signed per
+standard-webhooks (HMAC-SHA256 over `webhook-id.webhook-timestamp.body` with the
+base64-decoded whsec_ key, header `webhook-signature: v1,<base64>`), while the
+stub/tests keep the simple legacy HMAC-hex over the body. The scheme is picked
+from the headers actually present.
 """
+import base64
 import hashlib
 import hmac
 import os
+import time
 
 POLAR_ENV = os.environ.get("POLAR_ENV", "off").lower()
 API_BASE = os.environ.get("POLAR_API_BASE", "https://sandbox-api.polar.sh")
@@ -84,12 +88,46 @@ def sign(raw: bytes) -> str:
     return "sha256=" + hmac.new(_secret().encode(), raw, hashlib.sha256).hexdigest()
 
 
+def _sw_key() -> bytes:
+    """standard-webhooks signing key: base64-decode the part after whsec_."""
+    s = _secret()
+    if s.startswith("whsec_"):
+        b64 = s[len("whsec_"):]
+        return base64.b64decode(b64 + "=" * (-len(b64) % 4))
+    return s.encode()
+
+
+def sign_standard(msg_id: str, timestamp: str, raw: bytes) -> str:
+    """standard-webhooks signature for `id.timestamp.body` (tests/sim)."""
+    signed = f"{msg_id}.{timestamp}.".encode() + raw
+    digest = hmac.new(_sw_key(), signed, hashlib.sha256).digest()
+    return "v1," + base64.b64encode(digest).decode()
+
+
+_SW_TOLERANCE = 300     # seconds of allowed webhook-timestamp clock skew
+
+
 def verify_webhook(raw: bytes, headers: dict) -> bool:
-    secret = _secret()
-    if not secret:
+    if not _secret():
         return False
-    sig = headers.get("webhook-signature") or headers.get("x-polar-signature") or ""
-    want = hmac.new(secret.encode(), raw, hashlib.sha256).hexdigest()
+    sig_header = headers.get("webhook-signature") or ""
+    msg_id = headers.get("webhook-id")
+    ts = headers.get("webhook-timestamp")
+    if msg_id and ts and "v1," in sig_header:
+        # real Polar: standard-webhooks. Header may carry several space-separated
+        # signatures (secret rotation); accept if any v1 entry matches.
+        try:
+            if abs(time.time() - int(ts)) > _SW_TOLERANCE:
+                return False
+        except ValueError:
+            return False
+        want = sign_standard(msg_id, ts, raw).split(",", 1)[1]
+        return any(
+            v == "v1" and hmac.compare_digest(want, s)
+            for v, _, s in (p.partition(",") for p in sig_header.split()))
+    # legacy scaffold/stub scheme: HMAC-hex over the raw body
+    sig = sig_header or headers.get("x-polar-signature") or ""
+    want = hmac.new(_secret().encode(), raw, hashlib.sha256).hexdigest()
     return hmac.compare_digest(want, sig.split("=", 1)[-1].strip())
 
 

@@ -55,6 +55,35 @@ def test_parse_event_resolves_org_and_sub():
     assert ev["status"] == "active"
 
 
+def test_standard_webhooks_roundtrip(monkeypatch):
+    # #121: real Polar signs per standard-webhooks over `id.ts.body` with the
+    # base64-decoded whsec_ key. Roundtrip + tamper rejection.
+    import base64
+    import time as _time
+    key_b64 = base64.b64encode(b"0123456789abcdef0123456789abcdef").decode()
+    monkeypatch.setattr(polar, "WEBHOOK_SECRET", "whsec_" + key_b64)
+    raw = b'{"type":"subscription.active"}'
+    msg_id, ts = "msg_test1", str(int(_time.time()))
+    headers = {"webhook-id": msg_id, "webhook-timestamp": ts,
+               "webhook-signature": polar.sign_standard(msg_id, ts, raw)}
+    assert polar.verify_webhook(raw, headers)
+    assert not polar.verify_webhook(b'{"tampered":1}', headers)
+    # multi-signature header (rotation): any matching v1 entry passes
+    headers["webhook-signature"] = "v1,bogus " + polar.sign_standard(msg_id, ts, raw)
+    assert polar.verify_webhook(raw, headers)
+
+
+def test_standard_webhooks_stale_timestamp_rejected(monkeypatch):
+    import base64
+    key_b64 = base64.b64encode(b"0123456789abcdef0123456789abcdef").decode()
+    monkeypatch.setattr(polar, "WEBHOOK_SECRET", "whsec_" + key_b64)
+    raw = b"{}"
+    msg_id, ts = "msg_old", "1000000000"        # far in the past
+    headers = {"webhook-id": msg_id, "webhook-timestamp": ts,
+               "webhook-signature": polar.sign_standard(msg_id, ts, raw)}
+    assert not polar.verify_webhook(raw, headers)
+
+
 def test_customer_session_returns_stub_url():
     # portal link falls back to an in-app URL when Polar isn't configured, so the
     # "invoices / manage subscription" flow stays testable with no creds
