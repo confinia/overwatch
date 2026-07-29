@@ -563,6 +563,9 @@ KC_ISSUER = os.environ.get("KC_ISSUER",
 # and the token `iss` claim keep the public URL.
 KC_INTERNAL = os.environ.get("KC_INTERNAL",
     "http://ovw2_keycloak_1:8080/auth/realms/overwatch")
+# Realm derived from the internal URL so each env talks to ITS realm
+# (prod: overwatch, sandbox: overwatch-sandbox) — never hardcoded (#126).
+KC_REALM = KC_INTERNAL.rsplit("/realms/", 1)[-1]
 KC_CLIENT_ID = os.environ.get("OVERWATCH_CLIENT_ID", "overwatch")
 KC_CLIENT_SECRET = os.environ.get("OVERWATCH_CLIENT_SECRET", "")
 KC_ADMIN_USER = os.environ.get("KC_ADMIN_USERNAME", "")
@@ -744,7 +747,7 @@ def create_org(request: Request, body: OrgCreate):
         raise HTTPException(422, "Organization name too short.")
     alias = "".join(ch if ch.isalnum() else "-" for ch in name.lower())[:40]
     at = _kc_admin_token()
-    base = f"{KC_INTERNAL.rsplit('/realms/',1)[0]}/admin/realms/overwatch"
+    base = f"{KC_INTERNAL.rsplit('/realms/',1)[0]}/admin/realms/{KC_REALM}"
     h = {"Authorization": f"Bearer {at}"}
     r = _rq.post(f"{base}/organizations", json={
         "name": name, "alias": alias,
@@ -844,7 +847,7 @@ def delete_org(request: Request, org_id: str):
     # local purge already happened; log but do not fail the request.
     try:
         at = _kc_admin_token()
-        base = f"{KC_INTERNAL.rsplit('/realms/',1)[0]}/admin/realms/overwatch"
+        base = f"{KC_INTERNAL.rsplit('/realms/',1)[0]}/admin/realms/{KC_REALM}"
         _rq.delete(f"{base}/organizations/{org_id}",
                    headers={"Authorization": f"Bearer {at}"}, timeout=15)
     except Exception as e:
