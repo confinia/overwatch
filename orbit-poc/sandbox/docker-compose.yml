@@ -62,8 +62,16 @@ services:
       # once .env has real sandbox creds + a webhook secret it talks to Polar.
       POLAR_ENV: "sandbox"
       POLAR_ALLOW_STUB: "1"
+      # Identity: ONE shared Keycloak, dedicated realm overwatch-sandbox
+      # (TENANT.md §1 "Sandbox identity") — issuer-URL distinction, full
+      # user/key/token separation from the prod realm `overwatch`.
+      KC_ISSUER: "https://sandbox.overwatch.confinia.io/auth/realms/overwatch-sandbox"
+      KC_INTERNAL: "http://ovw2_keycloak_1:8080/auth/realms/overwatch-sandbox"
     env_file:
-      - .env            # POLAR_* / ORG_DB_SECRET
+      - .env            # POLAR_* / ORG_DB_SECRET / OVERWATCH_CLIENT_SECRET / KC_ADMIN_*
+    networks:
+      - default
+      - v2net           # server-to-server path to the shared Keycloak
     ports:
       # Dedicated sandbox port range 8190-8199 (see the platform edge Caddyfile
       # for the VM-wide reservation table). 8191 = api debug/webhook-test port;
@@ -122,6 +130,9 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - sb_caddy_data:/data
       - sb_caddy_config:/config
+    networks:
+      - default
+      - v2net           # proxies /auth to the shared Keycloak (sandbox realm)
     restart: unless-stopped
 
 volumes:
@@ -129,3 +140,9 @@ volumes:
   sb_grafana:
   sb_caddy_data:
   sb_caddy_config:
+
+networks:
+  default: {}
+  v2net:
+    external: true
+    name: ovw2_default  # the shared Keycloak's network (same pattern as prod)

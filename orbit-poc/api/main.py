@@ -563,6 +563,9 @@ KC_ISSUER = os.environ.get("KC_ISSUER",
 # and the token `iss` claim keep the public URL.
 KC_INTERNAL = os.environ.get("KC_INTERNAL",
     "http://ovw2_keycloak_1:8080/auth/realms/overwatch")
+# Realm derived from the internal URL so each env talks to ITS realm
+# (prod: overwatch, sandbox: overwatch-sandbox) — never hardcoded (#126).
+KC_REALM = KC_INTERNAL.rsplit("/realms/", 1)[-1]
 KC_CLIENT_ID = os.environ.get("OVERWATCH_CLIENT_ID", "overwatch")
 KC_CLIENT_SECRET = os.environ.get("OVERWATCH_CLIENT_SECRET", "")
 KC_ADMIN_USER = os.environ.get("KC_ADMIN_USERNAME", "")
@@ -683,7 +686,7 @@ def auth_login():
     state = _secrets.token_urlsafe(16)
     url = (f"{KC_ISSUER}/protocol/openid-connect/auth?client_id={KC_CLIENT_ID}"
            f"&response_type=code&scope=openid+profile+email+organization"
-           f"&redirect_uri=https://overwatch.confinia.io/api/v1/auth/callback"
+           f"&redirect_uri={PUBLIC_BASE}/api/v1/auth/callback"
            f"&state={state}")
     resp = RedirectResponse(url)
     resp.set_cookie("ovw_state", state, max_age=600, httponly=True,
@@ -699,7 +702,7 @@ def auth_callback(request: Request, code: str = "", state: str = ""):
     r = _rq.post(f"{KC_INTERNAL}/protocol/openid-connect/token",
                  data={"grant_type": "authorization_code", "code": code,
                        "client_id": KC_CLIENT_ID, "client_secret": KC_CLIENT_SECRET,
-                       "redirect_uri": "https://overwatch.confinia.io/api/v1/auth/callback"},
+                       "redirect_uri": f"{PUBLIC_BASE}/api/v1/auth/callback"},
                  timeout=15)
     if r.status_code != 200:
         raise HTTPException(502, "Token exchange failed")
@@ -744,7 +747,7 @@ def create_org(request: Request, body: OrgCreate):
         raise HTTPException(422, "Organization name too short.")
     alias = "".join(ch if ch.isalnum() else "-" for ch in name.lower())[:40]
     at = _kc_admin_token()
-    base = f"{KC_INTERNAL.rsplit('/realms/',1)[0]}/admin/realms/overwatch"
+    base = f"{KC_INTERNAL.rsplit('/realms/',1)[0]}/admin/realms/{KC_REALM}"
     h = {"Authorization": f"Bearer {at}"}
     r = _rq.post(f"{base}/organizations", json={
         "name": name, "alias": alias,
@@ -844,7 +847,7 @@ def delete_org(request: Request, org_id: str):
     # local purge already happened; log but do not fail the request.
     try:
         at = _kc_admin_token()
-        base = f"{KC_INTERNAL.rsplit('/realms/',1)[0]}/admin/realms/overwatch"
+        base = f"{KC_INTERNAL.rsplit('/realms/',1)[0]}/admin/realms/{KC_REALM}"
         _rq.delete(f"{base}/organizations/{org_id}",
                    headers={"Authorization": f"Bearer {at}"}, timeout=15)
     except Exception as e:

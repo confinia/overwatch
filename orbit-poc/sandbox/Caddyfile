@@ -25,6 +25,13 @@
 		-Server
 	}
 
+	# Identity: the ONE shared Keycloak serves /auth — realm overwatch-sandbox
+	# (dedicated to this env; prod uses realm overwatch on the same instance).
+	# Reached over the ovw2_default network, mirroring the prod app caddy.
+	handle /auth* {
+		reverse_proxy ovw2_keycloak_1:8080
+	}
+
 	handle /api/v1* {
 		uri strip_prefix /api
 		reverse_proxy api:8000
