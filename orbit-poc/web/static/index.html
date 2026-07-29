@@ -289,6 +289,7 @@ async function loadAccount(){
     const me = await r.json();
     if (me.organization){
       el.innerHTML = ` · <b>${me.organization.name}</b> ` +
+        `<a class="action" href="/w/account">account</a> · ` +
         `<a href="#" onclick="deleteOrg('${me.organization.id}','${me.organization.name}');return false" style="color:var(--dim)">delete org</a> · ` +
         `<a href="${API_BASE}/api/v1/auth/logout" style="color:var(--dim)">sign out</a>`;
       const inv = await (await fetch(`${API_BASE}/api/v1/org/satellites`)).json();
@@ -300,6 +301,7 @@ async function loadAccount(){
     } else {
       el.innerHTML = ` · ${me.email || "signed in"} — ` +
         `<a class="action" href="#" onclick="createOrg();return false">Create your organization</a> · ` +
+        `<a href="/w/account" style="color:var(--dim)">account</a> · ` +
         `<a href="${API_BASE}/api/v1/auth/logout" style="color:var(--dim)">sign out</a>`;
       orgInfo = null;
     }

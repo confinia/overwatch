@@ -1,0 +1,109 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<title>Your account — Overwatch</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { color-scheme: dark; }
+  body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
+         background:#10151d; color:#e8eaed; font:16px/1.6 system-ui,-apple-system,sans-serif; }
+  main { max-width:34rem; width:100%; padding:2.5rem 2rem; }
+  h1 { font-size:1.6rem; margin:0 0 1rem; } h1 span { color:#7ab8ff; }
+  a { color:#7ab8ff; text-decoration:none; } a:hover { text-decoration:underline; }
+  .card { background:#0b0f16; border:1px solid #26314a; border-radius:10px;
+          padding:1.1rem 1.3rem; margin:.8rem 0; }
+  .row { display:flex; justify-content:space-between; gap:1rem; padding:.25rem 0; }
+  .row b { font-weight:600; }
+  .dim { opacity:.7; }
+  .badge { display:inline-block; padding:.15rem .6rem; border-radius:999px;
+           font-size:.8rem; font-weight:700; letter-spacing:.05em; vertical-align:middle; }
+  .badge.pro  { background:#16233a; border:1px solid #2c6cb0; color:#7ab8ff; }
+  .badge.free { background:#1a1f28; border:1px solid #3a4356; color:#aab2c0; }
+  .cta { display:inline-block; margin:.4rem .4rem 0 0; padding:.55rem 1.05rem;
+         border:1px solid #2c6cb0; border-radius:8px; background:#16233a; color:#cfe4ff;
+         cursor:pointer; font:inherit; }
+  .cta.secondary { border-color:#3a4356; background:transparent; color:#aab2c0; }
+  #banner { display:none; border:1px solid #2c6cb0; background:#16233a; border-radius:8px;
+            padding:.8rem 1rem; margin:0 0 1rem; }
+  footer { margin-top:1.6rem; font-size:.8rem; opacity:.7; }
+</style></head><body><main>
+<h1><span>Overwatch</span> — your account</h1>
+<div id="banner">Payment received — thank you. Your subscription is active below.</div>
+<div id="content" class="card"><span class="dim">Loading…</span></div>
+<div id="actions"></div>
+<footer><a href="/">← Back to the control room</a> ·
+<a href="mailto:contact@confinia.io">Contact</a></footer>
+<script>
+const $ = id => document.getElementById(id);
+function esc(s){ const d = document.createElement("div"); d.textContent = s ?? ""; return d.innerHTML; }
+
+async function post(path){
+  const r = await fetch(path, { method: "POST" });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.detail || `Request failed (${r.status})`);
+  return d;
+}
+async function upgrade(){
+  try { const d = await post("/api/v1/billing/checkout"); location.href = d.checkout_url; }
+  catch (e) { alert(e.message); }
+}
+async function portal(){
+  try { const d = await post("/api/v1/billing/portal"); location.href = d.portal_url; }
+  catch (e) { alert(e.message); }
+}
+
+async function load(){
+  if (new URLSearchParams(location.search).get("upgraded")){
+    $("banner").style.display = "block";
+    history.replaceState(null, "", location.pathname);   // don't re-show on reload
+  }
+  let me;
+  try {
+    const r = await fetch("/api/v1/me");
+    if (!r.ok) throw 0;
+    me = await r.json();
+  } catch (e) {
+    $("content").innerHTML = `<span class="dim">You are not signed in.</span>`;
+    $("actions").innerHTML =
+      `<a class="cta" href="/api/v1/auth/login">Sign in / Register</a>`;
+    return;
+  }
+  if (!me.organization){
+    $("content").innerHTML =
+      `<div class="row"><span>Signed in as</span><b>${esc(me.email || me.name || me.sub)}</b></div>` +
+      `<div class="row"><span class="dim">No organization yet — create yours from the control room.</span></div>`;
+    $("actions").innerHTML =
+      `<a class="cta" href="/">Create your organization</a>` +
+      `<a class="cta secondary" href="/api/v1/auth/logout">Sign out</a>`;
+    return;
+  }
+  let s = null;
+  try { s = await (await fetch("/api/v1/billing/status")).json(); } catch (e) {}
+  const pro = !!(s && s.pro);
+  const badge = `<span class="badge ${pro ? "pro" : "free"}">${pro ? "PRO" : "FREE"}</span>`;
+  const until = s && s.entitled_until ? new Date(s.entitled_until).toLocaleDateString() : null;
+  const rows = [
+    `<div class="row"><span>Signed in as</span><b>${esc(me.email || me.name || me.sub)}</b></div>`,
+    `<div class="row"><span>Organization</span><b>${esc(me.organization.name)}</b></div>`,
+    `<div class="row"><span>Plan</span><span>${badge}</span></div>`,
+  ];
+  if (s){
+    if (s.sub_status) rows.push(
+      `<div class="row"><span>Subscription</span><b>${esc(s.sub_status)}</b></div>`);
+    if (until) rows.push(
+      `<div class="row"><span>${s.sub_status === "canceled" ? "Access until" : "Renews"}</span><b>${until}</b></div>`);
+    const u = s.usage || {};
+    rows.push(`<div class="row dim"><span>Usage (${esc(u.period || "this month")})</span>` +
+      `<span>${u.frames ?? 0} frames · ${u.tm ?? 0} TM · ${u.tc ?? 0} TC</span></div>`);
+  } else {
+    rows.push(`<div class="row dim"><span>Billing status unavailable right now.</span></div>`);
+  }
+  $("content").innerHTML = rows.join("");
+  $("actions").innerHTML =
+    (pro ? `<button class="cta" onclick="portal()">Invoices / manage subscription</button>`
+         : `<button class="cta" onclick="upgrade()">Upgrade to Pro</button>`) +
+    `<a class="cta secondary" href="/api/v1/auth/logout">Sign out</a>`;
+}
+load();
+</script>
+</main></body></html>
