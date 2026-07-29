@@ -90,6 +90,22 @@ def main():
         assert st in (201, 409), f"realm import failed: {st} {json.dumps(d)[:300]}"
         print(f"realm {DST_REALM} created (clone of {SRC_REALM}, users empty)")
 
+    # Per-realm frontendUrl: the shared instance has a global hostname (the prod
+    # host), which would leak into this realm's issuer and break token
+    # verification against the sandbox issuer. Override for THIS realm only —
+    # the URL distinction that makes prod and sandbox tell apart (#126).
+    st, cur = api("GET", f"/admin/realms/{DST_REALM}", token=tok)
+    assert st == 200, f"realm fetch failed: {st}"
+    attrs = cur.get("attributes") or {}
+    if attrs.get("frontendUrl") != f"{HOST}/auth":
+        attrs["frontendUrl"] = f"{HOST}/auth"
+        cur["attributes"] = attrs
+        st, d = api("PUT", f"/admin/realms/{DST_REALM}", body=cur, token=tok)
+        assert st in (200, 204), f"frontendUrl update failed: {st} {json.dumps(d)[:200]}"
+        print(f"frontendUrl set: {HOST}/auth (issuer now sandbox-host)")
+    else:
+        print("frontendUrl already set")
+
     # fresh client secret for the sandbox realm's `overwatch` client
     st, clients = api("GET", f"/admin/realms/{DST_REALM}/clients?clientId=overwatch",
                       token=tok)
