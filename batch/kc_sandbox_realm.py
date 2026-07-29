@@ -60,6 +60,20 @@ def main():
                         f"/admin/realms/{SRC_REALM}/partial-export"
                         "?exportClients=true&exportGroupsAndRoles=true", token=tok)
         assert st == 200, f"partial-export failed: {st}"
+
+        def strip_ids(node):
+            """The export keeps the source realm's internal object ids (globally
+            unique in Keycloak's DB) — importing them collides (409). Drop every
+            id so the server mints fresh ones."""
+            if isinstance(node, dict):
+                node.pop("id", None)
+                node.pop("containerId", None)
+                for v in node.values():
+                    strip_ids(v)
+            elif isinstance(node, list):
+                for v in node:
+                    strip_ids(v)
+        strip_ids(realm)
         realm["realm"] = DST_REALM
         realm["id"] = DST_REALM
         realm["displayName"] = "Overwatch SANDBOX"
