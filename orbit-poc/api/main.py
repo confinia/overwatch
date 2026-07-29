@@ -160,6 +160,7 @@ async def lifespan(_: FastAPI):
     try:
         with conn, conn.cursor() as cur:
             cur.execute(KEYS_SQL)
+            _provision_grafana_role(cur)
     finally:
         pool.putconn(conn)
     yield
@@ -651,6 +652,41 @@ def _org_role(org_id: str) -> tuple[str, str]:
     role = "org_" + org_id.replace("-", "")[:24]
     pw = _hmac.new(ORG_DB_SECRET.encode(), org_id.encode(), "sha256").hexdigest()[:32]
     return role, pw
+
+
+# The ONLY tables the public dashboards read. The Grafana datasource role is
+# granted these and nothing else: Grafana's datasource proxy lets any caller
+# (anonymous Viewer — required for the public embeds) run arbitrary SQL, so the
+# database role IS the security boundary, not the dashboard JSON (#129).
+GRAFANA_PUBLIC_TABLES = ("satellite", "position", "telemetry", "reception")
+GRAFANA_ROLE = "grafana_ro"
+
+
+def _provision_grafana_role(cur) -> None:
+    """Idempotently create the least-privilege role the Grafana datasource uses.
+
+    NOSUPERUSER + NOBYPASSRLS + SELECT on the public tables only, so arbitrary
+    SQL sent through Grafana's datasource proxy can reach nothing but data that
+    is already public. Never grant it tenant_telemetry, api_key, org_*,
+    organization, billing_event or visitor_daily.
+    """
+    pw = os.environ.get("GRAFANA_DB_PASSWORD", "")
+    if not pw:
+        return                                    # not configured: leave as is
+    cur.execute("SELECT 1 FROM pg_roles WHERE rolname = %s", (GRAFANA_ROLE,))
+    if cur.fetchone():
+        cur.execute(f'ALTER ROLE "{GRAFANA_ROLE}" LOGIN NOSUPERUSER NOBYPASSRLS '
+                    f'NOCREATEDB NOCREATEROLE PASSWORD %s', (pw,))
+    else:
+        cur.execute(f'CREATE ROLE "{GRAFANA_ROLE}" LOGIN NOSUPERUSER NOBYPASSRLS '
+                    f'NOCREATEDB NOCREATEROLE PASSWORD %s', (pw,))
+    # Reset every privilege, then grant back only the public tables — so a table
+    # added to the allow-list is picked up and a removed one is actually revoked.
+    cur.execute(f'REVOKE ALL ON ALL TABLES IN SCHEMA public FROM "{GRAFANA_ROLE}"')
+    cur.execute(f'GRANT USAGE ON SCHEMA public TO "{GRAFANA_ROLE}"')
+    for t in GRAFANA_PUBLIC_TABLES:
+        cur.execute(f'GRANT SELECT ON {t} TO "{GRAFANA_ROLE}"')
+    cur.connection.commit()
 
 
 def _provision_org_db(cur, org_id: str) -> None:
