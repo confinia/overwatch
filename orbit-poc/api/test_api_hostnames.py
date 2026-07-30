@@ -26,6 +26,16 @@ def test_prod_api_host_declared():
     assert 'X-Overwatch-Env "production"' in b
 
 
+def test_prod_api_host_follows_the_live_color():
+    """#135: it was copied from the staging block and served the CANDIDATE
+    color, so right after a promote the API host ran the OLD image."""
+    b = _block(open(TMPL).read(), "api.overwatch.confinia.io")
+    assert "%LIVE%_api_1:8000" in b
+    for line in b.splitlines():
+        if "reverse_proxy" in line:
+            assert "%LIVE%_api_1" in line, f"candidate-only upstream: {line.strip()}"
+
+
 def test_sandbox_api_host_declared():
     b = _block(open(SANDBOX_CADDY).read(), "sandbox.api.overwatch.confinia.io")
     assert b, "sandbox.api.overwatch.confinia.io vhost missing"
