@@ -163,11 +163,25 @@ http://api.overwatch.confinia.io {
 
 	handle /api/v1* {
 		uri strip_prefix /api
-		reverse_proxy %CANDIDATE%_api_1:8000
+		reverse_proxy %LIVE%_api_1:8000 %CANDIDATE%_api_1:8000 {
+			lb_policy first
+			lb_try_duration 3s
+			lb_try_interval 250ms
+			health_uri /healthz
+			health_interval 2s
+			health_timeout 2s
+		}
 	}
 
 	handle /v1* {
-		reverse_proxy %CANDIDATE%_api_1:8000
+		reverse_proxy %LIVE%_api_1:8000 %CANDIDATE%_api_1:8000 {
+			lb_policy first
+			lb_try_duration 3s
+			lb_try_interval 250ms
+			health_uri /healthz
+			health_interval 2s
+			health_timeout 2s
+		}
 	}
 
 	handle {
