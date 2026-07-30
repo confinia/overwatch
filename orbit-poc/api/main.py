@@ -587,7 +587,14 @@ def _jwks_client():
 
 def _claims(request: Request):
     """The same OpenID token everywhere: Authorization bearer or cookie."""
-    tok = (request.headers.get("authorization") or "").removeprefix("Bearer ").strip()         or request.cookies.get(COOKIE, "")
+    # Only a *Bearer* header carries our token. Anything else (notably the
+    # `Basic` credentials the browser replays on every request once a caddy
+    # basic-auth gate has challenged it, as on staging/sandbox) must fall
+    # through to the cookie — otherwise it shadows the session and every
+    # authenticated call 401s (#139).
+    auth = request.headers.get("authorization") or ""
+    tok = (auth[7:].strip() if auth[:7].lower() == "bearer "
+           else request.cookies.get(COOKIE, ""))
     if not tok:
         return None
     try:
