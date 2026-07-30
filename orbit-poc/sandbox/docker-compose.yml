@@ -100,6 +100,20 @@ services:
       GF_USERS_DEFAULT_THEME: "dark"
       GF_SERVER_ROOT_URL: "https://sandbox.overwatch.confinia.io/grafana"
       GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      # OIDC via the shared Keycloak, sandbox realm (#13). Anonymous stays on
+      # for the public embeds; a signed-in user lands in their own Grafana org
+      # (provisioned by the API) as Editor — their private boards, their data.
+      GF_AUTH_GENERIC_OAUTH_ENABLED: "true"
+      GF_AUTH_GENERIC_OAUTH_NAME: "Overwatch"
+      GF_AUTH_GENERIC_OAUTH_CLIENT_ID: "overwatch"
+      GF_AUTH_GENERIC_OAUTH_SCOPES: "openid profile email"
+      GF_AUTH_GENERIC_OAUTH_AUTH_URL: "https://sandbox.overwatch.confinia.io/auth/realms/overwatch-sandbox/protocol/openid-connect/auth"
+      GF_AUTH_GENERIC_OAUTH_TOKEN_URL: "http://ovw2_keycloak_1:8080/auth/realms/overwatch-sandbox/protocol/openid-connect/token"
+      GF_AUTH_GENERIC_OAUTH_API_URL: "http://ovw2_keycloak_1:8080/auth/realms/overwatch-sandbox/protocol/openid-connect/userinfo"
+      GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_PATH: "'Viewer'"
+      GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_STRICT: "false"
+      GF_AUTH_GENERIC_OAUTH_ALLOW_ASSIGN_GRAFANA_ADMIN: "false"
+      GF_AUTH_OAUTH_ALLOW_INSECURE_EMAIL_LOOKUP: "true"
       # The datasource provisioning resolves password: $__env{DB_PASSWORD}. The
       # sandbox db password is the hardcoded 'orbit' (POSTGRES_PASSWORD above),
       # so provide it here — else the datasource auth fails and every panel 400s

@@ -132,6 +132,9 @@ ALTER TABLE organization ADD COLUMN IF NOT EXISTS subscription_id text;
 ALTER TABLE organization ADD COLUMN IF NOT EXISTS sub_status text;
 ALTER TABLE organization ADD COLUMN IF NOT EXISTS freq_tier text NOT NULL DEFAULT 'standard';
 ALTER TABLE organization ADD COLUMN IF NOT EXISTS entitled_until timestamptz;
+-- Private per-org Grafana (#13): the Grafana organization we provisioned for
+-- this org. Set once; also the orgId used when embedding its private boards.
+ALTER TABLE organization ADD COLUMN IF NOT EXISTS grafana_org_id int;
 -- Webhook idempotency + audit: process each delivery once.
 CREATE TABLE IF NOT EXISTS billing_event (
     delivery_id text PRIMARY KEY,
@@ -638,6 +641,9 @@ def _require_org(request: Request):
                          email = EXCLUDED.email, name = EXCLUDED.name""",
                     (c["sub"], org[0], c.get("email"), c.get("name")))
         _provision_org_db(cur, org[0])
+        # Private Grafana (#13): first authenticated call provisions it once
+        # (guarded by organization.grafana_org_id, so this is a no-op after).
+        _provision_grafana_org(cur, org[0], org[1], c.get("email", ""))
         cur.connection.commit()
     return c, org
 
@@ -687,6 +693,71 @@ def _provision_grafana_role(cur) -> None:
     for t in GRAFANA_PUBLIC_TABLES:
         cur.execute(f'GRANT SELECT ON {t} TO "{GRAFANA_ROLE}"')
     cur.connection.commit()
+
+
+GF_URL = os.environ.get("GF_URL", "http://grafana:3000")
+GF_ADMIN_USER = os.environ.get("GF_SECURITY_ADMIN_USER", "admin")
+GF_ADMIN_PASS = os.environ.get("GF_SECURITY_ADMIN_PASSWORD", "")
+
+
+def _gf(method: str, path: str, body=None, gorg: int | None = None):
+    """Grafana admin API call. `gorg` scopes the call to a Grafana org."""
+    h = {"Content-Type": "application/json"}
+    if gorg is not None:
+        h["X-Grafana-Org-Id"] = str(gorg)
+    return _rq.request(method, f"{GF_URL}/api{path}", json=body, headers=h,
+                       auth=(GF_ADMIN_USER, GF_ADMIN_PASS), timeout=10)
+
+
+def _provision_grafana_org(cur, org_id: str, org_name: str, email: str = "") -> int | None:
+    """Idempotently give an organization its OWN Grafana: a Grafana org, a
+    datasource authenticating as the org's **RLS-scoped Postgres role**, and the
+    private dashboard seeded from tenant_dashboard.json (#13).
+
+    The isolation guarantee is the database role, not the dashboard: the seeded
+    queries carry NO tenant filter — Postgres row-level security restricts the
+    role to this org's rows, so a client editing their own panels can never
+    reach another tenant's data.
+
+    Returns the Grafana org id, or None when not configured (self-host/tests).
+    """
+    if not (ORG_DB_SECRET and GF_ADMIN_PASS):
+        return None
+    cur.execute("SELECT grafana_org_id FROM organization WHERE id=%s::uuid", (org_id,))
+    row = cur.fetchone()
+    if row and row[0]:
+        return row[0]                                  # already provisioned
+    role, pw = _org_role(org_id)
+    gf_name = f"{org_name} ({org_id[:8]})"             # unique, human-readable
+    try:
+        r = _gf("GET", f"/orgs/name/{_rq.utils.quote(gf_name)}")
+        if r.status_code == 200:
+            gorg = r.json()["id"]
+        else:
+            r = _gf("POST", "/orgs", {"name": gf_name})
+            if r.status_code not in (200, 409):
+                return None
+            gorg = r.json().get("orgId")
+        ds_uid = "org-" + org_id.replace("-", "")[:12]
+        _gf("POST", "/datasources", {
+            "name": "Private telemetry", "uid": ds_uid, "type": "postgres",
+            "access": "proxy", "url": os.environ.get("GF_DS_HOST", "db:5432"),
+            "user": role, "database": "orbit", "isDefault": True,
+            "jsonData": {"sslmode": "disable", "postgresVersion": 1600},
+            "secureJsonData": {"password": pw}}, gorg=gorg)
+        tpl = open(os.path.join(os.path.dirname(__file__),
+                                "tenant_dashboard.json"), encoding="utf-8").read()
+        _gf("POST", "/dashboards/db",
+            {"dashboard": _json.loads(tpl.replace("__DS_UID__", ds_uid)),
+             "overwrite": True}, gorg=gorg)
+        if email:                                      # Editor in THEIR org only
+            _gf("POST", f"/orgs/{gorg}/users",
+                {"loginOrEmail": email, "role": "Editor"})
+    except _rq.RequestException:
+        return None                                    # Grafana down: retry later
+    cur.execute("UPDATE organization SET grafana_org_id=%s WHERE id=%s::uuid",
+                (gorg, org_id))
+    return gorg
 
 
 def _provision_org_db(cur, org_id: str) -> None:
@@ -807,6 +878,24 @@ def create_org(request: Request, body: OrgCreate):
 
 
 # --- Org-scoped data: same storage as tenants, keyed by the org id --------
+
+@app.get("/v1/org/grafana")
+def org_grafana(request: Request):
+    """The organization's private Grafana: its org id and dashboard URLs (#13).
+
+    Provisioning happens on the first authenticated call; if Grafana was
+    unreachable then, this retries it rather than returning a dead link.
+    """
+    c, org = _require_org(request)
+    with cursor() as cur:
+        gorg = _provision_grafana_org(cur, org[0], org[1], c.get("email", ""))
+        cur.connection.commit()
+    if not gorg:
+        raise HTTPException(503, "Private dashboards are not provisioned yet.")
+    return {"grafana_org_id": gorg,
+            "dashboard_url": f"{PUBLIC_BASE}/grafana/d/org-private?orgId={gorg}",
+            "embed_url": f"{PUBLIC_BASE}/grafana/d-solo/org-private?orgId={gorg}&panelId=1"}
+
 
 @app.get("/v1/org/satellites")
 def org_satellites(request: Request):
