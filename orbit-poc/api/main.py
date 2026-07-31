@@ -23,6 +23,8 @@ from contextlib import asynccontextmanager, contextmanager
 import metering
 import polar
 
+import re as _re
+
 import psycopg2
 import psycopg2.pool
 from fastapi import FastAPI, HTTPException, Query, Request, Response
@@ -605,13 +607,29 @@ def _claims(request: Request):
         return None
 
 
+_UUID_RE = _re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-"
+                       r"[0-9a-f]{4}-[0-9a-f]{12}$", _re.I)
+
+
 def _org_of(claims) -> tuple[str, str] | None:
     """Extract (org_id, org_name) from the Keycloak organization claim,
-    tolerating its dict/list shapes."""
+    tolerating its dict/list shapes.
+
+    The id must be the organization's UUID: Keycloak only puts it in the claim
+    when `add.organization.id` is enabled on the organization mapper, otherwise
+    the claim carries just the alias and every tenant lookup would fail on the
+    uuid cast (#140). Surface that as a clear configuration error rather than a
+    raw database error.
+    """
     o = claims.get("organization")
     if isinstance(o, dict) and o:
         name, meta = next(iter(o.items()))
-        return ((meta or {}).get("id") or name, name)
+        oid = (meta or {}).get("id") or name
+        if not _UUID_RE.match(str(oid)):
+            raise HTTPException(502, "Keycloak organization claim carries no id "
+                                     "(enable add.organization.id on the "
+                                     "organization mapper).")
+        return (oid, name)
     if isinstance(o, list) and o:
         return (o[0], o[0]) if isinstance(o[0], str) else                (o[0].get("id"), o[0].get("name", "org"))
     return None

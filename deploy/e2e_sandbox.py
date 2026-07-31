@@ -155,23 +155,48 @@ def setup_user(op, token):
 # --------------------------------------------------------------------------
 # The flow
 # --------------------------------------------------------------------------
-def login(op):
-    """Drive /auth/login → Keycloak form → callback. Returns the final URL."""
-    st, url, html = fetch(op, f"{BASE}/api/v1/auth/login")
-    if "openid-connect/auth" not in url and "kc-form-login" not in html:
-        # already authenticated (Keycloak SSO cookie): the callback ran
-        return url
-    m = re.search(r'action="([^"]+)"', html)
+def _form(html):
+    """(action, {field: ''}) of the login form — Keycloak may split the flow
+    into several steps (username page, then password page), so we follow
+    whatever fields the current page asks for instead of assuming one form."""
+    m = re.search(r'<form[^>]*id="kc-form-login"[^>]*action="([^"]+)"', html)
     if not m:
-        die(f"no login form at {url}")
+        m = re.search(r'<form[^>]*action="([^"]+)"', html)
+    if not m:
+        return None, {}
     action = m.group(1).replace("&amp;", "&")
-    st, url, body = fetch(op, action, data={"username": USER_EMAIL,
-                                            "password": USER_PASS})
-    if st != 200 or "auth/callback" in url and "Invalid" in body:
-        die(f"login rejected ({st}) at {url}")
-    if "kc-form-login" in body:
-        die("credentials rejected by Keycloak (login form returned)")
-    return url
+    fields = {}
+    for i in re.finditer(r'<input\b[^>]*>', html):
+        tag = i.group(0)
+        n = re.search(r'name="([^"]+)"', tag)
+        if not n or re.search(r'type="submit"', tag):
+            continue
+        v = re.search(r'value="([^"]*)"', tag)
+        fields[n.group(1)] = v.group(1) if v else ""
+    return action, fields
+
+
+def login(op, max_steps=4):
+    """Drive /auth/login through the Keycloak forms to the callback."""
+    st, url, html = fetch(op, f"{BASE}/api/v1/auth/login")
+    for _ in range(max_steps):
+        if "kc-form-login" not in html:
+            return url                      # authenticated (callback ran)
+        action, fields = _form(html)
+        if not action:
+            die(f"no login form at {url}")
+        for name in list(fields):
+            low = name.lower()
+            if low in ("username", "email"):
+                fields[name] = USER_EMAIL
+            elif low == "password":
+                fields[name] = USER_PASS
+        fields.pop("rememberMe", None)
+        before = url
+        st, url, html = fetch(op, action, data=fields)
+        if st >= 400:
+            die(f"login step failed ({st}) at {before}")
+    die("login did not complete (still on a Keycloak form)")
 
 
 def main():
