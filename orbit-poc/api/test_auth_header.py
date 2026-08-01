@@ -52,3 +52,31 @@ def test_no_credentials_is_anonymous(monkeypatch):
     assert main._claims(Req()) is None
     # a Basic header alone must not be treated as a token either
     assert main._claims(Req(headers={"authorization": "Basic xyz"})) is None
+
+
+# --- #140: the organization claim may carry only the alias ------------------
+def test_org_of_uses_the_uuid_from_the_dict_claim():
+    assert main._org_of({"organization": {"acme": {"id": "11111111-2222-3333-4444-555555555555"}}}) \
+        == ("11111111-2222-3333-4444-555555555555", "acme")
+
+
+def test_org_of_resolves_an_alias_only_claim(monkeypatch):
+    """Keycloak's multivalued shape is ["alias"] — the UUID must be resolved."""
+    monkeypatch.setattr(main, "_resolve_org_id", lambda a: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
+    assert main._org_of({"organization": ["acme-org"]}) \
+        == ("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", "acme-org")
+
+
+def test_org_of_refuses_an_unresolvable_alias(monkeypatch):
+    import fastapi
+    monkeypatch.setattr(main, "_resolve_org_id", lambda a: None)
+    try:
+        main._org_of({"organization": ["ghost-org"]})
+    except fastapi.HTTPException as e:
+        assert e.status_code == 502
+    else:
+        raise AssertionError("a non-UUID org id must not reach the database")
+
+
+def test_org_of_without_claim_is_none():
+    assert main._org_of({}) is None
