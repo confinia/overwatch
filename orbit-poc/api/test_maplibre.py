@@ -1,0 +1,39 @@
+"""Guards issue #145: MapLibre 6 is ESM-only, so the page must import the module
+build and must not reference the retired UMD bundle — and the app code must stay
+a classic script, or every inline onclick handler loses its function.
+"""
+import os
+import re
+
+STATIC = os.path.join(os.path.dirname(__file__), "..", "web", "static")
+INDEX = open(os.path.join(STATIC, "index.html"), encoding="utf-8").read()
+APP = os.path.join(STATIC, "app.js")
+
+
+def test_uses_the_esm_build():
+    assert "maplibre-gl.mjs" in INDEX
+    assert 'type="module"' in INDEX
+
+
+def test_retired_umd_bundle_is_gone():
+    """dist/maplibre-gl.js is not published in v6 — referencing it 404s."""
+    assert "dist/maplibre-gl.js" not in INDEX
+
+
+def test_single_pinned_version_everywhere():
+    versions = set(re.findall(r"maplibre-gl@([0-9]+\.[0-9]+\.[0-9]+)", INDEX))
+    assert versions == {"6.1.0"}, versions
+
+
+def test_library_is_exposed_globally_before_the_app_loads():
+    """The app is a classic script: it needs `maplibregl` as a global, and it
+    must only be injected once the import resolved."""
+    assert "window.maplibregl" in INDEX
+    assert INDEX.index("window.maplibregl") < INDEX.index('s.src = "/app.js"')
+
+
+def test_app_code_is_a_separate_classic_script():
+    assert os.path.exists(APP), "static/app.js missing"
+    body = open(APP, encoding="utf-8").read()
+    assert "new maplibregl.Map(" in body          # the map still lives there
+    assert "import " not in body.split("\n\n")[0]  # not turned into a module

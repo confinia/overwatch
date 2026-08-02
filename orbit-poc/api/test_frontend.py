@@ -18,7 +18,13 @@ PAGES = ("index.html", "pro.html", "article.html", "talk.html")
 def html():
     if not os.path.exists(INDEX):
         pytest.skip("web/static not available in this run")
-    return open(INDEX, encoding="utf-8").read()
+    # The app code moved to app.js for MapLibre 6 (#145, ESM-only); the page is
+    # the two files together, so the affordance assertions read both.
+    app = os.path.join(STATIC, "app.js")
+    out = open(INDEX, encoding="utf-8").read()
+    if os.path.exists(app):
+        out += open(app, encoding="utf-8").read()
+    return out
 
 
 def test_contact_link_present(html):            # #47
