@@ -16,8 +16,9 @@ def test_uses_the_esm_build():
 
 
 def test_retired_umd_bundle_is_gone():
-    """dist/maplibre-gl.js is not published in v6 — referencing it 404s."""
-    assert "dist/maplibre-gl.js" not in INDEX
+    """v6 does not publish dist/maplibre-gl.js — LOADING it would 404. Match a
+    real script tag, not the string (prose may legitimately name the file)."""
+    assert not re.search(r'<script[^>]+src=[^>]*maplibre-gl\.js', INDEX)
 
 
 def test_single_pinned_version_everywhere():
