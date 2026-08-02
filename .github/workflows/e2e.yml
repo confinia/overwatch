@@ -1,0 +1,45 @@
+name: e2e (sandbox)
+
+# The full signup -> organization -> private Grafana walk against the live
+# sandbox. It runs ON the VM as the product user: from there Keycloak's admin
+# API is reachable at 127.0.0.1:8096 (a container cannot reach a loopback-bound
+# port) and the stack's own .env supplies the admin credentials — so the SSH key
+# and the sandbox gate password are the only secrets involved.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: e2e-sandbox          # one at a time: it creates a real user + org
+  cancel-in-progress: false
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Authorize the SSH session
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "${{ secrets.VM_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "${{ secrets.VM_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Walk the paid path end to end
+        env:
+          TARGET: ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}
+          BASIC_PASS: ${{ secrets.SANDBOX_BASIC_PASS }}
+          SHA: ${{ github.sha }}
+        run: |
+          ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes "$TARGET" \
+            "BASIC_PASS='$BASIC_PASS' SHA='$SHA' bash -s" <<'REMOTE'
+          set -euo pipefail
+          cd ~/projects/overwatch
+          git fetch -q origin
+          git checkout -q "$SHA" 2>/dev/null || git checkout -q main
+          # KC_ADMIN_USERNAME / KC_ADMIN_PASSWORD come from the stack's own env
+          set -a; . orbit-poc/.env; set +a
+          KC_ADMIN_BASE=http://127.0.0.1:8096/auth \
+          BASIC_USER=clement BASIC_PASS="$BASIC_PASS" \
+          python3 deploy/e2e_sandbox.py
+          REMOTE
