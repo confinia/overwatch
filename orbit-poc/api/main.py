@@ -23,6 +23,8 @@ from contextlib import asynccontextmanager, contextmanager
 import metering
 import polar
 
+import re as _re
+
 import psycopg2
 import psycopg2.pool
 from fastapi import FastAPI, HTTPException, Query, Request, Response
@@ -587,7 +589,14 @@ def _jwks_client():
 
 def _claims(request: Request):
     """The same OpenID token everywhere: Authorization bearer or cookie."""
-    tok = (request.headers.get("authorization") or "").removeprefix("Bearer ").strip()         or request.cookies.get(COOKIE, "")
+    # Only a *Bearer* header carries our token. Anything else (notably the
+    # `Basic` credentials the browser replays on every request once a caddy
+    # basic-auth gate has challenged it, as on staging/sandbox) must fall
+    # through to the cookie — otherwise it shadows the session and every
+    # authenticated call 401s (#139).
+    auth = request.headers.get("authorization") or ""
+    tok = (auth[7:].strip() if auth[:7].lower() == "bearer "
+           else request.cookies.get(COOKIE, ""))
     if not tok:
         return None
     try:
@@ -598,16 +607,55 @@ def _claims(request: Request):
         return None
 
 
+_UUID_RE = _re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-"
+                       r"[0-9a-f]{4}-[0-9a-f]{12}$", _re.I)
+_org_id_cache: dict[str, str] = {}
+
+
+def _resolve_org_id(alias: str) -> str | None:
+    """Keycloak's `organization` claim ships only the alias in its multivalued
+    shape (#140), but the tenant is keyed on the organization UUID. Resolve it
+    once through the admin API and cache it for the process."""
+    if alias in _org_id_cache:
+        return _org_id_cache[alias]
+    try:
+        base = f"{KC_INTERNAL.rsplit('/realms/', 1)[0]}/admin/realms/{KC_REALM}"
+        r = _rq.get(f"{base}/organizations?search={_rq.utils.quote(alias)}",
+                    headers={"Authorization": f"Bearer {_kc_admin_token()}"},
+                    timeout=10)
+        for o in (r.json() if r.status_code == 200 else []):
+            if alias in (o.get("alias"), o.get("name")) and o.get("id"):
+                _org_id_cache[alias] = o["id"]
+                return o["id"]
+    except Exception:
+        return None
+    return None
+
+
 def _org_of(claims) -> tuple[str, str] | None:
-    """Extract (org_id, org_name) from the Keycloak organization claim,
-    tolerating its dict/list shapes."""
+    """Extract (org_id, org_name) from the Keycloak organization claim.
+
+    The claim has several shapes depending on the mapper: `{"alias": {"id": …}}`,
+    `[{"id": …, "name": …}]`, or plainly `["alias"]`. Only the last lacks the
+    UUID the tenant is keyed on — resolve it through the admin API instead of
+    letting a non-UUID reach the database (#140).
+    """
     o = claims.get("organization")
     if isinstance(o, dict) and o:
         name, meta = next(iter(o.items()))
-        return ((meta or {}).get("id") or name, name)
-    if isinstance(o, list) and o:
-        return (o[0], o[0]) if isinstance(o[0], str) else                (o[0].get("id"), o[0].get("name", "org"))
-    return None
+        oid = (meta or {}).get("id") or name
+    elif isinstance(o, list) and o:
+        oid, name = ((o[0], o[0]) if isinstance(o[0], str)
+                     else (o[0].get("id"), o[0].get("name", "org")))
+    else:
+        return None
+    if not _UUID_RE.match(str(oid)):
+        resolved = _resolve_org_id(str(oid))
+        if not resolved:
+            raise HTTPException(502, "Cannot resolve the Keycloak organization "
+                                     f"'{oid}' to its id.")
+        oid = resolved
+    return (oid, name)
 
 
 def _require_user(request: Request):
