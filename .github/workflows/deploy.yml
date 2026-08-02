@@ -37,7 +37,7 @@ jobs:
           set -euo pipefail
           cd ~/projects/overwatch
           git fetch -q origin
-          git checkout -q "$SHA"
+          git checkout -qf "$SHA"   # -f: survive files left by an rsync-era deploy
           printf 'OVERWATCH_VERSION=%s\n' "$(tr -d '[:space:]' < VERSION)" > orbit-poc/version.env
           # core singletons: created only if absent, never recreated here
           cd orbit-poc && podman-compose up -d --no-recreate db ingest grafana \

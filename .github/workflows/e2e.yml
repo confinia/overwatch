@@ -36,7 +36,7 @@ jobs:
           set -euo pipefail
           cd ~/projects/overwatch
           git fetch -q origin
-          git checkout -q "$SHA" 2>/dev/null || git checkout -q main
+          git checkout -qf "$SHA" 2>/dev/null || git checkout -qf main
           # KC_ADMIN_USERNAME / KC_ADMIN_PASSWORD come from the stack's own env
           set -a; . orbit-poc/.env; set +a
           KC_ADMIN_BASE=http://127.0.0.1:8096/auth \
