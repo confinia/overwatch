@@ -1,5 +1,7 @@
-# Overwatch — deploy helpers. VM: confinia-ovh-debian (cka-ovh-dedicated-01).
-VM      := confinia-ovh-debian
+# Overwatch — deploy helpers. The stack runs on the VM as its own Unix user
+# `overwatch` (/home/overwatch/projects/overwatch). `ssh debian` is for sudo
+# only — never operate the stack from /home/debian/projects/overwatch.
+VM      := overwatch
 REMOTE  := ~/projects/overwatch
 CONFINIA:= ~/projects/confinia
 
@@ -70,14 +72,14 @@ deploy-full: sync
 caddy: sync
 	ssh $(VM) 'bash $(REMOTE)/deploy/slots.sh reload'
 
-# Install/refresh the tiny TLS stub at the PLATFORM edge (rarely needed —
-# the stub is stable by design). Uses the platform repo's own documented
-# flow: copy into ../platform/sites/, rsync, deploy-edge.sh (ephemeral
-# validation + graceful reload).
+# The platform edge is FOUNDER-ONLY (RULES.md rule 19): it is shared by every
+# product on the VM, lives in the private confinia/platform repo, and is applied
+# by Clément himself. Describe the change needed (host + target port from the
+# reservation table in its Caddyfile) and hand it over — never apply it here.
 edge:
-	cp deploy/caddy/overwatch.caddy ../platform/sites/
-	rsync -az --delete --exclude '.git/' ../platform/ $(VM):projects/platform/
-	ssh $(VM) 'cd ~/projects/platform && ./deploy-edge.sh'
+	@echo "Refused: the platform edge is founder-only (RULES.md rule 19)."
+	@echo "Describe the needed change (host -> 127.0.0.1:PORT) and hand it to Clément."
+	@exit 1
 
 # Rebuild + replace only ingest (background worker — no public downtime).
 ingest: sync
