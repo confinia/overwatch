@@ -75,10 +75,12 @@ def test_sandbox_workflow_builds_from_its_own_checkout():
     production's tree, owned by deploy.yml (#147 was the same class of bug)."""
     s = _wf("sandbox.yml")
     assert "sandbox-src" in s
+    # never build from, or cd into, the production tree
     assert "cd ~/projects/overwatch" not in s
-    # the only touch of the production tree is reading the stack's secrets
-    assert s.count("~/projects/overwatch") == 1
-    assert "sandbox/.env" in s
+    # the only *executed* reference to it copies the stack's secrets in
+    uses = [l for l in s.splitlines()
+            if "~/projects/overwatch" in l and not l.lstrip().startswith("#")]
+    assert len(uses) == 1 and "sandbox/.env" in uses[0], uses
 
 
 def test_sandbox_workflow_runs_on_pull_requests_but_not_for_forks():
