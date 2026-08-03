@@ -10,10 +10,13 @@ TMPL = os.path.join(HERE, "..", "deploy", "caddy", "Caddyfile.tmpl")
 SANDBOX_CADDY = os.path.join(HERE, "..", "sandbox", "Caddyfile")
 
 
+STAGING_CADDY = os.path.join(HERE, "..", "staging", "Caddyfile")
+
+
 def test_production_and_staging_self_identify():
-    tmpl = open(TMPL).read()
-    assert 'X-Overwatch-Env "production"' in tmpl
-    assert 'X-Overwatch-Env "staging"' in tmpl
+    # staging moved to its own stack and its own Caddyfile (#154)
+    assert 'X-Overwatch-Env "production"' in open(TMPL).read()
+    assert 'X-Overwatch-Env "staging"' in open(STAGING_CADDY).read()
 
 
 def test_sandbox_self_identifies():
@@ -22,7 +25,7 @@ def test_sandbox_self_identifies():
 
 def test_three_distinct_envs():
     values = set()
-    for f in (TMPL, SANDBOX_CADDY):
+    for f in (TMPL, SANDBOX_CADDY, STAGING_CADDY):
         for line in open(f):
             line = line.strip()
             if line.startswith('X-Overwatch-Env "'):
