@@ -66,5 +66,9 @@ def test_w_route_serves_control_room_views():            # #49 foundation
 
 
 def test_index_links_the_spacecraft_view():              # #55 discoverable
+    # the link is rendered by app.js since the MapLibre 6 split (#145)
     idx = open(os.path.join(STATIC, "index.html"), encoding="utf-8").read()
+    app_js = os.path.join(STATIC, "app.js")
+    if os.path.exists(app_js):
+        idx += open(app_js, encoding="utf-8").read()
     assert "/w/spacecraft?sat=" in idx

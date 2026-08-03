@@ -32,7 +32,11 @@ def test_account_page_acknowledges_purchase():
 
 
 def test_header_links_to_account():
+    # the header is rendered by app.js since the MapLibre 6 split (#145)
     html = open(INDEX, encoding="utf-8").read()
+    app = os.path.join(STATIC, "app.js")
+    if os.path.exists(app):
+        html += open(app, encoding="utf-8").read()
     assert html.count('href="/w/account"') >= 2       # org + no-org signed-in states
 
 

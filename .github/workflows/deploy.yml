@@ -1,0 +1,98 @@
+name: deploy
+
+# Stage then promote on the VM, as the product user `overwatch`
+# (/home/overwatch/projects/overwatch). The VM holds a real git checkout, so a
+# deploy is `git pull` + the existing scripts — no rsync from a runner.
+#
+# Promotion is a separate job behind the `production` GitHub Environment: add a
+# required reviewer there and going live stays a human decision (RULES.md rule
+# 17 — done means promoted AND verified).
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production    # never two deploys at once
+  cancel-in-progress: false
+
+jobs:
+  stage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Authorize the SSH session
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "${{ secrets.VM_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "${{ secrets.VM_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Gate and build the candidate colour
+        env:
+          TARGET: ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}
+          SHA: ${{ github.sha }}
+        run: |
+          ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes "$TARGET" \
+            "SHA='$SHA' bash -s" <<'REMOTE'
+          set -euo pipefail
+          cd ~/projects/overwatch
+          git fetch -q origin
+          git checkout -qf "$SHA"   # -f: survive files left by an rsync-era deploy
+          printf 'OVERWATCH_VERSION=%s\n' "$(tr -d '[:space:]' < VERSION)" > orbit-poc/version.env
+          # core singletons: created only if absent, never recreated here
+          cd orbit-poc && podman-compose up -d --no-recreate db ingest grafana \
+            otel-collector prometheus caddy >/dev/null
+          for c in $(podman ps --format '{{.Names}}' | grep ^orbit-poc); do
+            podman update --restart=always "$c" >/dev/null; done
+          cd ~/projects/overwatch
+          bash deploy/run-tests.sh          # the gate: no candidate on a red suite
+          bash deploy/slots.sh stage
+          REMOTE
+
+      - name: Check the candidate answers on staging
+        env:
+          BASIC_PASS: ${{ secrets.SANDBOX_BASIC_PASS }}
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 \
+            -u "clement:$BASIC_PASS" https://staging.overwatch.confinia.io/)
+          echo "staging -> $code"
+          [ "$code" = "200" ]
+
+  promote:
+    needs: stage
+    runs-on: ubuntu-latest
+    environment: production     # add a required reviewer here to gate go-live
+    steps:
+      - name: Authorize the SSH session
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "${{ secrets.VM_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "${{ secrets.VM_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Swap the live colour
+        env:
+          TARGET: ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}
+        run: |
+          ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes "$TARGET" \
+            'bash ~/projects/overwatch/deploy/slots.sh promote'
+
+      - name: Verify production is live
+        run: |
+          set -e
+          for url in \
+            https://overwatch.confinia.io/ \
+            https://api.overwatch.confinia.io/v1/satellites \
+            https://overwatch.confinia.io/grafana/api/health; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$url")
+            echo "$url -> $code"
+            [ "$code" = "200" ]
+          done
+          # the isolation invariant (#129): anonymous SQL must not reach private data
+          body=$(curl -s --max-time 20 -X POST \
+            https://overwatch.confinia.io/grafana/api/ds/query \
+            -H 'content-type: application/json' \
+            -d '{"queries":[{"refId":"A","datasource":{"uid":"orbitcache","type":"postgres"},"rawSql":"select count(*) from tenant_telemetry","format":"table"}]}')
+          echo "$body" | grep -q "permission denied" \
+            && echo "private data still denied to anonymous callers" \
+            || { echo "SECURITY REGRESSION: private table readable"; exit 1; }
