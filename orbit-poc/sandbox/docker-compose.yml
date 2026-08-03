@@ -40,7 +40,6 @@ services:
       db:
         condition: service_healthy
     environment:
-      DB_DSN: "dbname=orbit user=orbit password=orbit host=db port=5432"
       ELEMENTS_INTERVAL: "21600"
       CELESTRAK_GROUPS: ""
       POSITION_INTERVAL: "15"
@@ -55,7 +54,6 @@ services:
       db:
         condition: service_healthy
     environment:
-      DB_DSN: "dbname=orbit user=orbit password=orbit host=db port=5432"
       REQUIRE_API_KEY: "false"
       PUBLIC_BASE: "https://sandbox.overwatch.confinia.io"
       # Polar SANDBOX. Keep POLAR_ALLOW_STUB=1 to validate before real creds;
@@ -83,8 +81,8 @@ services:
     build: ../web
     depends_on:
       - api
-    environment:
-      DB_DSN: "dbname=orbit user=orbit password=orbit host=db port=5432"
+    env_file:
+      - .env            # DB_DSN (least-privilege app role, #133)
     restart: unless-stopped
 
   grafana:
