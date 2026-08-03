@@ -68,3 +68,23 @@ def test_e2e_reaches_keycloak_over_loopback_on_the_vm():
     e = _wf("e2e.yml")
     assert "127.0.0.1:8096" in e
     assert "e2e_sandbox.py" in e
+
+
+def test_sandbox_workflow_builds_from_its_own_checkout():
+    """#159: the sandbox must never build from ~/projects/overwatch — that is
+    production's tree, owned by deploy.yml (#147 was the same class of bug)."""
+    s = _wf("sandbox.yml")
+    assert "sandbox-src" in s
+    # never build from, or cd into, the production tree
+    assert "cd ~/projects/overwatch" not in s
+    # the only *executed* reference to it copies the stack's secrets in
+    uses = [l for l in s.splitlines()
+            if "~/projects/overwatch" in l and not l.lstrip().startswith("#")]
+    assert len(uses) == 1 and "sandbox/.env" in uses[0], uses
+
+
+def test_sandbox_workflow_runs_on_pull_requests_but_not_for_forks():
+    s = _wf("sandbox.yml")
+    assert "pull_request" in s
+    assert "head.repo.full_name == github.repository" in s
+    assert "group: sandbox-deploy" in s
