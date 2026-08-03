@@ -40,6 +40,8 @@ services:
       - version.env
     volumes:
       - ./deploy/geoip:/geoip:ro
+      # the admin-only ops boards the api seeds into the ops Grafana org (#168)
+      - ./grafana/ops-dashboards:/ops-dashboards:ro
     networks:
       - default
       - v2net          # direct server-to-server path to Keycloak

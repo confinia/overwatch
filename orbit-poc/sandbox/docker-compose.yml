@@ -75,6 +75,9 @@ services:
       # for the VM-wide reservation table). 8191 = api debug/webhook-test port;
       # NOT 8087 (taken by mapmax_web_1 on the VM).
       - "127.0.0.1:8191:8000"
+    volumes:
+      # the admin-only ops boards the api seeds into the ops Grafana org (#168)
+      - ../grafana/ops-dashboards:/ops-dashboards:ro
     restart: unless-stopped
 
   web:

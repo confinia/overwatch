@@ -62,6 +62,15 @@ def test_grafana_provisioning_runs_as_app_role(app_conn):
         main._provision_grafana_role(cur)           # must not raise
 
 
+def test_ops_provisioning_runs_as_app_role(app_conn):
+    """Same trap for the ops-org role (#168): its ALTER path must also work
+    without superuser."""
+    os.environ["OPS_DB_PASSWORD"] = "test-ops-ro-pw"
+    with app_conn.cursor() as cur:
+        main._provision_ops_role(cur)               # create path
+        main._provision_ops_role(cur)               # ALTER path, as orbit_app
+
+
 def test_org_provisioning_runs_as_app_role(app_conn):
     """The other startup DDL: per-org RLS role + policy, as the app role."""
     org_id = "00000000-0000-4000-8000-00000000a133"
