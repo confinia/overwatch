@@ -38,3 +38,11 @@ def test_pro_page_no_longer_promises_a_human():
     assert "human still presses the button" not in PRO
     assert "arrive by email within the day" not in PRO
     assert "account page" in PRO            # says where the key comes from
+
+
+def test_account_page_creates_the_organization_itself():
+    """#157: the button used to link to '/', which is where the user came from.
+    Two of the first seven signups stopped at exactly this step."""
+    assert "createOrg" in ACCOUNT
+    assert "/api/v1/orgs" in ACCOUNT
+    assert '<a class="cta" href="/">Create your organization</a>' not in ACCOUNT

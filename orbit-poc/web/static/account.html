@@ -125,6 +125,20 @@ async function revokeKey(prefix){
   else alert((await r.json().catch(()=>({}))).detail || "Could not revoke that key.");
 }
 
+async function createOrg(){
+  const name = prompt("Name your organization:");
+  if (!name) return;
+  try {
+    await post("/api/v1/orgs", { name });
+  } catch (e) {
+    if (!/already belong/i.test(e.message)) { alert(e.message); return; }
+  }
+  // Keycloak puts the organization in the token at login, so sign in again for
+  // the new membership to take effect (#157).
+  alert("Organization created — signing you in again to activate it.");
+  location.href = "/api/v1/auth/login";
+}
+
 async function load(){
   if (new URLSearchParams(location.search).get("upgraded")){
     $("banner").style.display = "block";
@@ -146,7 +160,7 @@ async function load(){
       `<div class="row"><span>Signed in as</span><b>${esc(me.email || me.name || me.sub)}</b></div>` +
       `<div class="row"><span class="dim">No organization yet — create yours from the control room.</span></div>`;
     $("actions").innerHTML =
-      `<a class="cta" href="/">Create your organization</a>` +
+      `<button class="cta" onclick="createOrg()">Create your organization</button>` +
       `<a class="cta secondary" href="/api/v1/auth/logout">Sign out</a>`;
     return;
   }
