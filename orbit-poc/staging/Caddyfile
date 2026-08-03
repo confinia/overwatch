@@ -1,0 +1,89 @@
+# Overwatch STAGING — the staging's OWN application caddy (compose service
+# `caddy`, published on 127.0.0.1:8200). The platform upstream edge terminates
+# TLS for staging.overwatch.confinia.io + staging.api.overwatch.confinia.io and
+# reverse-proxies here; this caddy is self-contained in the ovw-staging network
+# and reaches the stack by service name (api / web / grafana). It shares NOTHING
+# with the prod app caddy (orbit-poc_caddy_1:8090) — a down staging cannot
+# affect prod routing.
+#
+# Basic-auth-gated like staging, EXCEPT the Polar webhook path, which must stay
+# open for Polar to POST to (it is signature-verified, not user-authenticated).
+
+# Shared by both staging hosts: the gate and the self-identifying headers.
+(staging_common) {
+	encode zstd gzip
+
+	# everything is behind basic auth except the Polar webhook endpoint
+	# (on either host spelling, so moving the webhook never locks Polar out)
+	@protected {
+		not path /api/v1/billing/webhook* /v1/billing/webhook*
+	}
+	basic_auth @protected {
+		clement $2a$14$w0vTUn7Lvvm3M7Pw0BslOembaNJwBnav7plJTSfzlfqr90huAcu7m
+	}
+
+	header {
+		X-Content-Type-Options "nosniff"
+		X-Robots-Tag "noindex, nofollow"
+		X-Overwatch-Env "staging"
+		-Server
+	}
+}
+
+# ---- staging site ----------------------------------------------------------
+# `:80` stays as a fallback so direct access to 127.0.0.1:8200 (health checks,
+# debugging) keeps working when no matching Host header is sent.
+http://staging.overwatch.confinia.io, :80 {
+	import staging_common
+
+	# Identity: the ONE shared Keycloak serves /auth — realm overwatch-staging
+	# (dedicated to this env; prod uses realm overwatch on the same instance).
+	# Reached over the ovw2_default network, mirroring the prod app caddy.
+	handle /auth* {
+		reverse_proxy ovw2_keycloak_1:8080
+	}
+
+	handle /api/v1* {
+		uri strip_prefix /api
+		reverse_proxy api:8000
+	}
+
+	handle /v1* {
+		redir * /api{uri} 308
+	}
+
+	handle /grafana* {
+		# The gate already consumed the basic-auth credential; Grafana supports
+		# basic auth too and would read the replayed header as a login attempt
+		# for a user it does not know, answering 401 and ignoring the valid OIDC
+		# session cookie (#149). Its own auth is that cookie (or anonymous).
+		reverse_proxy grafana:3000 {
+			header_up -Authorization
+		}
+	}
+
+	handle {
+		reverse_proxy web:8080
+	}
+}
+
+# ---- staging API on its own hostname ---------------------------------------
+# Serves the API at the root (/v1/...). /api/v1/... also works here: FastAPI
+# runs with root_path=/api, so its docs and openapi.json resolve URLs under
+# that prefix — stripping it lets /v1/docs work on this host too.
+http://staging.api.overwatch.confinia.io {
+	import staging_common
+
+	handle /api/v1* {
+		uri strip_prefix /api
+		reverse_proxy api:8000
+	}
+
+	handle /v1* {
+		reverse_proxy api:8000
+	}
+
+	handle {
+		redir * /v1 308
+	}
+}

@@ -1,0 +1,163 @@
+# Overwatch STAGING — the exact build about to go live, on its OWN database.
+#
+#   make staging-up   (podman-compose -p ovw-staging -f docker-compose.yml up -d --build)
+#
+# Why a separate stack rather than the blue/green candidate colour: staging and
+# production used to share one database, so a test signup wrote into real data
+# and a schema mistake could take production down (#154). The colours' roles
+# rotate at every promote, so the database cannot be pinned in a colour either.
+#
+# "Exact binary" is preserved by construction: this stack builds the SAME commit
+# as the candidate colour, from the same Dockerfiles. Promotion is untouched —
+# it stays a caddy colour swap between blue and green, with the previous colour
+# warm for rollback.
+#
+# Billing is OFF here (POLAR_ENV=off): payments are exercised in the sandbox,
+# which is the environment for actions without accounting impact.
+#
+# Dedicated port band 8200-8209. Secrets in ./.env (never committed).
+
+services:
+  db:
+    image: docker.io/library/postgres:16
+    environment:
+      POSTGRES_USER: orbit
+      POSTGRES_PASSWORD: orbit
+      POSTGRES_DB: orbit
+    volumes:
+      - ../db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - st_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U orbit"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # Clone the public fleet into the sandbox DB (same ingest as prod). Optional:
+  # comment out to run a data-empty sandbox focused purely on private billing.
+  ingest:
+    build: ../ingest
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_DSN: "dbname=orbit user=orbit password=orbit host=db port=5432"
+      ELEMENTS_INTERVAL: "21600"
+      CELESTRAK_GROUPS: ""
+      POSITION_INTERVAL: "15"
+      TELEMETRY_INTERVAL: "1800"
+    env_file:
+      - .env            # SATNOGS_TOKEN
+    restart: unless-stopped
+
+  api:
+    build: ../api
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_DSN: "dbname=orbit user=orbit password=orbit host=db port=5432"
+      REQUIRE_API_KEY: "false"
+      PUBLIC_BASE: "https://staging.overwatch.confinia.io"
+      # Polar SANDBOX. Keep POLAR_ALLOW_STUB=1 to validate before real creds;
+      # once .env has real sandbox creds + a webhook secret it talks to Polar.
+      POLAR_ENV: "off"
+      POLAR_ALLOW_STUB: "0"
+      # Identity: ONE shared Keycloak, dedicated realm overwatch-sandbox
+      # (TENANT.md §1 "Sandbox identity") — issuer-URL distinction, full
+      # user/key/token separation from the prod realm `overwatch`.
+      KC_ISSUER: "https://staging.overwatch.confinia.io/auth/realms/overwatch-staging"
+      KC_INTERNAL: "http://ovw2_keycloak_1:8080/auth/realms/overwatch-staging"
+    env_file:
+      - .env            # POLAR_* / ORG_DB_SECRET / OVERWATCH_CLIENT_SECRET / KC_ADMIN_*
+    networks:
+      - default
+      - v2net           # server-to-server path to the shared Keycloak
+    ports:
+      # Dedicated staging port range 8200-8209 (see the platform edge Caddyfile
+      # for the VM-wide reservation table). 8191 = api debug/webhook-test port;
+      # NOT 8087 (mapmax) nor the sandbox band.
+      - "127.0.0.1:8201:8000"
+    restart: unless-stopped
+
+  web:
+    build: ../web
+    depends_on:
+      - api
+    environment:
+      DB_DSN: "dbname=orbit user=orbit password=orbit host=db port=5432"
+    restart: unless-stopped
+
+  grafana:
+    image: docker.io/grafana/grafana:11.2.0
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Viewer"
+      GF_SECURITY_ALLOW_EMBEDDING: "true"
+      GF_SECURITY_COOKIE_SAMESITE: "disabled"
+      GF_USERS_DEFAULT_THEME: "dark"
+      GF_SERVER_ROOT_URL: "https://staging.overwatch.confinia.io/grafana"
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      # OIDC via the shared Keycloak, sandbox realm (#13). Anonymous stays on
+      # for the public embeds; a signed-in user lands in their own Grafana org
+      # (provisioned by the API) as Editor — their private boards, their data.
+      GF_AUTH_GENERIC_OAUTH_ENABLED: "true"
+      GF_AUTH_GENERIC_OAUTH_NAME: "Overwatch"
+      GF_AUTH_GENERIC_OAUTH_CLIENT_ID: "overwatch"
+      GF_AUTH_GENERIC_OAUTH_SCOPES: "openid profile email"
+      GF_AUTH_GENERIC_OAUTH_AUTH_URL: "https://staging.overwatch.confinia.io/auth/realms/overwatch-staging/protocol/openid-connect/auth"
+      GF_AUTH_GENERIC_OAUTH_TOKEN_URL: "http://ovw2_keycloak_1:8080/auth/realms/overwatch-staging/protocol/openid-connect/token"
+      GF_AUTH_GENERIC_OAUTH_API_URL: "http://ovw2_keycloak_1:8080/auth/realms/overwatch-staging/protocol/openid-connect/userinfo"
+      GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_PATH: "'Viewer'"
+      GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_STRICT: "false"
+      GF_AUTH_GENERIC_OAUTH_ALLOW_ASSIGN_GRAFANA_ADMIN: "false"
+      GF_AUTH_OAUTH_ALLOW_INSECURE_EMAIL_LOOKUP: "true"
+      # The datasource provisioning resolves password: $__env{DB_PASSWORD}. The
+      # sandbox db password is the hardcoded 'orbit' (POSTGRES_PASSWORD above),
+      # so provide it here — else the datasource auth fails and every panel 400s
+      # ("No data" + norad templating error).
+      DB_PASSWORD: "orbit"
+    env_file:
+      - .env            # GF_SECURITY_ADMIN_PASSWORD
+    volumes:
+      - st_grafana:/var/lib/grafana
+      - ../grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../grafana/dashboards:/var/lib/grafana/dashboards:ro
+    restart: unless-stopped
+
+  # The sandbox's OWN application caddy — dedicated port 8190 (range 8200-8209).
+  # The platform upstream edge proxies staging.overwatch.confinia.io here; this
+  # caddy routes to web/api/grafana within the ovw-staging network. Self-
+  # contained: it replaces the old out-of-band attach of the prod caddy, so a
+  # down sandbox can never affect prod routing.
+  caddy:
+    image: docker.io/library/caddy:2
+    depends_on:
+      - web
+      - api
+      - grafana
+    ports:
+      - "127.0.0.1:8200:80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - st_caddy_data:/data
+      - st_caddy_config:/config
+    networks:
+      - default
+      - v2net           # proxies /auth to the shared Keycloak (sandbox realm)
+    restart: unless-stopped
+
+volumes:
+  st_pgdata:
+  st_grafana:
+  st_caddy_data:
+  st_caddy_config:
+
+networks:
+  default: {}
+  v2net:
+    external: true
+    name: ovw2_default  # the shared Keycloak's network (same pattern as prod)
