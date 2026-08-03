@@ -148,6 +148,29 @@ CREATE TABLE IF NOT EXISTS billing_event (
 """
 
 
+STARTUP_LOCK = 168133   # arbitrary constant, shared by every api worker
+
+
+def _startup_provision(conn) -> None:
+    """Run the startup DDL (tables, grafana_ro, ops_ro) under an advisory
+    lock: several uvicorn workers boot concurrently, and two sessions doing
+    the same REVOKE/GRANT sequences deadlock each other (#168 — 9 restarts
+    per deploy before this)."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT pg_advisory_lock(%s)", (STARTUP_LOCK,))
+    conn.commit()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(KEYS_SQL)
+            _provision_grafana_role(cur)
+            _provision_ops_role(cur)
+    finally:
+        conn.rollback()                       # clear any aborted transaction
+        with conn.cursor() as cur:
+            cur.execute("SELECT pg_advisory_unlock(%s)", (STARTUP_LOCK,))
+        conn.commit()
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     global pool
@@ -163,11 +186,10 @@ async def lifespan(_: FastAPI):
         raise RuntimeError(f"Postgres unreachable: {last_err}")
     conn = pool.getconn()
     try:
-        with conn, conn.cursor() as cur:
-            cur.execute(KEYS_SQL)
-            _provision_grafana_role(cur)
+        _startup_provision(conn)
     finally:
         pool.putconn(conn)
+    _provision_ops_org_async()                     # Grafana may still be booting
     yield
     pool.closeall()
 
@@ -745,6 +767,41 @@ def _provision_grafana_role(cur) -> None:
     cur.connection.commit()
 
 
+# The admin-only ops boards (#168). They query account/metering tables that
+# grafana_ro must never read (#129), so they live in their OWN Grafana org with
+# their own datasource role: datasources are scoped per Grafana org, and the
+# anonymous public embeds are bound to org 1 — no proxy path reaches this one.
+OPS_ROLE = "ops_ro"
+OPS_TABLES = ("organization", "org_user", "org_token", "api_key",
+              "api_usage", "visitor_daily")
+OPS_GF_ORG = "Overwatch Ops"
+OPS_DASHBOARDS_DIR = os.environ.get("OPS_DASHBOARDS_DIR", "/ops-dashboards")
+
+
+def _provision_ops_role(cur) -> None:
+    """Idempotently create the read-only role the ops-org datasource uses:
+    SELECT on the account/metering tables and nothing else — in particular
+    never tenant_telemetry (tenant payloads stay out of ops)."""
+    pw = os.environ.get("OPS_DB_PASSWORD", "")
+    if not pw:
+        return                                    # not configured: leave as is
+    cur.execute("SELECT 1 FROM pg_roles WHERE rolname = %s", (OPS_ROLE,))
+    if cur.fetchone():
+        # LOGIN PASSWORD only: restating NOSUPERUSER requires superuser, and
+        # the app runs as orbit_app (#133)
+        cur.execute(f'ALTER ROLE "{OPS_ROLE}" LOGIN PASSWORD %s', (pw,))
+    else:
+        cur.execute(f'CREATE ROLE "{OPS_ROLE}" LOGIN NOSUPERUSER NOBYPASSRLS '
+                    f'NOCREATEDB NOCREATEROLE PASSWORD %s', (pw,))
+    cur.execute(f'REVOKE ALL ON ALL TABLES IN SCHEMA public FROM "{OPS_ROLE}"')
+    cur.execute(f'GRANT USAGE ON SCHEMA public TO "{OPS_ROLE}"')
+    for t in OPS_TABLES:
+        cur.execute("SELECT to_regclass(%s)", (t,))
+        if cur.fetchone()[0]:                     # grant only what exists yet
+            cur.execute(f'GRANT SELECT ON {t} TO "{OPS_ROLE}"')
+    cur.connection.commit()
+
+
 GF_URL = os.environ.get("GF_URL", "http://grafana:3000")
 GF_ADMIN_USER = os.environ.get("GF_SECURITY_ADMIN_USER", "admin")
 GF_ADMIN_PASS = os.environ.get("GF_SECURITY_ADMIN_PASSWORD", "")
@@ -757,6 +814,75 @@ def _gf(method: str, path: str, body=None, gorg: int | None = None):
         h["X-Grafana-Org-Id"] = str(gorg)
     return _rq.request(method, f"{GF_URL}/api{path}", json=body, headers=h,
                        auth=(GF_ADMIN_USER, GF_ADMIN_PASS), timeout=10)
+
+
+def _provision_ops_org() -> bool:
+    """Idempotently create/refresh the admin-only ops Grafana org (#168).
+
+    Own org, own datasources, dashboards imported from OPS_DASHBOARDS_DIR.
+    The datasources reuse org 1's uids (`orbitcache`, `promops`) — uids are
+    unique per org, so the dashboard JSON works unchanged in both orgs — but
+    here the Postgres one authenticates as OPS_ROLE, which can read the
+    account/metering tables. Only server admins reach this org; anonymous
+    viewers are bound to org 1, whose datasource stays on grafana_ro (#129).
+
+    Returns False when Grafana was unreachable (caller retries), True
+    otherwise (done, or not configured for this stack).
+    """
+    import json as _j
+    pw = os.environ.get("OPS_DB_PASSWORD", "")
+    if not (pw and GF_ADMIN_PASS and os.path.isdir(OPS_DASHBOARDS_DIR)):
+        return True                               # not configured: no-op
+    try:
+        r = _gf("GET", f"/orgs/name/{_rq.utils.quote(OPS_GF_ORG)}")
+        if r.status_code == 200:
+            gorg = r.json()["id"]
+        else:
+            r = _gf("POST", "/orgs", {"name": OPS_GF_ORG})
+            if r.status_code not in (200, 409):
+                return False
+            gorg = r.json().get("orgId")
+        for ds in (
+            {"name": "OrbitCache (ops)", "uid": "orbitcache", "type": "postgres",
+             "access": "proxy", "url": os.environ.get("GF_DS_HOST", "db:5432"),
+             "user": OPS_ROLE, "database": "orbit", "isDefault": True,
+             "jsonData": {"sslmode": "disable", "postgresVersion": 1600},
+             "secureJsonData": {"password": pw}},
+            {"name": "OpsMetrics (ops)", "uid": "promops", "type": "prometheus",
+             "access": "proxy", "url": "http://prometheus:9090"},
+        ):
+            r = _gf("POST", "/datasources", ds, gorg=gorg)
+            if r.status_code == 409:              # exists: refresh (password…)
+                cur_ds = _gf("GET", f"/datasources/uid/{ds['uid']}", gorg=gorg)
+                if cur_ds.status_code == 200:
+                    _gf("PUT", f"/datasources/{cur_ds.json()['id']}", ds,
+                        gorg=gorg)
+        for f in sorted(os.listdir(OPS_DASHBOARDS_DIR)):
+            if not f.endswith(".json"):
+                continue
+            with open(os.path.join(OPS_DASHBOARDS_DIR, f), encoding="utf-8") as fh:
+                d = _j.load(fh)
+            d.pop("id", None)                     # ids are per-org; import by uid
+            _gf("POST", "/dashboards/db", {"dashboard": d, "overwrite": True},
+                gorg=gorg)
+        return True
+    except _rq.RequestException:
+        return False                              # Grafana down: retry
+
+
+def _provision_ops_org_async() -> None:
+    """Startup helper: Grafana usually comes up after the API, so retry in a
+    daemon thread instead of blocking or losing the provisioning until the
+    next deploy."""
+    import threading
+
+    def _loop():
+        for _ in range(60):
+            if _provision_ops_org():
+                return
+            time.sleep(5)
+
+    threading.Thread(target=_loop, daemon=True).start()
 
 
 def _provision_grafana_org(cur, org_id: str, org_name: str, email: str = "") -> int | None:

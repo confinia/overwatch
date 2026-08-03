@@ -61,4 +61,5 @@ jobs:
             test_sandbox_deploy.py test_account_ui.py test_sandbox_auth.py \
             test_grafana_role.py test_api_hostnames.py test_org_grafana.py \
             test_auth_header.py test_deploy_target.py test_workflows.py \
-            test_maplibre.py test_self_serve_access.py test_app_role.py
+            test_maplibre.py test_self_serve_access.py test_app_role.py \
+            test_ops_role.py
