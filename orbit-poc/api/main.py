@@ -836,12 +836,12 @@ def _kc_admin_token() -> str:
 
 
 @app.get("/v1/auth/login", include_in_schema=False)
-def auth_login():
+def auth_login(request: Request):
     from fastapi.responses import RedirectResponse
     state = _secrets.token_urlsafe(16)
     url = (f"{KC_ISSUER}/protocol/openid-connect/auth?client_id={KC_CLIENT_ID}"
            f"&response_type=code&scope=openid+profile+email+organization"
-           f"&redirect_uri={PUBLIC_BASE}/api/v1/auth/callback"
+           f"&redirect_uri={_base_of(request)}/api/v1/auth/callback"
            f"&state={state}")
     resp = RedirectResponse(url)
     resp.set_cookie("ovw_state", state, max_age=600, httponly=True,
@@ -857,7 +857,7 @@ def auth_callback(request: Request, code: str = "", state: str = ""):
     r = _rq.post(f"{KC_INTERNAL}/protocol/openid-connect/token",
                  data={"grant_type": "authorization_code", "code": code,
                        "client_id": KC_CLIENT_ID, "client_secret": KC_CLIENT_SECRET,
-                       "redirect_uri": f"{PUBLIC_BASE}/api/v1/auth/callback"},
+                       "redirect_uri": f"{_base_of(request)}/api/v1/auth/callback"},
                  timeout=15)
     if r.status_code != 200:
         raise HTTPException(502, "Token exchange failed")
@@ -941,8 +941,8 @@ def org_grafana(request: Request):
     if not gorg:
         raise HTTPException(503, "Private dashboards are not provisioned yet.")
     return {"grafana_org_id": gorg,
-            "dashboard_url": f"{PUBLIC_BASE}/grafana/d/org-private?orgId={gorg}",
-            "embed_url": f"{PUBLIC_BASE}/grafana/d-solo/org-private?orgId={gorg}&panelId=1"}
+            "dashboard_url": f"{_base_of(request)}/grafana/d/org-private?orgId={gorg}",
+            "embed_url": f"{_base_of(request)}/grafana/d-solo/org-private?orgId={gorg}&panelId=1"}
 
 
 @app.get("/v1/org/satellites")
@@ -1133,6 +1133,22 @@ import datetime as _dt
 PUBLIC_BASE = os.environ.get("PUBLIC_BASE", "https://overwatch.confinia.io")
 
 
+def _base_of(request: Request) -> str:
+    """The origin THIS request arrived on.
+
+    staging and production are the same container (two colours of one blue/green
+    stack), so a compiled-in PUBLIC_BASE cannot represent both hostnames: a
+    visitor signing in on staging was sent back to the production host, where
+    the state cookie set on the staging origin is never presented (#152). Caddy
+    preserves the original Host, so trust it and keep PUBLIC_BASE as fallback.
+    """
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host")
+    if not host:
+        return PUBLIC_BASE
+    proto = request.headers.get("x-forwarded-proto", "https").split(",")[0].strip()
+    return f"{proto}://{host}"
+
+
 def _apply_billing_event(cur, ev):
     """Flip an org's entitlement from a normalized Polar event (idempotent SQL)."""
     org_id = ev.get("org_id")
@@ -1164,7 +1180,7 @@ def billing_checkout(request: Request):
     if not (polar.configured() or polar.stub_allowed()):
         raise HTTPException(503, "Billing is not open yet — contact contact@confinia.io.")
     ck = polar.create_checkout(org[0], c.get("email", ""),
-                               f"{PUBLIC_BASE}/w/account?upgraded=1")
+                               f"{_base_of(request)}/w/account?upgraded=1")
     return {"checkout_url": ck["url"], "checkout_id": ck["id"], "stub": ck["stub"]}
 
 
@@ -1176,7 +1192,7 @@ def billing_portal(request: Request):
     c, org = _require_org(request)
     if not (polar.configured() or polar.stub_allowed()):
         raise HTTPException(503, "Billing is not open yet — contact contact@confinia.io.")
-    ps = polar.create_customer_session(org[0], f"{PUBLIC_BASE}/w/account")
+    ps = polar.create_customer_session(org[0], f"{_base_of(request)}/w/account")
     return {"portal_url": ps["url"], "stub": ps["stub"]}
 
 
