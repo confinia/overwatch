@@ -80,3 +80,19 @@ def test_org_of_refuses_an_unresolvable_alias(monkeypatch):
 
 def test_org_of_without_claim_is_none():
     assert main._org_of({}) is None
+
+
+# --- #152: staging and production are one container, two hostnames ----------
+def test_login_redirect_follows_the_request_host():
+    """A compiled-in base sent staging visitors back to the production host,
+    where the state cookie set on the staging origin is never presented."""
+    src = open(os.path.join(os.path.dirname(__file__), "main.py"), encoding="utf-8").read()
+    assert "{_base_of(request)}/api/v1/auth/callback" in src
+    assert "{PUBLIC_BASE}/api/v1/auth/callback" not in src
+
+
+def test_base_of_prefers_the_forwarded_host():
+    r = Req(headers={"host": "staging.overwatch.confinia.io",
+                     "x-forwarded-proto": "https"})
+    assert main._base_of(r) == "https://staging.overwatch.confinia.io"
+    assert main._base_of(Req()) == main.PUBLIC_BASE          # fallback
