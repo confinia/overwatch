@@ -47,9 +47,16 @@ jobs:
           cd ~/projects/overwatch
           bash deploy/run-tests.sh          # the gate: no candidate on a red suite
           bash deploy/slots.sh stage
+          # staging is its own stack on its own database since #154, built from
+          # THIS commit — the exact binary that the candidate colour carries.
+          cd orbit-poc/staging
+          podman-compose -p ovw-staging -f docker-compose.yml down 2>/dev/null || true
+          podman-compose -p ovw-staging -f docker-compose.yml up -d --build 2>&1 | tail -2
+          for c in $(podman ps --format '{{.Names}}' | grep ^ovw-staging); do
+            podman update --restart=always "$c" >/dev/null; done
           REMOTE
 
-      - name: Check the candidate answers on staging
+      - name: Check staging answers (its own stack, its own database)
         env:
           BASIC_PASS: ${{ secrets.SANDBOX_BASIC_PASS }}
         run: |

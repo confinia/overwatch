@@ -112,42 +112,11 @@ http://overwatch.confinia.io {
 	}
 }
 
-# ---- staging preview (validate before `make promote`) ----------------------
-http://staging.overwatch.confinia.io {
-	encode zstd gzip
-
-	basic_auth {
-		clement $2a$14$w0vTUn7Lvvm3M7Pw0BslOembaNJwBnav7plJTSfzlfqr90huAcu7m
-	}
-
-	header {
-		Strict-Transport-Security "max-age=31536000"
-		X-Content-Type-Options "nosniff"
-		X-Robots-Tag "noindex, nofollow"
-		X-Overwatch-Env "staging"
-		-Server
-	}
-
-	handle /api/v1* {
-		uri strip_prefix /api
-		reverse_proxy %CANDIDATE%_api_1:8000
-	}
-
-	handle /v1* {
-		redir * /api{uri} 308
-	}
-
-	handle /grafana* {
-		# see #149: strip the gate's credential so Grafana honours the session
-		reverse_proxy grafana:3000 {
-			header_up -Authorization
-		}
-	}
-
-	handle {
-		reverse_proxy %CANDIDATE%_web_1:8080
-	}
-}
+# staging.overwatch.confinia.io is NOT served here any more: it runs its OWN
+# stack on the dedicated port 8200, with its OWN database (#154). Sharing the
+# production database meant a test signup wrote into real accounts, and the
+# blue/green roles rotate at every promote so the database could not be pinned
+# in a colour either. The platform edge proxies the staging host to :8200.
 
 # ---- production API on its own hostname ------------------------------------
 # api.overwatch.confinia.io serves the public API at the root (/v1/...), with
