@@ -51,3 +51,14 @@ def test_env_example_documents_kc_secrets():
     env = open(os.path.join(SANDBOX, ".env.example")).read()
     for key in ("OVERWATCH_CLIENT_SECRET", "KC_ADMIN_USERNAME", "KC_ADMIN_PASSWORD"):
         assert key in env
+
+
+def test_gated_vhosts_strip_the_credential_before_grafana():
+    """#149: Grafana supports basic auth, so the gate's replayed Authorization
+    header is read as a failed login and the OIDC session cookie is ignored."""
+    for path, host in ((CADDYFILE, "sandbox"), (MAIN.replace("main.py", "").rstrip("/") +
+                       "/../deploy/caddy/Caddyfile.tmpl", "staging")):
+        text = open(path, encoding="utf-8").read()
+        block = text[text.index("handle /grafana*"):]
+        block = block[:block.index("\n\t}")]
+        assert "header_up -Authorization" in block, f"{host} does not strip it"
