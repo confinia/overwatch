@@ -27,11 +27,13 @@ observable in minutes.</p>
 <h2>1 · Plug your data in</h2>
 <p>You get a tenant key. Push your telemetry as simple time series — from
 your ground segment, your provider's API, or an AIT/test bench:</p>
-<pre>curl -X POST https://overwatch.confinia.io/api/v1/tenants/&lt;your-key&gt;/telemetry \
+<pre>curl -i -X POST https://overwatch.confinia.io/api/v1/tenants/&lt;your-key&gt;/telemetry \
   -H 'content-type: application/json' \
   -d '{"satellite":"MYSAT-1","points":[
         {"ts":"2026-07-21T18:00:00Z","field":"battery_v","value":7.42},
         {"ts":"2026-07-21T18:00:00Z","field":"temp_obc","value":18.5}]}'</pre>
+<p style="font-size:.85rem; opacity:.8">A successful push answers <code>202</code>
+with <code>{"accepted":2}</code> — that is your data in, isolated to your tenant.</p>
 <p>Alternative for satellites heard by the SatNOGS network: we decode your
 frames with <em>your</em> decoder definition — results land in your tenant
 only.</p>
