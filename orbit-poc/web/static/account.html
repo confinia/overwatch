@@ -26,19 +26,38 @@
   #banner { display:none; border:1px solid #2c6cb0; background:#16233a; border-radius:8px;
             padding:.8rem 1rem; margin:0 0 1rem; }
   footer { margin-top:1.6rem; font-size:.8rem; opacity:.7; }
+  h2 { font-size:1.05rem; margin:1.8rem 0 .3rem; color:#9fc5f8; }
+  pre { background:#0b0f16; border:1px solid #26314a; border-radius:8px;
+        padding:.8rem .9rem; overflow-x:auto; font-size:.75rem; margin:.5rem 0; }
+  code.key { background:#16233a; border:1px solid #2c6cb0; border-radius:6px;
+             padding:.2rem .45rem; font-size:.85rem; word-break:break-all; }
+  .revoked { opacity:.45; text-decoration:line-through; }
+  button.link { background:none; border:0; color:#7ab8ff; cursor:pointer;
+                font:inherit; padding:0; text-decoration:underline; }
 </style></head><body><main>
 <h1><span>Overwatch</span> — your account</h1>
 <div id="banner">Payment received — thank you. Your subscription is active below.</div>
 <div id="content" class="card"><span class="dim">Loading…</span></div>
 <div id="actions"></div>
+<div id="keys" style="display:none">
+  <h2>Push your own telemetry</h2>
+  <p class="dim">A key identifies your organization when you push data. It is
+  shown once, at creation — store it like a password.</p>
+  <div id="keylist" class="card"><span class="dim">Loading…</span></div>
+  <button class="cta" onclick="mintKey()">Create a key</button>
+  <div id="fresh" style="display:none"></div>
+</div>
 <footer><a href="/">← Back to the control room</a> ·
 <a href="mailto:contact@confinia.io">Contact</a></footer>
 <script>
 const $ = id => document.getElementById(id);
 function esc(s){ const d = document.createElement("div"); d.textContent = s ?? ""; return d.innerHTML; }
 
-async function post(path){
-  const r = await fetch(path, { method: "POST" });
+async function post(path, body){
+  const r = await fetch(path, {
+    method: "POST",
+    headers: body ? { "content-type": "application/json" } : undefined,
+    body: body ? JSON.stringify(body) : undefined });
   const d = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(d.detail || `Request failed (${r.status})`);
   return d;
@@ -50,6 +69,60 @@ async function upgrade(){
 async function portal(){
   try { const d = await post("/api/v1/billing/portal"); location.href = d.portal_url; }
   catch (e) { alert(e.message); }
+}
+
+function pushSnippet(token){
+  const base = location.origin;
+  return `curl -X POST ${base}/api/v1/tenants/${token}/telemetry \\
+  -H 'content-type: application/json' \\
+  -d '{"satellite":"MYSAT-1","points":[
+        {"ts":"${new Date().toISOString()}","field":"battery_v","value":7.42}]}'`;
+}
+
+async function renderKeys(){
+  $("keys").style.display = "block";
+  try {
+    const list = await (await fetch("/api/v1/org/tokens")).json();
+    if (!Array.isArray(list) || !list.length){
+      $("keylist").innerHTML =
+        `<span class="dim">No key yet — create one to start pushing.</span>`;
+      return;
+    }
+    $("keylist").innerHTML = list.map(k =>
+      `<div class="row${k.revoked ? " revoked" : ""}">` +
+      `<span><code>${esc(k.token)}</code> · ${esc(k.label || "key")}</span>` +
+      (k.revoked ? `<span class="dim">revoked</span>`
+                 : `<button class="link" onclick="revokeKey('${esc(k.token)}')">revoke</button>`) +
+      `</div>`).join("");
+  } catch (e) {
+    $("keylist").innerHTML = `<span class="dim">Could not load your keys.</span>`;
+  }
+}
+
+async function mintKey(){
+  const label = prompt("Name this key (e.g. ground-segment):", "ground-segment");
+  if (label === null) return;
+  try {
+    const d = await post("/api/v1/org/tokens", { label: label || "key" });
+    $("fresh").style.display = "block";
+    $("fresh").innerHTML =
+      `<div class="card"><b>Your key — shown once</b><br>` +
+      `<code class="key">${esc(d.token)}</code>` +
+      `<p class="dim" style="margin:.7rem 0 .2rem">Push a first point with it:</p>` +
+      `<pre>${esc(pushSnippet(d.token))}</pre>` +
+      `<span class="dim">Then it appears on the globe, in your organization only.</span></div>`;
+    renderKeys();
+  } catch (e) { alert(e.message); }
+}
+
+async function revokeKey(prefix){
+  // the list only exposes a masked prefix; ask for the full key to revoke
+  const full = prompt(`Paste the full key starting with ${prefix.replace("…","")} to revoke it:`);
+  if (!full) return;
+  const r = await fetch(`/api/v1/org/tokens/${encodeURIComponent(full.trim())}`,
+                        { method: "DELETE" });
+  if (r.ok || r.status === 204) renderKeys();
+  else alert((await r.json().catch(()=>({}))).detail || "Could not revoke that key.");
 }
 
 async function load(){
@@ -99,6 +172,7 @@ async function load(){
     rows.push(`<div class="row dim"><span>Billing status unavailable right now.</span></div>`);
   }
   $("content").innerHTML = rows.join("");
+  renderKeys();
   $("actions").innerHTML =
     (pro ? `<button class="cta" onclick="portal()">Invoices / manage subscription</button>`
          : `<button class="cta" onclick="upgrade()">Upgrade to Pro</button>`) +

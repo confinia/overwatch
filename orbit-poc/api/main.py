@@ -999,6 +999,19 @@ def org_token_list(request: Request):
                 for t, l, c, r in cur.fetchall()]
 
 
+@app.delete("/v1/org/tokens/{token}", status_code=204)
+def org_token_revoke(request: Request, token: str):
+    """Revoke a service token. Kept as a row so the audit trail survives."""
+    _, org = _require_org(request)
+    with cursor() as cur:
+        cur.execute("UPDATE org_token SET revoked = true "
+                    "WHERE org = %s::uuid AND token = %s::uuid", (org[0], token))
+        if cur.rowcount == 0:
+            raise HTTPException(404, "No such token in this organization.")
+        cur.connection.commit()
+    return Response(status_code=204)
+
+
 @app.delete("/v1/orgs/{org_id}")
 def delete_org(request: Request, org_id: str):
     """Delete the caller's own organization: purge its private data and its

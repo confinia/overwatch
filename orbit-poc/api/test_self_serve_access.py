@@ -1,0 +1,40 @@
+"""Guards issue #155: an organization must reach its first ingested point with
+no operator action. Five orgs signed up and none pushed a point, because the
+page promised a key sent by hand while POST /v1/org/tokens already existed.
+"""
+import os
+
+HERE = os.path.dirname(__file__)
+STATIC = os.path.join(HERE, "..", "web", "static")
+ACCOUNT = open(os.path.join(STATIC, "account.html"), encoding="utf-8").read()
+PRO = open(os.path.join(STATIC, "pro.html"), encoding="utf-8").read()
+MAIN = open(os.path.join(HERE, "main.py"), encoding="utf-8").read()
+
+
+def test_account_page_issues_keys():
+    assert "/api/v1/org/tokens" in ACCOUNT
+    assert "mintKey" in ACCOUNT and "renderKeys" in ACCOUNT
+
+
+def test_account_page_can_revoke():
+    assert "revokeKey" in ACCOUNT
+    assert '"DELETE"' in ACCOUNT
+
+
+def test_revoke_endpoint_exists_and_is_scoped_to_the_org():
+    assert '@app.delete("/v1/org/tokens/{token}"' in MAIN
+    body = MAIN[MAIN.index('def org_token_revoke'):][:600]
+    assert "_require_org" in body           # never another org's token
+    assert "org = %s::uuid" in body
+
+
+def test_account_page_shows_how_to_push():
+    """The point of the key is the first frame — show the exact command."""
+    assert "pushSnippet" in ACCOUNT
+    assert "/api/v1/tenants/" in ACCOUNT and "telemetry" in ACCOUNT
+
+
+def test_pro_page_no_longer_promises_a_human():
+    assert "human still presses the button" not in PRO
+    assert "arrive by email within the day" not in PRO
+    assert "account page" in PRO            # says where the key comes from
