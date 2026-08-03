@@ -1,10 +1,13 @@
 name: e2e (sandbox)
 
 # The full signup -> organization -> private Grafana walk against the live
-# sandbox. It runs ON the VM as the product user: from there Keycloak's admin
-# API is reachable at 127.0.0.1:8096 (a container cannot reach a loopback-bound
-# port) and the stack's own .env supplies the admin credentials — so the SSH key
-# and the sandbox gate password are the only secrets involved.
+# sandbox. It runs ON the VM as the product user, because from there Keycloak's
+# admin API is reachable at 127.0.0.1:8096 (a container cannot reach a
+# loopback-bound port) and the stack's own .env supplies the admin credentials.
+#
+# The script is shipped from the runner's checkout to a scratch path rather than
+# pulled with git on the VM: deploy.yml owns that checkout, and both workflows
+# fire on the same push — sharing it made them race on .git/index.lock (#147).
 on:
   push:
     branches: [main]
@@ -18,6 +21,8 @@ jobs:
   e2e:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
       - name: Authorize the SSH session
         run: |
           install -m 700 -d ~/.ssh
@@ -25,21 +30,28 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H "${{ secrets.VM_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
 
+      - name: Ship the walker to the VM
+        env:
+          TARGET: ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}
+        run: |
+          # scratch path, not the deployment checkout (#147). Not /tmp either:
+          # the VM's /tmp is a tmpfs that runs full.
+          ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes "$TARGET" 'mkdir -p ~/e2e-run'
+          scp -i ~/.ssh/id_ed25519 -o BatchMode=yes \
+            deploy/e2e_sandbox.py "$TARGET:~/e2e-run/e2e_sandbox.py"
+
       - name: Walk the paid path end to end
         env:
           TARGET: ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}
           BASIC_PASS: ${{ secrets.SANDBOX_BASIC_PASS }}
-          SHA: ${{ github.sha }}
         run: |
           ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes "$TARGET" \
-            "BASIC_PASS='$BASIC_PASS' SHA='$SHA' bash -s" <<'REMOTE'
+            "BASIC_PASS='$BASIC_PASS' bash -s" <<'REMOTE'
           set -euo pipefail
-          cd ~/projects/overwatch
-          git fetch -q origin
-          git checkout -qf "$SHA" 2>/dev/null || git checkout -qf main
+          cd ~/e2e-run
           # KC_ADMIN_USERNAME / KC_ADMIN_PASSWORD come from the stack's own env
-          set -a; . orbit-poc/.env; set +a
+          set -a; . ~/projects/overwatch/orbit-poc/.env; set +a
           KC_ADMIN_BASE=http://127.0.0.1:8096/auth \
           BASIC_USER=clement BASIC_PASS="$BASIC_PASS" \
-          python3 deploy/e2e_sandbox.py
+          python3 e2e_sandbox.py
           REMOTE

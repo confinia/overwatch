@@ -53,6 +53,15 @@ def test_deploy_verifies_the_security_invariant():
     assert "tenant_telemetry" in d and "permission denied" in d
 
 
+def test_e2e_does_not_touch_the_deployment_checkout():
+    """#147: deploy.yml owns ~/projects/overwatch on the VM and both workflows
+    fire on the same push — sharing it raced on .git/index.lock. The e2e ships
+    its script to a scratch path instead."""
+    e = _wf("e2e.yml")
+    assert "git fetch" not in e and "git checkout" not in e
+    assert "e2e-run" in e and "scp" in e
+
+
 def test_e2e_reaches_keycloak_over_loopback_on_the_vm():
     """A container cannot reach a loopback-bound port, so the e2e runs on the
     host itself with KC_ADMIN_BASE pointing at 127.0.0.1 (#137)."""
