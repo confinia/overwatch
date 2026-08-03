@@ -71,9 +71,11 @@ def test_gated_vhosts_strip_the_credential_before_grafana():
     sandbox = open(CADDYFILE, encoding="utf-8").read()
     assert "header_up -Authorization" in _grafana_block(sandbox)
 
-    tmpl = open(TMPL_PATH, encoding="utf-8").read()
-    staging = _grafana_block(tmpl, after="http://staging.overwatch.confinia.io")
+    # staging has its own Caddyfile since #154
+    staging_caddy = os.path.join(HERE, "..", "staging", "Caddyfile")
+    staging = _grafana_block(open(staging_caddy, encoding="utf-8").read())
     assert "header_up -Authorization" in staging, "staging does not strip it"
 
+    tmpl = open(TMPL_PATH, encoding="utf-8").read()
     prod = _grafana_block(tmpl, after="http://overwatch.confinia.io")
     assert "header_up -Authorization" not in prod, "production has no gate to strip"

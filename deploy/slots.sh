@@ -4,15 +4,16 @@
 #   blue  = podman-compose project "blue"  (docker-compose.blue.yml,  :8081/:8082)
 #   green = podman-compose project "green" (docker-compose.green.yml, :9081/:9082)
 #
-# One color is LIVE (production), the other is the CANDIDATE (served at
-# https://staging.overwatch.confinia.io behind basic-auth). The app caddy's
+# One color is LIVE (production), the other is the CANDIDATE, kept warm for an
+# instant rollback. Since #154 the candidate is NOT publicly served: staging is
+# its own stack with its own database (ovw-staging, :8200). The app caddy's
 # config is generated from deploy/caddy/Caddyfile.tmpl with the two colors
 # substituted; switching = regenerate + graceful reload. No container is
 # touched at promote time, so:
 #   - deploys drop zero requests (health-checked failover during reload),
 #   - the previous color keeps running -> `rollback` is instant.
 #
-#   stage     build the working tree into the CANDIDATE color, point staging at it
+#   stage     build the working tree into the CANDIDATE color (rollback target)
 #   promote   swap colors in the caddy config (candidate becomes LIVE)
 #   rollback  swap back (previous color still runs the previous version)
 #   status    show colors, versions, container state
@@ -73,7 +74,7 @@ stage)
     exit 1
   fi
   gen_caddy "$live" "$cand"
-  echo "== staged on $cand — validate at https://staging.overwatch.confinia.io"
+  echo "== staged on $cand (candidate warm; validate at https://staging.overwatch.confinia.io, its own stack)"
   echo "   then: make promote   (or make rollback later if regret)"
   ;;
 promote)

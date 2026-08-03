@@ -1,4 +1,4 @@
-"""Create the dedicated Keycloak realm `overwatch-sandbox` on the ONE shared
+"""Create a dedicated Keycloak realm on the ONE shared
 Keycloak instance, as a clone of the prod realm `overwatch` (#126, TENANT.md §1
 "Sandbox identity"). Idempotent; stdlib only; runs on the VM:
 
@@ -18,8 +18,8 @@ import urllib.request
 
 KC = os.environ.get("KC_BASE", "http://127.0.0.1:8096/auth")
 SRC_REALM = "overwatch"
-DST_REALM = "overwatch-sandbox"
-HOST = "https://sandbox.overwatch.confinia.io"
+DST_REALM = os.environ.get("KC_DST_REALM", "overwatch-sandbox")
+HOST = os.environ.get("KC_DST_HOST", "https://sandbox.overwatch.confinia.io")
 ADMIN_USER = os.environ.get("KC_ADMIN_USERNAME", "")
 ADMIN_PASS = os.environ.get("KC_ADMIN_PASSWORD", "")
 
@@ -76,7 +76,7 @@ def main():
         strip_ids(realm)
         realm["realm"] = DST_REALM
         realm["id"] = DST_REALM
-        realm["displayName"] = "Overwatch SANDBOX"
+        realm["displayName"] = "Overwatch " + DST_REALM.split("-")[-1].upper()
         realm.pop("keycloakVersion", None)
         for c in realm.get("clients", []):
             if c.get("clientId") == "overwatch":

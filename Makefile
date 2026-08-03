@@ -5,7 +5,7 @@ VM      := overwatch
 REMOTE  := ~/projects/overwatch
 CONFINIA:= ~/projects/confinia
 
-.PHONY: sync test stage promote rollback status deploy deploy-full ingest caddy edge clemsat-up clemsat-down sandbox-up sandbox-down sandbox-logs logs ps down
+.PHONY: staging-up staging-down staging-logs sync test stage promote rollback status deploy deploy-full ingest caddy edge clemsat-up clemsat-down sandbox-up sandbox-down sandbox-logs logs ps down
 
 # Push the repo to the VM (secrets in .env stay VM-side, tarball stays local).
 # version.env is generated from the VERSION file; the generated Caddyfile and
@@ -127,6 +127,22 @@ sandbox-up: sync
 # caddy on :8190). Prod routing is never involved.
 sandbox-down:
 	ssh $(VM) 'cd $(REMOTE)/orbit-poc/sandbox && podman-compose -p ovw-sandbox -f docker-compose.yml down'
+
+# STAGING stack (compose project ovw-staging) — the exact build about to go
+# live, on its OWN database (#154). Dedicated port band 8200-8209. Billing off:
+# payments belong to the sandbox.
+staging-up: sync
+	ssh $(VM) 'set -e; cd $(REMOTE)/orbit-poc/staging && test -f .env || { echo "staging/.env missing on VM"; exit 1; }; \
+		podman-compose -p ovw-staging -f docker-compose.yml down 2>/dev/null || true; \
+		podman-compose -p ovw-staging -f docker-compose.yml up -d --build 2>&1 | tail -3; \
+		for c in $$(podman ps --format "{{.Names}}" | grep ^ovw-staging); do podman update --restart=always $$c >/dev/null; done; \
+		echo "staging up: https://staging.overwatch.confinia.io (basic-auth) · caddy :8200 · api :8201 · own DB"'
+
+staging-down:
+	ssh $(VM) 'cd $(REMOTE)/orbit-poc/staging && podman-compose -p ovw-staging -f docker-compose.yml down'
+
+staging-logs:
+	ssh $(VM) 'podman logs --tail=100 ovw-staging_api_1'
 
 sandbox-logs:
 	ssh $(VM) 'podman logs --tail=100 ovw-sandbox_api_1'
