@@ -73,8 +73,14 @@ async function portal(){
 
 function pushSnippet(token){
   const base = location.origin;
-  return `curl -X POST ${base}/api/v1/tenants/${token}/telemetry \\
-  -H 'content-type: application/json' \\
+  // -i prints the status line: a push that works answers 202 with
+  // {"accepted":N}. Without it a rejection looks exactly like a success —
+  // notably behind the basic-auth gate on sandbox/staging, whose 401 has an
+  // empty body (#161). Those hosts also need the gate credentials.
+  const gated = /^(sandbox|staging)\./.test(location.hostname);
+  const auth = gated ? "  -u '<gate-user>:<gate-password>' \\\n" : "";
+  return `curl -i -X POST ${base}/api/v1/tenants/${token}/telemetry \\
+${auth}  -H 'content-type: application/json' \\
   -d '{"satellite":"MYSAT-1","points":[
         {"ts":"${new Date().toISOString()}","field":"battery_v","value":7.42}]}'`;
 }
@@ -110,7 +116,9 @@ async function mintKey(){
       `<code class="key">${esc(d.token)}</code>` +
       `<p class="dim" style="margin:.7rem 0 .2rem">Push a first point with it:</p>` +
       `<pre>${esc(pushSnippet(d.token))}</pre>` +
-      `<span class="dim">Then it appears on the globe, in your organization only.</span></div>`;
+      `<span class="dim">A successful push answers <code>202</code> with ` +
+      `<code>{"accepted":1}</code>; the satellite then appears in your ` +
+      `organization only.</span></div>`;
     renderKeys();
   } catch (e) { alert(e.message); }
 }

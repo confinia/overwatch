@@ -46,3 +46,17 @@ def test_account_page_creates_the_organization_itself():
     assert "createOrg" in ACCOUNT
     assert "/api/v1/orgs" in ACCOUNT
     assert '<a class="cta" href="/">Create your organization</a>' not in ACCOUNT
+
+
+def test_push_snippet_surfaces_the_outcome():
+    """#161: a rejected push looked exactly like a successful one — the gate's
+    401 has an empty body, so the user saw a blank line and assumed it worked."""
+    assert "curl -i" in ACCOUNT                     # status line is printed
+    assert "gate-user" in ACCOUNT                   # credentials on gated hosts
+    assert "sandbox|staging" in ACCOUNT             # ...only on those hosts
+    assert "accepted" in ACCOUNT                    # what success looks like
+
+
+def test_pro_page_snippet_also_shows_the_outcome():
+    assert "curl -i" in PRO
+    assert "202" in PRO and "accepted" in PRO
