@@ -60,3 +60,20 @@ def test_push_snippet_surfaces_the_outcome():
 def test_pro_page_snippet_also_shows_the_outcome():
     assert "curl -i" in PRO
     assert "202" in PRO and "accepted" in PRO
+
+
+def test_no_hardcoded_provider_checkout_in_served_pages():
+    """#163: a production Polar link was served by every environment, so the
+    sandbox — whose purpose is acting without accounting impact — offered a
+    real 490 EUR checkout, and one that could activate nothing because no
+    organization was attached to it."""
+    import glob
+    for page in glob.glob(os.path.join(STATIC, "*.html")):
+        body = open(page, encoding="utf-8").read()
+        assert "buy.polar.sh" not in body, page
+
+
+def test_trial_routes_through_the_account_page():
+    assert 'href="/w/account">Start the 14-day trial' in PRO
+    # and the account page is where the env-aware checkout is called
+    assert "/api/v1/billing/checkout" in ACCOUNT
