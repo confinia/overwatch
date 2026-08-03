@@ -148,6 +148,29 @@ CREATE TABLE IF NOT EXISTS billing_event (
 """
 
 
+STARTUP_LOCK = 168133   # arbitrary constant, shared by every api worker
+
+
+def _startup_provision(conn) -> None:
+    """Run the startup DDL (tables, grafana_ro, ops_ro) under an advisory
+    lock: several uvicorn workers boot concurrently, and two sessions doing
+    the same REVOKE/GRANT sequences deadlock each other (#168 — 9 restarts
+    per deploy before this)."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT pg_advisory_lock(%s)", (STARTUP_LOCK,))
+    conn.commit()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(KEYS_SQL)
+            _provision_grafana_role(cur)
+            _provision_ops_role(cur)
+    finally:
+        conn.rollback()                       # clear any aborted transaction
+        with conn.cursor() as cur:
+            cur.execute("SELECT pg_advisory_unlock(%s)", (STARTUP_LOCK,))
+        conn.commit()
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     global pool
@@ -163,10 +186,7 @@ async def lifespan(_: FastAPI):
         raise RuntimeError(f"Postgres unreachable: {last_err}")
     conn = pool.getconn()
     try:
-        with conn, conn.cursor() as cur:
-            cur.execute(KEYS_SQL)
-            _provision_grafana_role(cur)
-            _provision_ops_role(cur)
+        _startup_provision(conn)
     finally:
         pool.putconn(conn)
     _provision_ops_org_async()                     # Grafana may still be booting

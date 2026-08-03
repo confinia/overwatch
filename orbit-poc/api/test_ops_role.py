@@ -71,6 +71,32 @@ def test_ops_role_cannot_read_tenant_payloads(ops_conn):
         ops_conn.rollback()
 
 
+def test_concurrent_worker_startup_does_not_deadlock(ops_conn):
+    """Several uvicorn workers run the startup DDL at once; unserialized, the
+    grafana_ro + ops_ro REVOKE/GRANT sequences deadlock (9 restarts per
+    sandbox deploy). _startup_provision must hold the advisory lock so
+    parallel boots come out clean."""
+    os.environ["GRAFANA_DB_PASSWORD"] = "test-grafana-ro-pw"
+    errors = []
+
+    def worker():
+        try:
+            conn = psycopg2.connect(DSN)
+            for _ in range(3):
+                main._startup_provision(conn)
+            conn.close()
+        except Exception as e:                     # noqa: BLE001 — collected
+            errors.append(e)
+
+    import threading
+    threads = [threading.Thread(target=worker) for _ in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert not errors, errors
+
+
 def test_ops_role_cannot_write(ops_conn):
     with ops_conn.cursor() as cur:
         with pytest.raises(psycopg2.errors.InsufficientPrivilege):
