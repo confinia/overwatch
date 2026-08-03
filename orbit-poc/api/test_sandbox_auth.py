@@ -45,7 +45,10 @@ def test_no_hardcoded_callback_host():
     # on its own host (prod hardcoding broke sandbox login with a 400)
     src = open(MAIN).read()
     assert "overwatch.confinia.io/api/v1/auth/callback" not in src
-    assert src.count("{PUBLIC_BASE}/api/v1/auth/callback") == 2
+    # #152 tightened this further: not just "not a literal host" but "the host
+    # the request arrived on" — one image serves staging and production, and
+    # which colour is which rotates at every promote.
+    assert src.count("{_base_of(request)}/api/v1/auth/callback") == 2
 
 
 def test_env_example_documents_kc_secrets():
