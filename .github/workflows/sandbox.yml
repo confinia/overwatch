@@ -1,0 +1,80 @@
+name: sandbox (per PR)
+
+# Every commit on a pull request redeploys https://sandbox.overwatch.confinia.io
+# so the change can be validated live before merge. Also runs on main, so the
+# sandbox never lags behind what is deployed.
+#
+# It builds from a DEDICATED checkout (~/sandbox-src/overwatch), never from
+# ~/projects/overwatch: that tree is production's, owned by deploy.yml, and
+# checking a PR commit into it would both race that workflow and leave the
+# production source pointing at unmerged code (#147 was the same class of bug).
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: sandbox-deploy       # one sandbox, one deploy at a time
+  cancel-in-progress: true    # a newer commit supersedes the one in flight
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # Pull requests from forks receive no secrets, so the SSH key would be
+    # empty and the job would fail on an unrelated error. Skip it plainly.
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - name: Authorize the SSH session
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "${{ secrets.VM_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "${{ secrets.VM_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Rebuild the sandbox at this commit
+        env:
+          TARGET: ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}
+          SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes "$TARGET" \
+            "SHA='$SHA' bash -s" <<'REMOTE'
+          set -euo pipefail
+          SRC=~/sandbox-src/overwatch
+          if [ ! -d "$SRC/.git" ]; then
+            mkdir -p ~/sandbox-src
+            git clone -q https://github.com/confinia/overwatch.git "$SRC"
+          fi
+          cd "$SRC"
+          git fetch -q origin '+refs/heads/*:refs/remotes/origin/*' \
+                             '+refs/pull/*/head:refs/remotes/origin/pr/*'
+          git checkout -qf "$SHA"
+          # secrets live with the stack, never in git
+          cp ~/projects/overwatch/orbit-poc/sandbox/.env orbit-poc/sandbox/.env
+          chmod 600 orbit-poc/sandbox/.env
+          cd orbit-poc/sandbox
+          podman-compose -p ovw-sandbox -f docker-compose.yml down 2>/dev/null || true
+          podman-compose -p ovw-sandbox -f docker-compose.yml up -d --build 2>&1 | tail -3
+          for c in $(podman ps --format '{{.Names}}' | grep ^ovw-sandbox); do
+            podman update --restart=always "$c" >/dev/null; done
+          echo "sandbox now runs $SHA"
+          REMOTE
+
+      - name: Check it answers
+        env:
+          BASIC_PASS: ${{ secrets.SANDBOX_BASIC_PASS }}
+          SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          for i in 1 2 3 4 5 6; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 \
+              -u "clement:$BASIC_PASS" https://sandbox.overwatch.confinia.io/ || true)
+            [ "$code" = "200" ] && break
+            sleep 10
+          done
+          echo "sandbox -> $code"
+          [ "$code" = "200" ]
+          echo "### Sandbox updated" >> $GITHUB_STEP_SUMMARY
+          echo "https://sandbox.overwatch.confinia.io now runs \`${SHA:0:7}\`" \
+            >> $GITHUB_STEP_SUMMARY
