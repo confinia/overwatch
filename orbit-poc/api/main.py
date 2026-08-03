@@ -729,8 +729,10 @@ def _provision_grafana_role(cur) -> None:
         return                                    # not configured: leave as is
     cur.execute("SELECT 1 FROM pg_roles WHERE rolname = %s", (GRAFANA_ROLE,))
     if cur.fetchone():
-        cur.execute(f'ALTER ROLE "{GRAFANA_ROLE}" LOGIN NOSUPERUSER NOBYPASSRLS '
-                    f'NOCREATEDB NOCREATEROLE PASSWORD %s', (pw,))
+        # Only LOGIN PASSWORD here: restating NOSUPERUSER (even to keep it off)
+        # requires being superuser, and the app runs as orbit_app (#133). The
+        # privilege attributes are fixed at CREATE and never change.
+        cur.execute(f'ALTER ROLE "{GRAFANA_ROLE}" LOGIN PASSWORD %s', (pw,))
     else:
         cur.execute(f'CREATE ROLE "{GRAFANA_ROLE}" LOGIN NOSUPERUSER NOBYPASSRLS '
                     f'NOCREATEDB NOCREATEROLE PASSWORD %s', (pw,))
