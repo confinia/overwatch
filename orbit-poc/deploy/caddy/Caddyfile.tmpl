@@ -138,7 +138,10 @@ http://staging.overwatch.confinia.io {
 	}
 
 	handle /grafana* {
-		reverse_proxy grafana:3000
+		# see #149: strip the gate's credential so Grafana honours the session
+		reverse_proxy grafana:3000 {
+			header_up -Authorization
+		}
 	}
 
 	handle {

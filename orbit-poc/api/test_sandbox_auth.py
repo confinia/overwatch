@@ -10,6 +10,7 @@ SANDBOX = os.path.join(HERE, "..", "sandbox")
 COMPOSE = os.path.join(SANDBOX, "docker-compose.yml")
 CADDYFILE = os.path.join(SANDBOX, "Caddyfile")
 MAIN = os.path.join(HERE, "main.py")
+TMPL_PATH = os.path.join(HERE, "..", "deploy", "caddy", "Caddyfile.tmpl")
 
 
 def test_sandbox_issuer_is_dedicated_realm():
@@ -51,3 +52,25 @@ def test_env_example_documents_kc_secrets():
     env = open(os.path.join(SANDBOX, ".env.example")).read()
     for key in ("OVERWATCH_CLIENT_SECRET", "KC_ADMIN_USERNAME", "KC_ADMIN_PASSWORD"):
         assert key in env
+
+
+def _grafana_block(text, after=""):
+    """The `handle /grafana*` block of a given vhost (the file holds several)."""
+    start = text.index(after) if after else 0
+    i = text.index("handle /grafana*", start)
+    return text[i:text.index("\n\t}", i)]
+
+
+def test_gated_vhosts_strip_the_credential_before_grafana():
+    """#149: Grafana supports basic auth, so the gate's replayed Authorization
+    header is read as a failed login and the OIDC session cookie is ignored.
+    Only the GATED vhosts strip it — production has no gate and must not."""
+    sandbox = open(CADDYFILE, encoding="utf-8").read()
+    assert "header_up -Authorization" in _grafana_block(sandbox)
+
+    tmpl = open(TMPL_PATH, encoding="utf-8").read()
+    staging = _grafana_block(tmpl, after="http://staging.overwatch.confinia.io")
+    assert "header_up -Authorization" in staging, "staging does not strip it"
+
+    prod = _grafana_block(tmpl, after="http://overwatch.confinia.io")
+    assert "header_up -Authorization" not in prod, "production has no gate to strip"

@@ -53,7 +53,13 @@ http://sandbox.overwatch.confinia.io, :80 {
 	}
 
 	handle /grafana* {
-		reverse_proxy grafana:3000
+		# The gate already consumed the basic-auth credential; Grafana supports
+		# basic auth too and would read the replayed header as a login attempt
+		# for a user it does not know, answering 401 and ignoring the valid OIDC
+		# session cookie (#149). Its own auth is that cookie (or anonymous).
+		reverse_proxy grafana:3000 {
+			header_up -Authorization
+		}
 	}
 
 	handle {
