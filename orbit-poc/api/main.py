@@ -55,6 +55,16 @@ CREATE TABLE IF NOT EXISTS api_usage (
     requests bigint NOT NULL DEFAULT 0,
     PRIMARY KEY (key, day)
 );
+-- Every Keycloak login lands here (#172): the registration registry the ops
+-- registrations board and signup alerts read. Backfilled once from the
+-- Keycloak admin API, whose createdTimestamp carries the true signup date.
+CREATE TABLE IF NOT EXISTS registered_user (
+    sub        uuid PRIMARY KEY,
+    email      text,
+    name       text,
+    first_seen timestamptz NOT NULL DEFAULT now(),
+    last_login timestamptz
+);
 -- Unique visitors per day/country. Never the IP: client_hash is a salted
 -- digest (env secret + UTC day), irreversible and uncorrelatable across days.
 -- UNLOGGED: observability data, losable without regret. Purged at 45 days.
@@ -680,6 +690,52 @@ def _org_of(claims) -> tuple[str, str] | None:
     return (oid, name)
 
 
+def _record_login(cur, sub, email=None, name=None, first_seen=None,
+                  login=True) -> None:
+    """Upsert the registration registry (#172). first_seen keeps the earliest
+    known date (the Keycloak backfill knows better than now()); last_login
+    only moves on a real login, not on a backfill sweep."""
+    cur.execute("""INSERT INTO registered_user (sub, email, name, first_seen, last_login)
+                   VALUES (%s::uuid, %s, %s, COALESCE(%s::timestamptz, now()),
+                           CASE WHEN %s THEN now() END)
+                   ON CONFLICT (sub) DO UPDATE SET
+                     last_login = CASE WHEN %s THEN now()
+                                       ELSE registered_user.last_login END,
+                     email = COALESCE(EXCLUDED.email, registered_user.email),
+                     name  = COALESCE(EXCLUDED.name,  registered_user.name),
+                     first_seen = LEAST(registered_user.first_seen,
+                                        EXCLUDED.first_seen)""",
+                (sub, email, name, first_seen, login, login))
+
+
+def _backfill_registered_users() -> bool:
+    """One idempotent sweep of the Keycloak realm (#172): existing users
+    predate the login registry. Returns False when Keycloak was unreachable
+    (caller retries), True otherwise (done, or not configured)."""
+    if not (KC_ADMIN_USER and KC_ADMIN_PASS):
+        return True
+    import datetime as _bdt
+    try:
+        tok = _kc_admin_token()
+        base = f"{KC_INTERNAL.rsplit('/realms/', 1)[0]}/admin/realms/{KC_REALM}"
+        r = _rq.get(f"{base}/users?max=500",
+                    headers={"Authorization": f"Bearer {tok}"}, timeout=15)
+        r.raise_for_status()
+        users = r.json()
+    except _rq.RequestException:
+        return False
+    with cursor() as cur:
+        for u in users:
+            ts = u.get("createdTimestamp")
+            first = (_bdt.datetime.fromtimestamp(ts / 1000, _bdt.timezone.utc)
+                     if ts else None)
+            name = " ".join(x for x in (u.get("firstName"), u.get("lastName"))
+                            if x) or u.get("username")
+            _record_login(cur, u["id"], u.get("email"), name,
+                          first_seen=first, login=False)
+    return True
+
+
 def _require_user(request: Request):
     c = _claims(request)
     if not c:
@@ -773,7 +829,8 @@ def _provision_grafana_role(cur) -> None:
 # anonymous public embeds are bound to org 1 — no proxy path reaches this one.
 OPS_ROLE = "ops_ro"
 OPS_TABLES = ("organization", "org_user", "org_token", "api_key",
-              "api_usage", "visitor_daily")
+              "api_usage", "visitor_daily", "registered_user")
+OPS_ALERT_EMAIL = os.environ.get("OPS_ALERT_EMAIL", "contact@confinia.io")
 OPS_GF_ORG = "Overwatch Ops"
 OPS_DASHBOARDS_DIR = os.environ.get("OPS_DASHBOARDS_DIR", "/ops-dashboards")
 
@@ -865,20 +922,86 @@ def _provision_ops_org() -> bool:
             d.pop("id", None)                     # ids are per-org; import by uid
             _gf("POST", "/dashboards/db", {"dashboard": d, "overwrite": True},
                 gorg=gorg)
+        _provision_ops_alerts(gorg)               # signup e-mails (#172)
         return True
     except _rq.RequestException:
         return False                              # Grafana down: retry
 
 
+def _ops_alert_rules() -> list:
+    """The signup alert rules (#172), shaped for Grafana's provisioning API.
+    Each: Postgres count over a 15-minute window -> reduce -> threshold > 0."""
+    def rule(uid, title, sql):
+        return {
+            "uid": uid, "title": title, "condition": "C",
+            "folderUID": "ops-alerts", "ruleGroup": "signups",
+            "for": "0s", "noDataState": "OK", "execErrState": "OK",
+            "annotations": {"summary": title},
+            "data": [
+                {"refId": "A", "relativeTimeRange": {"from": 900, "to": 0},
+                 "datasourceUid": "orbitcache",
+                 "model": {"refId": "A", "format": "table", "rawSql": sql,
+                           "intervalMs": 60000, "maxDataPoints": 100}},
+                {"refId": "B", "relativeTimeRange": {"from": 0, "to": 0},
+                 "datasourceUid": "__expr__",
+                 "model": {"refId": "B", "type": "reduce", "reducer": "last",
+                           "expression": "A"}},
+                {"refId": "C", "relativeTimeRange": {"from": 0, "to": 0},
+                 "datasourceUid": "__expr__",
+                 "model": {"refId": "C", "type": "threshold", "expression": "B",
+                           "conditions": [{"evaluator": {"params": [0],
+                                                         "type": "gt"}}]}},
+            ],
+        }
+    return [
+        rule("new-registration", "New user registration",
+             "SELECT count(*) AS value FROM registered_user "
+             "WHERE first_seen > now() - interval '15 minutes'"),
+        rule("new-api-key", "New API key requested",
+             "SELECT count(*) AS value FROM api_key "
+             "WHERE created_at > now() - interval '15 minutes'"),
+    ]
+
+
+def _provision_ops_alerts(gorg: int) -> None:
+    """Contact point, root policy and the signup alert rules in the ops org
+    (#172) — API-provisioned like the org itself. E-mails to OPS_ALERT_EMAIL
+    start flowing the moment GF_SMTP_* is filled in .env; the rules provision
+    and evaluate regardless."""
+    cps = _gf("GET", "/v1/provisioning/contact-points", gorg=gorg)
+    existing = ({c["name"]: c["uid"] for c in cps.json()}
+                if cps.status_code == 200 else {})
+    cp = {"name": "ops-email", "type": "email",
+          "settings": {"addresses": OPS_ALERT_EMAIL},
+          "disableResolveMessage": True}
+    if "ops-email" in existing:
+        _gf("PUT", f"/v1/provisioning/contact-points/{existing['ops-email']}",
+            cp, gorg=gorg)
+    else:
+        _gf("POST", "/v1/provisioning/contact-points", cp, gorg=gorg)
+    _gf("PUT", "/v1/provisioning/policies", {"receiver": "ops-email"},
+        gorg=gorg)
+    _gf("POST", "/folders", {"title": "alerts", "uid": "ops-alerts"},
+        gorg=gorg)                                # 409 = already there
+    for r in _ops_alert_rules():
+        resp = _gf("POST", "/v1/provisioning/alert-rules", r, gorg=gorg)
+        if resp.status_code not in (200, 201):    # exists (or shape drift)
+            _gf("PUT", f"/v1/provisioning/alert-rules/{r['uid']}", r,
+                gorg=gorg)
+
+
 def _provision_ops_org_async() -> None:
     """Startup helper: Grafana usually comes up after the API, so retry in a
     daemon thread instead of blocking or losing the provisioning until the
-    next deploy."""
+    next deploy. Also runs the one-shot Keycloak registration backfill."""
     import threading
 
     def _loop():
+        ops_done = reg_done = False
         for _ in range(60):
-            if _provision_ops_org():
+            ops_done = ops_done or _provision_ops_org()
+            reg_done = reg_done or _backfill_registered_users()
+            if ops_done and reg_done:
                 return
             time.sleep(5)
 
@@ -989,8 +1112,17 @@ def auth_callback(request: Request, code: str = "", state: str = ""):
                  timeout=15)
     if r.status_code != 200:
         raise HTTPException(502, "Token exchange failed")
+    tok = r.json()["access_token"]
+    try:                                    # registration registry (#172) —
+        key = _jwks_client().get_signing_key_from_jwt(tok)   # best-effort,
+        c = _jwt.decode(tok, key.key, algorithms=["RS256"],  # never blocks
+                        issuer=KC_ISSUER, options={"verify_aud": False})
+        with cursor() as cur:
+            _record_login(cur, c["sub"], c.get("email"), c.get("name"))
+    except Exception:
+        pass
     resp = RedirectResponse("/")
-    resp.set_cookie(COOKIE, r.json()["access_token"], max_age=1740,
+    resp.set_cookie(COOKIE, tok, max_age=1740,
                     httponly=True, secure=True, samesite="lax", path="/")
     resp.delete_cookie("ovw_state")
     return resp
