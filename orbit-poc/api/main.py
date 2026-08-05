@@ -706,6 +706,9 @@ def _record_login(cur, sub, email=None, name=None, first_seen=None,
                      first_seen = LEAST(registered_user.first_seen,
                                         EXCLUDED.first_seen)""",
                 (sub, email, name, first_seen, login, login))
+    # cursor() never commits and putconn rolls back — every write here
+    # commits explicitly (same convention as the _provision_* helpers)
+    cur.connection.commit()
 
 
 def _backfill_registered_users() -> bool:
