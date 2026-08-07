@@ -4,10 +4,21 @@
   "displayName": "Overwatch",
   "registrationAllowed": true,
   "registrationEmailAsUsername": true,
-  "verifyEmail": false,
+  "verifyEmail": true,
   "resetPasswordAllowed": true,
   "organizationsEnabled": true,
   "sslRequired": "external",
+  "smtpServer": {
+    "host": "ssl0.ovh.net",
+    "port": "587",
+    "from": "alert@confinia.io",
+    "fromDisplayName": "Overwatch",
+    "replyTo": "contact@confinia.io",
+    "ssl": "false",
+    "starttls": "true",
+    "auth": "true",
+    "user": "alert@confinia.io"
+  },
   "clients": [
     {
       "clientId": "overwatch",
