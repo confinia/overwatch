@@ -304,7 +304,7 @@ def test_private_sat_selection_persists(html):         # #176
 def test_private_and_open_data_badges(html):           # #176
     # the detail header marks which fleet a selected satellite belongs to, so a
     # signed-in user can never mistake an open-data satellite for their own
-    assert "badge-private" in html and ">private</span>" in html
-    assert "badge-open" in html and "open data</span>" in html
+    assert "fbadge-private" in html and ">private</span>" in html
+    assert "fbadge-open" in html and "open data</span>" in html
     # the org-supplied satellite/field names are escaped before going into innerHTML
     assert "escapeHTML(s.satellite)" in html and "escapeHTML(f.field)" in html

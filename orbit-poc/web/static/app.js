@@ -136,7 +136,7 @@ function selectOrgSat(s){
   const h = "#org:" + encodeURIComponent(s.satellite);
   if (location.hash !== h) history.replaceState(null, "", h);
   document.getElementById("panelHead").innerHTML =
-    `${escapeHTML(s.satellite)} — <span class="badge badge-private" ` +
+    `${escapeHTML(s.satellite)} — <span class="fbadge fbadge-private" ` +
     `title="Your organization's private satellite">private</span> · ${escapeHTML(orgInfo.name)}`;
   const rows = s.fields.map(f =>
     `${escapeHTML(f.field)} — ${f.points} point${f.points > 1 ? "s" : ""}, last ${age(f.last)}`).join("<br>");
@@ -481,7 +481,7 @@ async function select(s, auto = false){
     ` <span style="color:var(--dim)">— position-only: encrypted or no open downlink; ` +
     `orbit data below, no public health data (shown honestly, not faked)</span>`;
   head.innerHTML = `${escapeHTML(s.name)} — NORAD ${s.norad} · ` +
-    `<span class="badge badge-open" title="Public open-data satellite (SatNOGS / CelesTrak)">open data</span> · ` +
+    `<span class="fbadge fbadge-open" title="Public open-data satellite (SatNOGS / CelesTrak)">open data</span> · ` +
     `${view3d} · ${opLink}${dashLink}${posOnly}`;
 
   // draw recent ground track + who-heard-it reception network

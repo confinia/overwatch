@@ -84,11 +84,12 @@
   header { padding:14px 16px; border-bottom:1px solid var(--line); }
   header h1 { font-size:15px; margin:0 0 2px; letter-spacing:.2px; }
   header p { margin:0; font-size:12px; color:var(--dim); }
-  /* Private vs open-data badges in the satellite detail header (#176). */
-  .badge { font-size:.78em; border:1px solid currentColor; border-radius:3px;
+  /* Private vs open-data badges in the satellite detail header (#176).
+     Named .fbadge, not .badge, to avoid clashing with the sat-list .badge pills. */
+  .fbadge { font-size:.78em; border:1px solid currentColor; border-radius:3px;
     padding:0 4px; vertical-align:middle; opacity:.9; white-space:nowrap; }
-  .badge-private { color:var(--accent); }
-  .badge-open { color:var(--dim); }
+  .fbadge-private { color:var(--accent); }
+  .fbadge-open { color:var(--dim); }
   #search { margin:10px 16px; padding:8px 10px; width:calc(100% - 32px);
     background:#0e1420; border:1px solid var(--line); border-radius:6px;
     color:var(--text); font-size:13px; outline:none; flex:0 0 auto; }
