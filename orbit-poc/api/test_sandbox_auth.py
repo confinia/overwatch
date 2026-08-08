@@ -79,3 +79,11 @@ def test_gated_vhosts_strip_the_credential_before_grafana():
     tmpl = open(TMPL_PATH, encoding="utf-8").read()
     prod = _grafana_block(tmpl, after="http://overwatch.confinia.io")
     assert "header_up -Authorization" not in prod, "production has no gate to strip"
+
+
+def test_sandbox_caddy_trusts_edge_proxy():
+    """The sandbox app caddy listens on http (TLS ends at the platform edge),
+    so it must trust that edge to pass X-Forwarded-Proto (https) through — else
+    the app builds an http:// OIDC redirect_uri the overwatch-sandbox realm
+    rejects (#179). Same fix as staging; prod's caddy already does this."""
+    assert "trusted_proxies" in open(CADDYFILE, encoding="utf-8").read()
