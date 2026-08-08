@@ -53,12 +53,12 @@ services:
   # partial + no-delete = safe for live prod auth. Idempotent: it re-converges on
   # every deploy, replacing the by-hand kcadm SMTP setup. Run staging-first: edit
   # a realm's file, deploy, validate, then the next realm.
-  #   Image tag must match the Keycloak version (26.3); confirm against
-  #   quay.io/adorsys/keycloak-config-cli tags before first deploy.
+  #   No config-cli build exists for KC 26.3; the 26.1 baseline is compatible for
+  #   these basic realm settings and is at/below our server version (verified).
   #   Requires in .env (VM-side, never committed): KC_SMTP_PASSWORD, and the
   #   admin creds under the names the cli reads: KEYCLOAK_USER + KEYCLOAK_PASSWORD.
   keycloak-config-cli:
-    image: quay.io/adorsys/keycloak-config-cli:latest-26.3.0
+    image: quay.io/adorsys/keycloak-config-cli:6.5.1-26.1.0
     depends_on:
       keycloak:
         condition: service_started
