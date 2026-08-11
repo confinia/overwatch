@@ -102,6 +102,14 @@ services:
       GF_USERS_DEFAULT_THEME: "dark"
       GF_SERVER_ROOT_URL: "https://staging.overwatch.confinia.io/grafana"
       GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      # Grafana SMTP — OVH (EU, RULES.md). Non-secret config as code; only
+      # GF_SMTP_PASSWORD comes from .env (Rule 4).
+      GF_SMTP_ENABLED: "true"
+      GF_SMTP_HOST: "ssl0.ovh.net:587"
+      GF_SMTP_USER: "alert@confinia.io"
+      GF_SMTP_FROM_ADDRESS: "alert@confinia.io"
+      GF_SMTP_FROM_NAME: "Overwatch (staging)"
+      GF_SMTP_STARTTLS_POLICY: "MandatoryStartTLS"
       # OIDC via the shared Keycloak, sandbox realm (#13). Anonymous stays on
       # for the public embeds; a signed-in user lands in their own Grafana org
       # (provisioned by the API) as Editor — their private boards, their data.
