@@ -55,3 +55,13 @@ def test_compose_runs_config_cli_in_no_delete_mode():
     # the destructive default (full) must never be used for the collections
     assert 'IMPORT_MANAGED_CLIENT: "no-delete"' in COMPOSE
     assert 'IMPORT_MANAGED_AUTHENTICATION_FLOW: "no-delete"' in COMPOSE
+
+
+def test_v2_env_example_lists_required_keys():   # #191
+    """A dropped v2 secret breaks all login on the next recreate. The committed
+    example pins the required set so an edit can't silently lose one."""
+    ex = open(os.path.join(HERE, "..", "v2", ".env.example"), encoding="utf-8").read()
+    for k in ("POSTGRES_PASSWORD", "KC_DB_PASSWORD", "KC_BOOTSTRAP_ADMIN_USERNAME",
+              "KC_BOOTSTRAP_ADMIN_PASSWORD", "OVERWATCH_CLIENT_SECRET",
+              "KEYCLOAK_USER", "KEYCLOAK_PASSWORD", "KC_SMTP_PASSWORD"):
+        assert k + "=" in ex, f"{k} missing from v2/.env.example"
