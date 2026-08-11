@@ -3,15 +3,15 @@
   "enabled": true,
   "verifyEmail": true,
   "smtpServer": {
-    "host": "ssl0.ovh.net",
-    "port": "587",
-    "from": "alert@confinia.io",
+    "host": "$(env:SMTP_HOST)",
+    "port": "$(env:SMTP_PORT)",
+    "from": "$(env:SMTP_FROM)",
     "fromDisplayName": "Overwatch",
-    "replyTo": "contact@confinia.io",
+    "replyTo": "$(env:ALERT_RCPT)",
     "ssl": "false",
     "starttls": "true",
     "auth": "true",
-    "user": "alert@confinia.io",
-    "password": "$(env:KC_SMTP_PASSWORD)"
+    "user": "$(env:SMTP_USER)",
+    "password": "$(env:SMTP_PASSWORD)"
   }
 }
