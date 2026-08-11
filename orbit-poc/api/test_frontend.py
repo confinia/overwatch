@@ -317,3 +317,14 @@ def test_logo_asset_used(html):                 # #189
     assert "/logo.svg" in html                                  # site header uses it
     readme = os.path.join(HERE, "..", "..", "README.md")
     assert "logo.svg" in open(readme, encoding="utf-8").read()   # README uses it
+
+
+def test_reception_banner_counts_are_uncapped(html):   # #175
+    # the /api/receptions endpoint returns uncapped totals separate from the
+    # 300-point plot cap, and the banner reads those totals — so it agrees with
+    # the reception-summary panel instead of showing 300/40.
+    app_py = open(os.path.join(WEB, "app.py"), encoding="utf-8").read()
+    assert "count(DISTINCT observer)" in app_py
+    assert '"points": points' in app_py and '"total": total' in app_py
+    assert "LIMIT 300" in app_py                     # still caps the plotted points
+    assert "data.total" in html and "data.stations" in html

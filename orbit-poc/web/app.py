@@ -126,7 +126,15 @@ def receptions(norad):
             ) p ON """ + _within_horizon + """
             WHERE r.norad = %s AND r.ts > now() - %s * interval '1 hour'
             ORDER BY r.ts DESC LIMIT 300""", (HORIZON_KM, norad, hours))
-        return jsonify(cur.fetchall())
+        points = cur.fetchall()
+        # Uncapped totals for the banner — the LIMIT 300 above caps how many
+        # receptions we PLOT, not how many exist. These match the reception-
+        # summary panel over the same window, instead of reporting 300/40 (#175).
+        cur.execute("""SELECT count(*), count(DISTINCT observer) FROM reception
+                       WHERE norad = %s AND ts > now() - %s * interval '1 hour'""",
+                    (norad, hours))
+        total, stations = cur.fetchone()
+        return jsonify({"points": points, "total": total, "stations": stations})
 
 
 @app.get("/api/track/<int:norad>")
