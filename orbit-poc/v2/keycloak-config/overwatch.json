@@ -1,0 +1,17 @@
+{
+  "realm": "overwatch",
+  "enabled": true,
+  "verifyEmail": true,
+  "smtpServer": {
+    "host": "ssl0.ovh.net",
+    "port": "587",
+    "from": "alert@confinia.io",
+    "fromDisplayName": "Overwatch",
+    "replyTo": "contact@confinia.io",
+    "ssl": "false",
+    "starttls": "true",
+    "auth": "true",
+    "user": "alert@confinia.io",
+    "password": "$(env:KC_SMTP_PASSWORD)"
+  }
+}

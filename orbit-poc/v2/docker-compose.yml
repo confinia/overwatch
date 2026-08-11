@@ -47,5 +47,42 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # Declarative realm config (#181): reconciles ONLY the smtpServer + verifyEmail
+  # settings in ./keycloak-config/*.json into the EXISTING realms. The files carry
+  # no clients/roles/scopes/flows arrays, so those are never managed or deleted —
+  # partial + no-delete = safe for live prod auth. Idempotent: it re-converges on
+  # every deploy, replacing the by-hand kcadm SMTP setup. Run staging-first: edit
+  # a realm's file, deploy, validate, then the next realm.
+  #   No config-cli build exists for KC 26.3; the 26.1 baseline is compatible for
+  #   these basic realm settings and is at/below our server version (verified).
+  #   Requires in .env (VM-side, never committed): KC_SMTP_PASSWORD, and the
+  #   admin creds under the names the cli reads: KEYCLOAK_USER + KEYCLOAK_PASSWORD.
+  keycloak-config-cli:
+    image: quay.io/adorsys/keycloak-config-cli:6.5.1-26.1.0
+    depends_on:
+      keycloak:
+        condition: service_started
+    environment:
+      KEYCLOAK_URL: "http://keycloak:8080/auth"
+      KEYCLOAK_AVAILABILITYCHECK_ENABLED: "true"
+      KEYCLOAK_AVAILABILITYCHECK_TIMEOUT: "120s"
+      IMPORT_FILES_LOCATIONS: "/config/*.json"
+      IMPORT_VARSUBSTITUTION_ENABLED: "true"
+      # Reconcile only the declared realm settings; never delete undeclared
+      # entities (belt-and-suspenders on top of the partial files).
+      IMPORT_MANAGED_CLIENT: "no-delete"
+      IMPORT_MANAGED_ROLE: "no-delete"
+      IMPORT_MANAGED_GROUP: "no-delete"
+      IMPORT_MANAGED_CLIENT_SCOPE: "no-delete"
+      IMPORT_MANAGED_REQUIRED_ACTION: "no-delete"
+      IMPORT_MANAGED_IDENTITY_PROVIDER: "no-delete"
+      IMPORT_MANAGED_AUTHENTICATION_FLOW: "no-delete"
+      IMPORT_MANAGED_COMPONENT: "no-delete"
+    env_file:
+      - .env
+    volumes:
+      - ./keycloak-config:/config:ro
+    restart: "no"
+
 volumes:
   kc_pgdata:
