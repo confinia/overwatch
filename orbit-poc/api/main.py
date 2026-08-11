@@ -937,13 +937,19 @@ def _provision_ops_org() -> bool:
 
 def _ops_alert_rules() -> list:
     """The signup alert rules (#172), shaped for Grafana's provisioning API.
-    Each: Postgres count over a 15-minute window -> reduce -> threshold > 0."""
+    Each: Postgres count over a 15-minute window -> reduce -> threshold > 0.
+    Every alert carries an `env` label (production/staging/sandbox, derived from
+    PUBLIC_BASE) so the e-mail says which environment fired it (#187)."""
+    host = PUBLIC_BASE.split("://")[-1].split("/")[0].split(".")[0]
+    env = host if host in ("staging", "sandbox") else "production"
+
     def rule(uid, title, sql, summary=None):
         return {
             "uid": uid, "title": title, "condition": "C",
             "folderUID": "ops-alerts", "ruleGroup": "signups",
             "for": "0s", "noDataState": "OK", "execErrState": "OK",
-            "annotations": {"summary": summary or title},
+            "labels": {"env": env},
+            "annotations": {"summary": f"[{env}] " + (summary or title)},
             "data": [
                 {"refId": "A", "relativeTimeRange": {"from": 900, "to": 0},
                  "datasourceUid": "orbitcache",
