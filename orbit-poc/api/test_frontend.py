@@ -324,7 +324,9 @@ def test_reception_banner_counts_are_uncapped(html):   # #175
     # 300-point plot cap, and the banner reads those totals — so it agrees with
     # the reception-summary panel instead of showing 300/40.
     app_py = open(os.path.join(WEB, "app.py"), encoding="utf-8").read()
-    assert "count(DISTINCT observer)" in app_py
-    assert '"points": points' in app_py and '"total": total' in app_py
+    # aliased counts — unaliased count(*)/count(distinct) both come back named
+    # "count" and collide in the dict cursor (was a 500, #175 follow-up).
+    assert "count(*) AS total" in app_py and "count(DISTINCT observer) AS stations" in app_py
+    assert '"points": points' in app_py
     assert "LIMIT 300" in app_py                     # still caps the plotted points
     assert "data.total" in html and "data.stations" in html
