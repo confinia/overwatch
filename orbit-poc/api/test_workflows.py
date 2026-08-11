@@ -88,3 +88,17 @@ def test_sandbox_workflow_runs_on_pull_requests_but_not_for_forks():
     assert "pull_request" in s
     assert "head.repo.full_name == github.repository" in s
     assert "group: sandbox-deploy" in s
+
+
+def test_registration_alert_e2e_wired():         # #193
+    wf = _wf("e2e-registration-alert.yml")
+    assert "workflow_dispatch" in wf
+    assert "secrets.VM_SSH_KEY" in wf and "secrets.VM_USER" in wf   # reuse deploy secrets
+    assert "e2e_registration_alert.sh" in wf                        # ships the script
+    for opt in ("staging", "sandbox", "production"):
+        assert opt in wf
+    s = open(os.path.join(ROOT, "deploy", "e2e_registration_alert.sh"),
+             encoding="utf-8").read()
+    assert "rule_uid=new-registration" in s and \
+           "Sending alerts to local notifier" in s                 # asserts the send
+    assert "DELETE FROM registered_user" in s                      # cleans up

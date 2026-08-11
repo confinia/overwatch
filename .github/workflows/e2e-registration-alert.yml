@@ -1,0 +1,39 @@
+name: e2e — registration alert
+
+# On-demand (pick env): prove a new user registration fires the ops
+# "new-registration" alert and Grafana sends the notification e-mail (#193).
+# Runs ON the VM via the same SSH secrets as deploy.yml / e2e.yml
+# (VM_SSH_KEY, VM_HOST, VM_USER) — Grafana's admin API / logs are only reachable
+# from the VM. The script asserts via Grafana's own logs.
+on:
+  workflow_dispatch:
+    inputs:
+      env:
+        description: environment to test
+        type: choice
+        options: [staging, sandbox, production]
+        default: staging
+
+concurrency:
+  group: e2e-reg-alert-${{ github.event.inputs.env }}   # one per env: it writes a row
+  cancel-in-progress: false
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authorize the SSH session
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "${{ secrets.VM_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "${{ secrets.VM_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Fire a registration and assert the ops alert
+        env:
+          TARGET: ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}
+        run: |
+          ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes "$TARGET" \
+            'bash -s ${{ github.event.inputs.env }}' < deploy/e2e_registration_alert.sh
