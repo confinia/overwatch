@@ -281,3 +281,30 @@ def test_api_hours_param_is_bounded():                 # #71
     assert "_hours" in app_py and "min(h, 168)" in app_py
     main_py = open(os.path.join(HERE, "main.py"), encoding="utf-8").read()
     assert "hours: int = Query(168, ge=1, le=168" in main_py
+
+
+def test_private_sat_selection_persists(html):         # #176
+    # Selecting a private org satellite must stick: it is deep-linked as
+    # #org:<name> so the 15s refresh() and the hashchange handler resolve back
+    # to it, instead of the URL keeping the previous open-data #<norad> and
+    # refresh() re-selecting that satellite.
+    assert "activeOrgSat" in html
+    assert "activeOrgSat = s.satellite" in html                    # selectOrgSat sets it
+    assert "function hashOrgSat" in html and "/^#org:(.+)$/" in html
+    assert '"#org:" + encodeURIComponent(s.satellite)' in html     # written into the URL
+    # refresh()'s open-data default must not fire while a private sat is active
+    assert "activeOrgSat === null" in html
+    # a #org: deep link is resolved (in refresh, hashchange and after loadAccount)
+    assert "orgInfo.sats.find(x => x.satellite ===" in html
+    # switching to an open-data satellite or a station clears the private selection
+    assert "activeStation = null; activeOrgSat = null;" in html     # select()
+    assert "activeNorad = null; activeOrgSat = null;" in html       # selectStation()
+
+
+def test_private_and_open_data_badges(html):           # #176
+    # the detail header marks which fleet a selected satellite belongs to, so a
+    # signed-in user can never mistake an open-data satellite for their own
+    assert "fbadge-private" in html and ">private</span>" in html
+    assert "fbadge-open" in html and "open data</span>" in html
+    # the org-supplied satellite/field names are escaped before going into innerHTML
+    assert "escapeHTML(s.satellite)" in html and "escapeHTML(f.field)" in html

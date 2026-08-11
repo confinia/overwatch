@@ -104,6 +104,13 @@ async function loadAccount(){
   if (!orgInfo) showOpen = true;       // anonymous: always full open data
   applyOpenVisibility();
   renderList(allSats);
+  // Now that the org fleet is known, resolve a private-sat deep link (#org:<name>)
+  // that refresh() couldn't while orgInfo was still loading (#176).
+  const og = hashOrgSat();
+  if (og && orgInfo) {
+    const os = orgInfo.sats.find(x => x.satellite === og);
+    if (os) selectOrgSat(os);
+  }
 }
 async function deleteOrg(id, name){
   if (!confirm(`Delete organization "${name}"? This purges its private data — irreversible.`)) return;
@@ -122,14 +129,20 @@ async function createOrg(){
   else alert(d.detail || "Could not create the organization.");
 }
 function selectOrgSat(s){
-  activeNorad = null; activeStation = null;
-  document.getElementById("panelHead").textContent =
-    `${s.satellite} — private satellite (${orgInfo.name})`;
+  // Private org satellite: keep the selection in the URL as #org:<name> so the
+  // 15s refresh() and hashchange resolve back here instead of reverting to the
+  // last open-data #<norad> (#176). Names/fields are org-supplied → escape them.
+  activeNorad = null; activeStation = null; activeOrgSat = s.satellite;
+  const h = "#org:" + encodeURIComponent(s.satellite);
+  if (location.hash !== h) history.replaceState(null, "", h);
+  document.getElementById("panelHead").innerHTML =
+    `${escapeHTML(s.satellite)} — <span class="fbadge fbadge-private" ` +
+    `title="Your organization's private satellite">private</span> · ${escapeHTML(orgInfo.name)}`;
   const rows = s.fields.map(f =>
-    `${f.field} — ${f.points} point${f.points > 1 ? "s" : ""}, last ${age(f.last)}`).join("<br>");
+    `${escapeHTML(f.field)} — ${f.points} point${f.points > 1 ? "s" : ""}, last ${age(f.last)}`).join("<br>");
   document.getElementById("panelBody").innerHTML =
     `<div class="empty" style="overflow-y:auto; height:100%">` +
-    `<b>Your organization's data — visible to ${orgInfo.name} only</b><br><br>` +
+    `<b>Your organization's data — visible to ${escapeHTML(orgInfo.name)} only</b><br><br>` +
     rows + `<br><br><span style="opacity:.7">Read via ` +
     `GET /api/v1/org/telemetry?satellite=${encodeURIComponent(s.satellite)}&field=… ` +
     `— per-organization dashboards arrive with the Grafana integration.</span></div>`;
@@ -170,6 +183,7 @@ map.on("style.load", () => map.setProjection({ type: "globe" }));
 
 let activeNorad = null;
 let activeStation = null;          // observer string when in station mode
+let activeOrgSat = null;           // private org-satellite name when selected (#176)
 let rxLinkFeatures = [];           // current reception lines (for #42 field->line)
 let allStations = [];              // 7-day station aggregate (search + list)
 async function loadStations(){
@@ -254,11 +268,19 @@ async function refresh(){
   // refreshes and shareable).
   const wanted = hashNorad();
   const wantedStation = hashStation();
+  const wantedOrg = hashOrgSat();
   if (wantedStation && wantedStation !== activeStation) {
     selectStation(wantedStation);
+  } else if (wantedOrg) {
+    // A private-satellite selection (#org:<name>) must persist across refreshes;
+    // resolve it back rather than falling through to the open-data default (#176).
+    if (wantedOrg !== activeOrgSat && orgInfo) {
+      const os = orgInfo.sats.find(x => x.satellite === wantedOrg);
+      if (os) selectOrgSat(os);
+    }
   } else if (wanted && wanted !== activeNorad && satsByNorad[wanted]) {
     select(satsByNorad[wanted]);
-  } else if (activeNorad === null && activeStation === null && !wanted && showOpen) {
+  } else if (activeNorad === null && activeStation === null && activeOrgSat === null && !wanted && showOpen) {
     // Default view: land on a satellite with the freshest telemetry —
     // inside the hour when the network heard one, otherwise the most
     // recently heard overall. The page never opens on an empty panel.
@@ -276,12 +298,21 @@ function hashStation(){
   const m = location.hash.match(/^#station:(.+)$/);
   return m ? decodeURIComponent(m[1]) : null;
 }
+function hashOrgSat(){
+  const m = location.hash.match(/^#org:(.+)$/);
+  return m ? decodeURIComponent(m[1]) : null;
+}
 
 window.addEventListener("hashchange", () => {
   const n = hashNorad();
   if (n && n !== activeNorad && satsByNorad[n]) select(satsByNorad[n]);
   const st = hashStation();
   if (st && st !== activeStation) selectStation(st);
+  const og = hashOrgSat();
+  if (og && og !== activeOrgSat && orgInfo) {
+    const os = orgInfo.sats.find(x => x.satellite === og);
+    if (os) selectOrgSat(os);
+  }
 });
 
 function renderList(sats){
@@ -359,7 +390,7 @@ function renderList(sats){
 // Station mode: one station's receptions across the whole fleet, reusing the
 // orange reception layers. Deep-linkable via #station:OBSERVER.
 async function selectStation(observer){
-  activeStation = observer; activeNorad = null;
+  activeStation = observer; activeNorad = null; activeOrgSat = null;
   const h = "#station:" + encodeURIComponent(observer);
   if (location.hash !== h) history.replaceState(null, "", h);
   const head = document.getElementById("panelHead");
@@ -421,7 +452,7 @@ async function select(s, auto = false){
   // auto = default selection on load, not a user action: skip the usage
   // beacon so the "most-inspected satellites" ops panel stays honest.
   if (!auto && s.norad !== activeNorad) beacon("select", s.norad);
-  activeStation = null;
+  activeStation = null; activeOrgSat = null;
   activeNorad = s.norad;
   if (location.hash !== "#" + s.norad) {
     history.replaceState(null, "", "#" + s.norad);
@@ -449,7 +480,9 @@ async function select(s, auto = false){
   const posOnly = s.has_telemetry ? "" :
     ` <span style="color:var(--dim)">— position-only: encrypted or no open downlink; ` +
     `orbit data below, no public health data (shown honestly, not faked)</span>`;
-  head.innerHTML = `${escapeHTML(s.name)} — NORAD ${s.norad} · ${view3d} · ${opLink}${dashLink}${posOnly}`;
+  head.innerHTML = `${escapeHTML(s.name)} — NORAD ${s.norad} · ` +
+    `<span class="fbadge fbadge-open" title="Public open-data satellite (SatNOGS / CelesTrak)">open data</span> · ` +
+    `${view3d} · ${opLink}${dashLink}${posOnly}`;
 
   // draw recent ground track + who-heard-it reception network
   await drawTrack(s.norad);
