@@ -9,6 +9,17 @@
 # Basic-auth-gated like staging, EXCEPT the Polar webhook path, which must stay
 # open for Polar to POST to (it is signature-verified, not user-authenticated).
 
+# Trust the platform edge (it connects from private/loopback space): pass the
+# original X-Forwarded-Proto (https) and the real client IP through instead of
+# overwriting them with this http listener's scheme. Without it, OIDC builds an
+# http:// redirect_uri that the overwatch-staging realm rejects (#179). Mirrors
+# the prod app caddy (deploy/caddy/Caddyfile.tmpl).
+{
+	servers {
+		trusted_proxies static private_ranges
+	}
+}
+
 # Shared by both staging hosts: the gate and the self-identifying headers.
 (staging_common) {
 	encode zstd gzip

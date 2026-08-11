@@ -12,6 +12,7 @@ STAGING = os.path.join(HERE, "..", "staging")
 COMPOSE = open(os.path.join(STAGING, "docker-compose.yml"), encoding="utf-8").read()
 TMPL = open(os.path.join(HERE, "..", "deploy", "caddy", "Caddyfile.tmpl"),
             encoding="utf-8").read()
+STAGING_CADDY = open(os.path.join(STAGING, "Caddyfile"), encoding="utf-8").read()
 
 
 def test_staging_has_its_own_database():
@@ -38,6 +39,15 @@ def test_billing_is_off_on_staging():
     """Payments belong to the sandbox, the environment for actions with no
     accounting impact."""
     assert 'POLAR_ENV: "off"' in COMPOSE
+
+
+def test_staging_caddy_trusts_edge_proxy():
+    """The staging app caddy listens on http (TLS ends at the platform edge),
+    so it must trust that edge to pass X-Forwarded-Proto (https) + the real
+    client IP through. Without it the app builds an http:// OIDC redirect_uri
+    that the overwatch-staging realm rejects (#179). Prod already does this."""
+    assert "trusted_proxies" in STAGING_CADDY
+    assert "trusted_proxies" in TMPL          # the prod reference it mirrors
 
 
 def test_production_caddy_no_longer_serves_staging():
