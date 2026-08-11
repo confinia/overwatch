@@ -99,6 +99,14 @@ def test_record_login_captures_country():            # #185
     assert "country" in inspect.signature(main._record_login).parameters
 
 
+def test_alerts_are_env_labelled():                  # #187
+    """Every ops alert names its environment (prod/staging/sandbox) so a staging
+    alert is never mistaken for prod. The test env has no PUBLIC_BASE -> prod."""
+    for r in main._ops_alert_rules():
+        assert r["labels"]["env"] == "production"
+        assert r["annotations"]["summary"].startswith("[production]")
+
+
 def test_registrations_board_exists_in_the_ops_org_dir():
     d = json.load(open(BOARD, encoding="utf-8"))
     assert d["uid"] == "registrations"
