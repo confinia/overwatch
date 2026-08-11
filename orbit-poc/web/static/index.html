@@ -84,6 +84,7 @@
   header { padding:14px 16px; border-bottom:1px solid var(--line); }
   header h1 { font-size:15px; margin:0 0 2px; letter-spacing:.2px; }
   header p { margin:0; font-size:12px; color:var(--dim); }
+  h1 .logo { vertical-align:-6px; margin-right:7px; }
   /* Private vs open-data badges in the satellite detail header (#176).
      Named .fbadge, not .badge, to avoid clashing with the sat-list .badge pills. */
   .fbadge { font-size:.78em; border:1px solid currentColor; border-radius:3px;
@@ -202,7 +203,7 @@
   </div>
   <div id="side">
     <header>
-      <h1><span class="dot"></span>Orbit POC — live positions + deep telemetry</h1>
+      <h1><img src="/logo.svg" alt="" width="26" height="26" class="logo"/><span class="dot"></span>Orbit POC — live positions + deep telemetry</h1>
       <p>Positions cached from CelesTrak · health from SatNOGS ·
         sovereign-hostable <span id="ver"></span><span id="acct"></span></p>
     </header>

@@ -1,3 +1,5 @@
+<p align="center"><img src="orbit-poc/web/static/logo.svg" width="96" alt="Overwatch logo"></p>
+
 # Overwatch — a satellite control room from 100% open data
 
 **Live**: https://overwatch.confinia.io · **API**: https://overwatch.confinia.io/api/v1 · **Write-up**: https://overwatch.confinia.io/article.html

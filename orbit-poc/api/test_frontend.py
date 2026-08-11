@@ -308,3 +308,12 @@ def test_private_and_open_data_badges(html):           # #176
     assert "fbadge-open" in html and "open data</span>" in html
     # the org-supplied satellite/field names are escaped before going into innerHTML
     assert "escapeHTML(s.satellite)" in html and "escapeHTML(f.field)" in html
+
+
+def test_logo_asset_used(html):                 # #189
+    if not os.path.exists(STATIC):
+        pytest.skip("web/static not available in this run")
+    assert os.path.exists(os.path.join(STATIC, "logo.svg")), "missing logo.svg"
+    assert "/logo.svg" in html                                  # site header uses it
+    readme = os.path.join(HERE, "..", "..", "README.md")
+    assert "logo.svg" in open(readme, encoding="utf-8").read()   # README uses it
