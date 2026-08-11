@@ -63,8 +63,10 @@ CREATE TABLE IF NOT EXISTS registered_user (
     email      text,
     name       text,
     first_seen timestamptz NOT NULL DEFAULT now(),
-    last_login timestamptz
+    last_login timestamptz,
+    country    text                    -- ISO-2 from GeoIP at first login (#185)
 );
+ALTER TABLE registered_user ADD COLUMN IF NOT EXISTS country text;
 -- Unique visitors per day/country. Never the IP: client_hash is a salted
 -- digest (env secret + UTC day), irreversible and uncorrelatable across days.
 -- UNLOGGED: observability data, losable without regret. Purged at 45 days.
@@ -691,21 +693,23 @@ def _org_of(claims) -> tuple[str, str] | None:
 
 
 def _record_login(cur, sub, email=None, name=None, first_seen=None,
-                  login=True) -> None:
+                  login=True, country=None) -> None:
     """Upsert the registration registry (#172). first_seen keeps the earliest
     known date (the Keycloak backfill knows better than now()); last_login
-    only moves on a real login, not on a backfill sweep."""
-    cur.execute("""INSERT INTO registered_user (sub, email, name, first_seen, last_login)
+    only moves on a real login, not on a backfill sweep. country is captured
+    from the login request's GeoIP (#185); the backfill leaves it null."""
+    cur.execute("""INSERT INTO registered_user (sub, email, name, first_seen, last_login, country)
                    VALUES (%s::uuid, %s, %s, COALESCE(%s::timestamptz, now()),
-                           CASE WHEN %s THEN now() END)
+                           CASE WHEN %s THEN now() END, %s)
                    ON CONFLICT (sub) DO UPDATE SET
                      last_login = CASE WHEN %s THEN now()
                                        ELSE registered_user.last_login END,
                      email = COALESCE(EXCLUDED.email, registered_user.email),
                      name  = COALESCE(EXCLUDED.name,  registered_user.name),
+                     country = COALESCE(EXCLUDED.country, registered_user.country),
                      first_seen = LEAST(registered_user.first_seen,
                                         EXCLUDED.first_seen)""",
-                (sub, email, name, first_seen, login, login))
+                (sub, email, name, first_seen, login, country, login))
     # cursor() never commits and putconn rolls back — every write here
     # commits explicitly (same convention as the _provision_* helpers)
     cur.connection.commit()
@@ -934,12 +938,12 @@ def _provision_ops_org() -> bool:
 def _ops_alert_rules() -> list:
     """The signup alert rules (#172), shaped for Grafana's provisioning API.
     Each: Postgres count over a 15-minute window -> reduce -> threshold > 0."""
-    def rule(uid, title, sql):
+    def rule(uid, title, sql, summary=None):
         return {
             "uid": uid, "title": title, "condition": "C",
             "folderUID": "ops-alerts", "ruleGroup": "signups",
             "for": "0s", "noDataState": "OK", "execErrState": "OK",
-            "annotations": {"summary": title},
+            "annotations": {"summary": summary or title},
             "data": [
                 {"refId": "A", "relativeTimeRange": {"from": 900, "to": 0},
                  "datasourceUid": "orbitcache",
@@ -958,8 +962,18 @@ def _ops_alert_rules() -> list:
         }
     return [
         rule("new-registration", "New user registration",
-             "SELECT count(*) AS value FROM registered_user "
-             "WHERE first_seen > now() - interval '15 minutes'"),
+             # One row per new user -> Grafana turns the text columns into alert
+             # labels, so the e-mail names who signed up, their org and country
+             # (#185). value=1 keeps the reduce/threshold (>0) firing per user.
+             "SELECT ru.email, ru.name, "
+             "COALESCE((SELECT string_agg(o.name, ', ') FROM org_user ou "
+             "JOIN organization o ON o.id = ou.org WHERE ou.sub = ru.sub), "
+             "'(no org)') AS org, "
+             "COALESCE(ru.country, '??') AS country, 1 AS value "
+             "FROM registered_user ru "
+             "WHERE ru.first_seen > now() - interval '15 minutes'",
+             summary="New user {{ $labels.name }} <{{ $labels.email }}> "
+                     "| org: {{ $labels.org }} | country: {{ $labels.country }}"),
         rule("new-api-key", "New API key requested",
              "SELECT count(*) AS value FROM api_key "
              "WHERE created_at > now() - interval '15 minutes'"),
@@ -1121,7 +1135,8 @@ def auth_callback(request: Request, code: str = "", state: str = ""):
         c = _jwt.decode(tok, key.key, algorithms=["RS256"],  # never blocks
                         issuer=KC_ISSUER, options={"verify_aud": False})
         with cursor() as cur:
-            _record_login(cur, c["sub"], c.get("email"), c.get("name"))
+            _record_login(cur, c["sub"], c.get("email"), c.get("name"),
+                          country=client_country(request))
     except Exception:
         pass
     resp = RedirectResponse("/")

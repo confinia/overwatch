@@ -83,6 +83,22 @@ def test_alert_email_defaults_to_contact():
     assert main.OPS_ALERT_EMAIL == "contact@confinia.io"
 
 
+def test_new_registration_alert_is_personalized():   # #185
+    """The e-mail names who signed up, their org and country — not just a count."""
+    rules = {r["uid"]: r for r in main._ops_alert_rules()}
+    sql = rules["new-registration"]["data"][0]["model"]["rawSql"]
+    for frag in ("ru.email", "ru.name", "org_user", "organization", "ru.country"):
+        assert frag in sql, frag
+    summary = rules["new-registration"]["annotations"]["summary"]
+    for frag in ("$labels.name", "$labels.email", "$labels.org", "$labels.country"):
+        assert frag in summary, frag
+
+
+def test_record_login_captures_country():            # #185
+    import inspect
+    assert "country" in inspect.signature(main._record_login).parameters
+
+
 def test_registrations_board_exists_in_the_ops_org_dir():
     d = json.load(open(BOARD, encoding="utf-8"))
     assert d["uid"] == "registrations"
