@@ -690,7 +690,9 @@ function pulseLink(feature){
 // Ground stations that heard the selected satellite (last 7 days), with
 // links to where the satellite was when heard (when history covers it).
 async function drawReceptions(norad){
-  const recs = await j(`/api/receptions/${norad}?hours=${rangeHours}`);
+  const data = await j(`/api/receptions/${norad}?hours=${rangeHours}`);
+  // {points, total, stations} (#175); tolerate the old flat-array shape too.
+  const recs = Array.isArray(data) ? data : data.points;
   const st = {};                     // observer -> aggregated station stats
   const links = [];
   for (const r of recs){
@@ -719,7 +721,10 @@ async function drawReceptions(norad){
       geometry:{ type:"Point", coordinates: l.geometry.coordinates[1] }, properties:{} })) });
   rxLinkFeatures = links;                 // #42: fields click matches against these
   clearPulse();
-  const frames = recs.length, nst = stations.length;
+  // Uncapped totals for the banner (#175) — recs is capped at 300 for plotting,
+  // so the banner must not count it; fall back to it only for the old shape.
+  const frames = Array.isArray(data) ? recs.length : data.total;
+  const nst = Array.isArray(data) ? stations.length : data.stations;
   setRxLegend(nst
     ? `<b>${nst} ground station${nst>1?"s":""}</b> heard this satellite` +
       `<div class="sub">${frames} reception${frames>1?"s":""}, last 7 days — each orange line ` +
