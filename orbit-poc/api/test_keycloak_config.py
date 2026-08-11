@@ -25,17 +25,18 @@ def test_realms_declare_ovh_smtp_and_verify():
     for f in REALM_FILES:
         r = json.load(open(f, encoding="utf-8"))
         s = r["smtpServer"]
-        assert s["host"] == "ssl0.ovh.net" and s["port"] == "587"
-        assert s["from"] == "alert@confinia.io" and s["user"] == "alert@confinia.io"
+        # host/port/from/user come from the generic SMTP_* env, not hardcoded (#195)
+        assert s["host"] == "$(env:SMTP_HOST)" and s["port"] == "$(env:SMTP_PORT)"
+        assert s["from"] == "$(env:SMTP_FROM)" and s["user"] == "$(env:SMTP_USER)"
         assert s["starttls"] == "true" and s["auth"] == "true"
-        assert s["replyTo"] == "contact@confinia.io"
+        assert s["replyTo"] == "$(env:ALERT_RCPT)"
         assert r["verifyEmail"] is True
 
 
 def test_password_is_env_substituted_never_committed():
     for f in REALM_FILES:
         s = json.load(open(f, encoding="utf-8"))["smtpServer"]
-        assert s["password"] == "$(env:KC_SMTP_PASSWORD)", \
+        assert s["password"] == "$(env:SMTP_PASSWORD)", \
             f"{f}: SMTP password must be an env placeholder, not a secret"
 
 
@@ -63,5 +64,6 @@ def test_v2_env_example_lists_required_keys():   # #191
     ex = open(os.path.join(HERE, "..", "v2", ".env.example"), encoding="utf-8").read()
     for k in ("POSTGRES_PASSWORD", "KC_DB_PASSWORD", "KC_BOOTSTRAP_ADMIN_USERNAME",
               "KC_BOOTSTRAP_ADMIN_PASSWORD", "OVERWATCH_CLIENT_SECRET",
-              "KEYCLOAK_USER", "KEYCLOAK_PASSWORD", "KC_SMTP_PASSWORD"):
+              "KEYCLOAK_USER", "KEYCLOAK_PASSWORD",
+              "SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASSWORD", "SMTP_FROM"):
         assert k + "=" in ex, f"{k} missing from v2/.env.example"
