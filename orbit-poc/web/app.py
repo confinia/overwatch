@@ -130,11 +130,13 @@ def receptions(norad):
         # Uncapped totals for the banner — the LIMIT 300 above caps how many
         # receptions we PLOT, not how many exist. These match the reception-
         # summary panel over the same window, instead of reporting 300/40 (#175).
-        cur.execute("""SELECT count(*), count(DISTINCT observer) FROM reception
+        # Alias the counts: the cursor returns dict rows, and count(*) /
+        # count(distinct) would both be named "count" and collide otherwise.
+        cur.execute("""SELECT count(*) AS total, count(DISTINCT observer) AS stations
+                       FROM reception
                        WHERE norad = %s AND ts > now() - %s * interval '1 hour'""",
                     (norad, hours))
-        total, stations = cur.fetchone()
-        return jsonify({"points": points, "total": total, "stations": stations})
+        return jsonify({"points": points, **cur.fetchone()})
 
 
 @app.get("/api/track/<int:norad>")
