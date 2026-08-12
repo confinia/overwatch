@@ -99,6 +99,22 @@ def test_record_login_captures_country():            # #185
     assert "country" in inspect.signature(main._record_login).parameters
 
 
+def test_alerts_are_config_as_code():                # #201
+    """The alert definitions live in the committed ops-alerts.json, not in
+    Python: the app must apply exactly the file's rules/contact-point/policy —
+    nothing hardcoded in main.py anymore."""
+    spec = main._ops_alert_spec()
+    applied = {r["uid"]: r for r in main._ops_alert_rules()}
+    declared = {r["uid"]: r for r in spec["rules"]}
+    assert set(applied) == set(declared) == {"new-registration", "new-api-key"}
+    for uid, r in declared.items():                  # SQL/summary come verbatim
+        assert applied[uid]["data"][0]["model"]["rawSql"] == r["sql"]
+        if "summary" in r:
+            assert r["summary"] in applied[uid]["annotations"]["summary"]
+    assert spec["contactPoint"]["name"] == "ops-email"
+    assert spec["policy"]["receiver"] == "ops-email"
+
+
 def test_alerts_are_env_labelled():                  # #187
     """Every ops alert names its environment (prod/staging/sandbox) so a staging
     alert is never mistaken for prod. The test env has no PUBLIC_BASE -> prod."""
