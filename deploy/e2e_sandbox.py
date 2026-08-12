@@ -40,9 +40,14 @@ BASIC_USER = os.environ.get("BASIC_USER", "")
 BASIC_PASS = os.environ.get("BASIC_PASS", "")
 ADMIN_USER = os.environ.get("KC_ADMIN_USERNAME", "")
 ADMIN_PASS = os.environ.get("KC_ADMIN_PASSWORD", "")
-USER_EMAIL = os.environ.get("E2E_EMAIL", "e2e-bot@confinia.io")
+# A live walk leaves a soft-deleted org behind; re-running with a FIXED email
+# re-links the fresh user to that tombstone (410 "organization has been
+# deleted") and the walk dies before Grafana. A per-run id gives each run a
+# genuinely fresh user + org, so runs never collide with a prior tombstone.
+RUN_ID = os.environ.get("E2E_RUN_ID") or hex(int(time.time()))[-6:]
+USER_EMAIL = os.environ.get("E2E_EMAIL", f"e2e-bot+{RUN_ID}@confinia.io")
 USER_PASS = os.environ.get("E2E_PASSWORD", "e2e-Bot-passw0rd!")
-ORG_NAME = os.environ.get("E2E_ORG", "E2E Bot Org")
+ORG_NAME = os.environ.get("E2E_ORG", f"E2E Bot Org {RUN_ID}")
 
 _steps: list[str] = []
 
