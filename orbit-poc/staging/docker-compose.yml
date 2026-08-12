@@ -137,6 +137,10 @@ services:
       - st_grafana:/var/lib/grafana
       - ../grafana/provisioning:/etc/grafana/provisioning:ro
       - ../grafana/dashboards:/var/lib/grafana/dashboards:ro
+    networks:
+      - default
+      - v2net           # OAuth code exchange (TOKEN_URL/API_URL) resolves the
+                        # shared Keycloak by name — else login 401s (#151)
     restart: unless-stopped
 
   # The sandbox's OWN application caddy — dedicated port 8190 (range 8200-8209).

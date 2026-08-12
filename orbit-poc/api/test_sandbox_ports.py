@@ -54,6 +54,29 @@ def test_api_debug_port_is_8191():
         "sandbox api debug port must be 8191 (not 8087)"
 
 
+def _service_block(compose, name):
+    """The text of one compose service, from `  <name>:` to the next service."""
+    m = re.search(rf'^  {re.escape(name)}:\n(.*?)(?=^  \S|\Z)',
+                  compose, re.M | re.S)
+    return m.group(0) if m else ""
+
+
+def test_grafana_reaches_keycloak_for_oauth_code_exchange():   # #151
+    """Grafana runs the OAuth code exchange server-side against the internal
+    Keycloak (GF_AUTH_GENERIC_OAUTH_TOKEN_URL -> ovw2_keycloak_1). If the
+    grafana service is not on the shared-Keycloak network (v2net), that DNS
+    name doesn't resolve and every private-Grafana login 401s. Guards sandbox
+    AND staging, which both configure OAuth."""
+    for path in (COMPOSE, os.path.join(HERE, "..", "staging", "docker-compose.yml")):
+        gf = _service_block(open(path).read(), "grafana")
+        if "GF_AUTH_GENERIC_OAUTH_TOKEN_URL" not in gf:
+            continue                                  # no OAuth here, nothing to wire
+        assert "ovw2_keycloak_1" in gf                # exchange targets internal KC
+        assert re.search(r'networks:\s*(?:#.*)?\n(?:\s*-\s*\w+\s*(?:#.*)?\n)*'
+                         r'\s*-\s*v2net', gf), \
+            f"{os.path.basename(os.path.dirname(path))} grafana must be on v2net"
+
+
 def test_grafana_has_db_password_matching_db():
     # #117: the datasource provisioning resolves password: $__env{DB_PASSWORD};
     # the sandbox grafana must set it to the sandbox db password, or every panel

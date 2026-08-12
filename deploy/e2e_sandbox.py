@@ -288,18 +288,12 @@ def main():
         gorg = g["grafana_org_id"]
 
         step("sign in to Grafana through OIDC")
-        # Grafana starts its own OAuth flow; when SSO doesn't bounce straight
-        # back, Keycloak shows its login form and Grafana never gets a code
-        # (#151). Follow the form the same way the app leg does, then re-check.
+        # Grafana runs the code exchange server-side against the internal
+        # Keycloak (GF_AUTH_GENERIC_OAUTH_TOKEN_URL) — that requires Grafana to
+        # be on the shared-Keycloak network (#151). We still follow the Keycloak
+        # form the same way the app leg does, for the case SSO doesn't bounce.
         st, url, html = fetch(op, f"{BASE}/grafana/login/generic_oauth")
-        print(f"    [dbg] oauth start -> {st} @ {url}", flush=True)
-        print(f"    [dbg] form={'kc-form-login' in html} len={len(html)} "
-              f"cookies={sorted(c.name for c in op.jar)}", flush=True)
-        u2, h2 = _walk_forms(op, url, html)
-        print(f"    [dbg] after forms -> @ {u2} len={len(h2)} "
-              f"cookies={sorted(c.name for c in op.jar)}", flush=True)
-        if "error" in u2 or "login" in u2.split("?")[0].rsplit("/", 1)[-1]:
-            print(f"    [dbg] landed body head: {h2[:300]!r}", flush=True)
+        _walk_forms(op, url, html)
         st, u = jget(op, "/grafana/api/user")
         if st != 200 or (u.get("email") or "").lower() != USER_EMAIL.lower():
             die(f"Grafana did not authenticate the user ({st}): {u}")
