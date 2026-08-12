@@ -83,6 +83,37 @@ def test_provisioning_uses_the_org_rls_role(monkeypatch):
     assert member["role"] == "Editor"
 
 
+def test_membership_resyncs_when_org_already_provisioned(monkeypatch):   # #13
+    """A user exists in Grafana only after their first OIDC login, so the org is
+    usually already provisioned (grafana_org_id set) by the time membership can
+    be added. Every call must re-attempt the Editor membership, not short-circuit
+    past it — else the user is stuck in Main Org and never sees their dashboard."""
+    calls = []
+    monkeypatch.setattr(main, "GF_ADMIN_PASS", "pw")
+    monkeypatch.setattr(main, "ORG_DB_SECRET", "test-secret")
+
+    def fake_gf(method, path, body=None, gorg=None):
+        calls.append((method, path, body))
+        class R:
+            status_code = 200
+        return R()
+
+    monkeypatch.setattr(main, "_gf", fake_gf)
+
+    class Cur:
+        def __init__(self): self.connection = self
+        def execute(self, *a): pass
+        def fetchone(self): return (42,)              # already provisioned
+        def commit(self): pass
+
+    gorg = main._provision_grafana_org(Cur(), "11111111-2222-3333-4444-555555555555",
+                                       "Acme", "a@b.c")
+    assert gorg == 42
+    member = [b for m, p, b in calls if p == "/orgs/42/users"]
+    assert member, "membership was not re-synced on the already-provisioned path"
+    assert member[0]["loginOrEmail"] == "a@b.c" and member[0]["role"] == "Editor"
+
+
 def test_api_image_ships_the_template():
     df = open(os.path.join(HERE, "Dockerfile"), encoding="utf-8").read()
     assert "COPY tenant_dashboard.json" in df

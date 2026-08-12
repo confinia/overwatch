@@ -19,9 +19,15 @@ import json
 import os
 import re
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
+
+# A live-environment walk races the sandbox's own redeploy (both fire on a push
+# to main): while a container is being recreated, Caddy answers 5xx. Treat those
+# as transient and retry rather than failing the whole walk (#151).
+TRANSIENT = {502, 503, 504}
 
 BASE = os.environ.get("BASE", "https://sandbox.overwatch.confinia.io").rstrip("/")
 # Keycloak's admin API authenticates with a Bearer token, which would collide
@@ -34,9 +40,14 @@ BASIC_USER = os.environ.get("BASIC_USER", "")
 BASIC_PASS = os.environ.get("BASIC_PASS", "")
 ADMIN_USER = os.environ.get("KC_ADMIN_USERNAME", "")
 ADMIN_PASS = os.environ.get("KC_ADMIN_PASSWORD", "")
-USER_EMAIL = os.environ.get("E2E_EMAIL", "e2e-bot@confinia.io")
+# A live walk leaves a soft-deleted org behind; re-running with a FIXED email
+# re-links the fresh user to that tombstone (410 "organization has been
+# deleted") and the walk dies before Grafana. A per-run id gives each run a
+# genuinely fresh user + org, so runs never collide with a prior tombstone.
+RUN_ID = os.environ.get("E2E_RUN_ID") or hex(int(time.time()))[-6:]
+USER_EMAIL = os.environ.get("E2E_EMAIL", f"e2e-bot+{RUN_ID}@confinia.io")
 USER_PASS = os.environ.get("E2E_PASSWORD", "e2e-Bot-passw0rd!")
-ORG_NAME = os.environ.get("E2E_ORG", "E2E Bot Org")
+ORG_NAME = os.environ.get("E2E_ORG", f"E2E Bot Org {RUN_ID}")
 
 _steps: list[str] = []
 
@@ -71,18 +82,29 @@ def opener():
     return op
 
 
-def fetch(op, url, data=None, headers=None, method=None):
-    """Returns (status, final_url, body). Never raises on HTTP errors."""
+def fetch(op, url, data=None, headers=None, method=None, retries=6):
+    """Returns (status, final_url, body). Never raises on HTTP errors. Retries
+    transient gateway errors (5xx) and connection blips with a short backoff so
+    a sandbox mid-redeploy doesn't fail the walk."""
     if isinstance(data, dict):
         data = urllib.parse.urlencode(data).encode()
-    req = urllib.request.Request(url, data=data, method=method)
-    for k, v in (headers or {}).items():
-        req.add_header(k, v)
-    try:
-        with op.open(req, timeout=30) as r:
-            return r.status, r.geturl(), r.read().decode("utf-8", "replace")
-    except urllib.error.HTTPError as e:
-        return e.code, e.geturl(), e.read().decode("utf-8", "replace")
+    for attempt in range(retries):
+        req = urllib.request.Request(url, data=data, method=method)
+        for k, v in (headers or {}).items():
+            req.add_header(k, v)
+        try:
+            with op.open(req, timeout=30) as r:
+                return r.status, r.geturl(), r.read().decode("utf-8", "replace")
+        except urllib.error.HTTPError as e:
+            if e.code in TRANSIENT and attempt < retries - 1:
+                time.sleep(2 * (attempt + 1))
+                continue
+            return e.code, e.geturl(), e.read().decode("utf-8", "replace")
+        except urllib.error.URLError:
+            if attempt < retries - 1:                # connection refused/reset
+                time.sleep(2 * (attempt + 1))
+                continue
+            raise
 
 
 def jpost(op, path, body=None, method="POST"):
@@ -176,12 +198,15 @@ def _form(html):
     return action, fields
 
 
-def login(op, max_steps=4):
-    """Drive /auth/login through the Keycloak forms to the callback."""
-    st, url, html = fetch(op, f"{BASE}/api/v1/auth/login")
+def _walk_forms(op, url, html, max_steps=4):
+    """Submit the Keycloak login form(s) until the page is no longer one.
+    Keycloak may split the flow (username page, then password page), so we
+    follow whatever fields each page asks for. Returns the final (url, html).
+    A no-op when the page is already off the form (e.g. SSO bounced straight
+    through), which is why the same helper drives both the app and Grafana."""
     for _ in range(max_steps):
         if "kc-form-login" not in html:
-            return url                      # authenticated (callback ran)
+            return url, html                # authenticated (callback ran)
         action, fields = _form(html)
         if not action:
             die(f"no login form at {url}")
@@ -199,12 +224,33 @@ def login(op, max_steps=4):
     die("login did not complete (still on a Keycloak form)")
 
 
+def login(op):
+    """Drive /auth/login through the Keycloak forms to the callback."""
+    st, url, html = fetch(op, f"{BASE}/api/v1/auth/login")
+    url, _ = _walk_forms(op, url, html)
+    return url
+
+
+def wait_ready(op, tries=45):
+    """Poll a public endpoint until the sandbox answers 200, so the walk never
+    starts against a stack that is still coming up (or mid-redeploy)."""
+    for _ in range(tries):
+        st, _, _ = fetch(op, f"{BASE}/api/v1/satellites", retries=1)
+        if st == 200:
+            return
+        time.sleep(2)
+    die(f"sandbox never became ready at {BASE}")
+
+
 def main():
     if not (ADMIN_USER and ADMIN_PASS):
         die("KC_ADMIN_USERNAME / KC_ADMIN_PASSWORD required")
     print(f"e2e against {BASE} (realm {REALM})")
     op = opener()
     adm = admin_opener()
+
+    step("wait for the sandbox to answer")
+    wait_ready(op)
 
     step("Keycloak admin token")
     token = kc_admin_token(adm)
@@ -242,10 +288,19 @@ def main():
         gorg = g["grafana_org_id"]
 
         step("sign in to Grafana through OIDC")
-        st, url, _ = fetch(op, f"{BASE}/grafana/login/generic_oauth")
+        # Grafana runs the code exchange server-side against the internal
+        # Keycloak (GF_AUTH_GENERIC_OAUTH_TOKEN_URL) — that requires Grafana to
+        # be on the shared-Keycloak network (#151). We still follow the Keycloak
+        # form the same way the app leg does, for the case SSO doesn't bounce.
+        st, url, html = fetch(op, f"{BASE}/grafana/login/generic_oauth")
+        _walk_forms(op, url, html)
         st, u = jget(op, "/grafana/api/user")
         if st != 200 or (u.get("email") or "").lower() != USER_EMAIL.lower():
             die(f"Grafana did not authenticate the user ({st}): {u}")
+        # The Grafana user only exists now (first OIDC login, just above), so the
+        # membership add attempted at org creation 404'd. Re-hit /v1/org/grafana
+        # so the api adds them to their org now that they exist (#13).
+        jget(op, "/api/v1/org/grafana")
 
         step(f"user is a member of their Grafana org ({gorg})")
         st, orgs = jget(op, "/grafana/api/user/orgs")

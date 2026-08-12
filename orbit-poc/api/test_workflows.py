@@ -47,6 +47,18 @@ def test_promotion_is_gated_by_an_environment():
     assert d.index("needs: stage") < d.index("slots.sh promote")
 
 
+def test_e2e_walker_follows_grafana_form_and_survives_redeploys():   # #151
+    """The Grafana OIDC leg must follow the Keycloak login form (not a bare
+    fetch), and the walk must tolerate the sandbox being mid-redeploy — else CI
+    goes red on a race rather than a real regression."""
+    w = open(os.path.join(ROOT, "deploy", "e2e_sandbox.py"), encoding="utf-8").read()
+    assert w.count("_walk_forms(") >= 2                   # app leg + Grafana leg
+    grafana = w[w.index("generic_oauth"):]
+    assert "_walk_forms(" in grafana[:400]               # right after the Grafana fetch
+    assert "TRANSIENT" in w and "502" in w               # retry transient gateway errors
+    assert "wait_ready(" in w                            # and wait for readiness first
+
+
 def test_deploy_does_not_deadlock_on_a_pending_approval():   # #203
     """The promote job waits on the production reviewer. With
     cancel-in-progress:false a single un-actioned approval sits in `waiting`
