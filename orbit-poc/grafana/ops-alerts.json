@@ -1,0 +1,25 @@
+{
+  "_comment": "Ops signup alerts as code (#201). The api applies these to the 'Overwatch Ops' Grafana org at startup (_provision_ops_alerts). Only the variable parts live here — the contact point, the root notification policy and each rule's SQL/summary. The mechanical reduce->threshold(>0) pipeline, the folder and the per-env `env` label + '[env]' summary prefix are assembled in main.py so the same file serves sandbox/staging/prod. addresses come from OPS_ALERT_EMAIL (.env). See #172/#185/#187 for how this evolved.",
+  "contactPoint": {
+    "name": "ops-email",
+    "type": "email",
+    "disableResolveMessage": true
+  },
+  "policy": {
+    "receiver": "ops-email"
+  },
+  "rules": [
+    {
+      "uid": "new-registration",
+      "title": "New user registration",
+      "_sql_comment": "One row per new user -> Grafana turns the text columns into alert labels, so the e-mail names who signed up, their org and country (#185). value=1 keeps the reduce/threshold (>0) firing per user.",
+      "sql": "SELECT ru.email, ru.name, COALESCE((SELECT string_agg(o.name, ', ') FROM org_user ou JOIN organization o ON o.id = ou.org WHERE ou.sub = ru.sub), '(no org)') AS org, COALESCE(ru.country, '??') AS country, 1 AS value FROM registered_user ru WHERE ru.first_seen > now() - interval '15 minutes'",
+      "summary": "New user {{ $labels.name }} <{{ $labels.email }}> | org: {{ $labels.org }} | country: {{ $labels.country }}"
+    },
+    {
+      "uid": "new-api-key",
+      "title": "New API key requested",
+      "sql": "SELECT count(*) AS value FROM api_key WHERE created_at > now() - interval '15 minutes'"
+    }
+  ]
+}

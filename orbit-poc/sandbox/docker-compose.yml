@@ -78,6 +78,8 @@ services:
     volumes:
       # the admin-only ops boards the api seeds into the ops Grafana org (#168)
       - ../grafana/ops-dashboards:/ops-dashboards:ro
+      # ops signup alerts as code (#201): rules + contact point + policy
+      - ../grafana/ops-alerts.json:/ops-alerts.json:ro
     restart: unless-stopped
 
   web:

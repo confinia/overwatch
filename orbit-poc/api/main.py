@@ -840,6 +840,21 @@ OPS_TABLES = ("organization", "org_user", "org_token", "api_key",
 OPS_ALERT_EMAIL = os.environ.get("OPS_ALERT_EMAIL", "contact@confinia.io")
 OPS_GF_ORG = "Overwatch Ops"
 OPS_DASHBOARDS_DIR = os.environ.get("OPS_DASHBOARDS_DIR", "/ops-dashboards")
+# Alerting as code (#201): the contact point, root policy and each rule's
+# SQL/summary are declared in this committed file, not built in Python. The
+# container mounts it at /ops-alerts.json; the module-relative repo copy is the
+# fallback so tests and a local run read the same source of truth.
+OPS_ALERTS_FILE = os.environ.get("OPS_ALERTS_FILE", "/ops-alerts.json")
+if not os.path.isfile(OPS_ALERTS_FILE):
+    OPS_ALERTS_FILE = os.path.join(
+        os.path.dirname(__file__), "..", "grafana", "ops-alerts.json")
+
+
+def _ops_alert_spec() -> dict:
+    """The declarative ops-alert definitions (contact point, policy, rules)."""
+    import json as _j
+    with open(OPS_ALERTS_FILE, encoding="utf-8") as fh:
+        return _j.load(fh)
 
 
 def _provision_ops_role(cur) -> None:
@@ -937,9 +952,11 @@ def _provision_ops_org() -> bool:
 
 def _ops_alert_rules() -> list:
     """The signup alert rules (#172), shaped for Grafana's provisioning API.
-    Each: Postgres count over a 15-minute window -> reduce -> threshold > 0.
-    Every alert carries an `env` label (production/staging/sandbox, derived from
-    PUBLIC_BASE) so the e-mail says which environment fired it (#187)."""
+    Each rule's SQL/summary comes from the committed ops-alerts.json (#201);
+    here we wrap them in the mechanical Postgres-count -> reduce -> threshold(>0)
+    pipeline. Every alert carries an `env` label (production/staging/sandbox,
+    derived from PUBLIC_BASE) so the e-mail says which environment fired it
+    (#187)."""
     host = PUBLIC_BASE.split("://")[-1].split("/")[0].split(".")[0]
     env = host if host in ("staging", "sandbox") else "production"
 
@@ -966,24 +983,8 @@ def _ops_alert_rules() -> list:
                                                          "type": "gt"}}]}},
             ],
         }
-    return [
-        rule("new-registration", "New user registration",
-             # One row per new user -> Grafana turns the text columns into alert
-             # labels, so the e-mail names who signed up, their org and country
-             # (#185). value=1 keeps the reduce/threshold (>0) firing per user.
-             "SELECT ru.email, ru.name, "
-             "COALESCE((SELECT string_agg(o.name, ', ') FROM org_user ou "
-             "JOIN organization o ON o.id = ou.org WHERE ou.sub = ru.sub), "
-             "'(no org)') AS org, "
-             "COALESCE(ru.country, '??') AS country, 1 AS value "
-             "FROM registered_user ru "
-             "WHERE ru.first_seen > now() - interval '15 minutes'",
-             summary="New user {{ $labels.name }} <{{ $labels.email }}> "
-                     "| org: {{ $labels.org }} | country: {{ $labels.country }}"),
-        rule("new-api-key", "New API key requested",
-             "SELECT count(*) AS value FROM api_key "
-             "WHERE created_at > now() - interval '15 minutes'"),
-    ]
+    return [rule(r["uid"], r["title"], r["sql"], r.get("summary"))
+            for r in _ops_alert_spec()["rules"]]
 
 
 def _provision_ops_alerts(gorg: int) -> None:
@@ -991,19 +992,20 @@ def _provision_ops_alerts(gorg: int) -> None:
     (#172) — API-provisioned like the org itself. E-mails to OPS_ALERT_EMAIL
     start flowing the moment GF_SMTP_* is filled in .env; the rules provision
     and evaluate regardless."""
+    spec = _ops_alert_spec()
     cps = _gf("GET", "/v1/provisioning/contact-points", gorg=gorg)
     existing = ({c["name"]: c["uid"] for c in cps.json()}
                 if cps.status_code == 200 else {})
-    cp = {"name": "ops-email", "type": "email",
-          "settings": {"addresses": OPS_ALERT_EMAIL},
-          "disableResolveMessage": True}
-    if "ops-email" in existing:
-        _gf("PUT", f"/v1/provisioning/contact-points/{existing['ops-email']}",
+    # The addresses are the one runtime secret (OPS_ALERT_EMAIL, .env); the
+    # rest of the contact point is declared in ops-alerts.json.
+    cp = {**spec["contactPoint"],
+          "settings": {"addresses": OPS_ALERT_EMAIL}}
+    if cp["name"] in existing:
+        _gf("PUT", f"/v1/provisioning/contact-points/{existing[cp['name']]}",
             cp, gorg=gorg)
     else:
         _gf("POST", "/v1/provisioning/contact-points", cp, gorg=gorg)
-    _gf("PUT", "/v1/provisioning/policies", {"receiver": "ops-email"},
-        gorg=gorg)
+    _gf("PUT", "/v1/provisioning/policies", spec["policy"], gorg=gorg)
     _gf("POST", "/folders", {"title": "alerts", "uid": "ops-alerts"},
         gorg=gorg)                                # 409 = already there
     for r in _ops_alert_rules():
