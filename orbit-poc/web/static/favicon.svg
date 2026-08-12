@@ -1,28 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Overwatch satellite">
-  <!-- dark disc so the icon reads on both light and dark browser chrome -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Overwatch">
+  <!-- Simplified logo mark for the tab (16px): solid globe, bold orbit, one
+       satellite, no latitude lines. Full mark with latitudes is logo.svg. -->
   <circle cx="16" cy="16" r="16" fill="#0d1b2f"/>
-  <!-- solar panels -->
-  <g fill="#2c6cb0" stroke="#8fb8e0" stroke-width="0.6">
-    <rect x="2.5" y="12" width="8.5" height="8" rx="0.6"/>
-    <rect x="21" y="12" width="8.5" height="8" rx="0.6"/>
-  </g>
-  <!-- panel cells -->
-  <g stroke="#0d1b2f" stroke-width="0.6">
-    <path d="M5.3 12v8M8.1 12v8"/>
-    <path d="M23.9 12v8M26.7 12v8"/>
-    <path d="M2.5 16h8.5M21 16h8.5"/>
-  </g>
-  <!-- struts to the body -->
-  <path d="M11 16h2.5M18.5 16H21" stroke="#8fb8e0" stroke-width="1.1"/>
-  <!-- satellite body -->
-  <rect x="13" y="11.5" width="6" height="9" rx="1.3" fill="#eef3f9"/>
-  <!-- dish antenna on a short mast -->
-  <path d="M16 11.5V8" stroke="#8fb8e0" stroke-width="1"/>
-  <circle cx="16" cy="6.4" r="2.6" fill="none" stroke="#eef3f9" stroke-width="1.2"/>
-  <circle cx="16" cy="6.4" r="0.7" fill="#eef3f9"/>
-  <!-- signal blips -->
-  <g fill="#f5a623">
-    <circle cx="22.5" cy="6" r="1"/>
-    <circle cx="25.4" cy="4.4" r="0.8"/>
-  </g>
+  <ellipse cx="16" cy="16" rx="12.5" ry="5.2" transform="rotate(-22 16 16)"
+           fill="none" stroke="#5aa9ff" stroke-width="2.2"/>
+  <circle cx="16" cy="16" r="4.6" fill="#5aa9ff"/>
+  <circle cx="21.9" cy="9.3" r="2.1" fill="#eaf3ff"/>
 </svg>

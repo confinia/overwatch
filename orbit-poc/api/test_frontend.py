@@ -330,3 +330,11 @@ def test_reception_banner_counts_are_uncapped(html):   # #175
     assert '"points": points' in app_py
     assert "LIMIT 300" in app_py                     # still caps the plotted points
     assert "data.total" in html and "data.stations" in html
+
+
+def test_favicon_is_the_logo_mark(html):        # #199
+    # the favicon is the simplified logo mark (orbit + accent), not the old
+    # detailed satellite — so it stays on-brand and crisp at 16px.
+    fav = open(os.path.join(STATIC, "favicon.svg"), encoding="utf-8").read()
+    assert "<ellipse" in fav                      # the orbit ring (logo family)
+    assert "5aa9ff" in fav.lower()                # brand accent
