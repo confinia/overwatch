@@ -13,8 +13,14 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: deploy-production    # never two deploys at once
-  cancel-in-progress: false
+  group: deploy-production
+  # Never two deploys at once — a newer push supersedes the older run (latest
+  # main wins). cancel-in-progress MUST be true: `promote` waits on the
+  # `production` environment reviewer, and with `false` a single un-actioned
+  # approval sits in `waiting` holding this group forever, so every later run
+  # queues as pending with 0 jobs and the pipeline wedges (#203). Cancelling the
+  # stale run instead keeps staging flowing and re-stages the latest commit.
+  cancel-in-progress: true
 
 jobs:
   stage:
