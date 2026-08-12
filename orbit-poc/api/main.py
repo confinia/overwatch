@@ -1033,6 +1033,19 @@ def _provision_ops_org_async() -> None:
     threading.Thread(target=_loop, daemon=True).start()
 
 
+def _ensure_grafana_member(gorg: int, email: str) -> None:
+    """Add the user to THEIR Grafana org as Editor — idempotently. A user only
+    exists in Grafana after their first OIDC login, so the add attempted at org
+    creation 404s; running it on every /v1/org/grafana call makes the membership
+    land once they've signed in (409 = already a member) (#13)."""
+    if not (email and GF_ADMIN_PASS):
+        return
+    try:
+        _gf("POST", f"/orgs/{gorg}/users", {"loginOrEmail": email, "role": "Editor"})
+    except _rq.RequestException:
+        pass                                          # Grafana down: next call retries
+
+
 def _provision_grafana_org(cur, org_id: str, org_name: str, email: str = "") -> int | None:
     """Idempotently give an organization its OWN Grafana: a Grafana org, a
     datasource authenticating as the org's **RLS-scoped Postgres role**, and the
@@ -1050,6 +1063,7 @@ def _provision_grafana_org(cur, org_id: str, org_name: str, email: str = "") -> 
     cur.execute("SELECT grafana_org_id FROM organization WHERE id=%s::uuid", (org_id,))
     row = cur.fetchone()
     if row and row[0]:
+        _ensure_grafana_member(row[0], email)          # sync membership post-login
         return row[0]                                  # already provisioned
     role, pw = _org_role(org_id)
     gf_name = f"{org_name} ({org_id[:8]})"             # unique, human-readable
@@ -1074,9 +1088,7 @@ def _provision_grafana_org(cur, org_id: str, org_name: str, email: str = "") -> 
         _gf("POST", "/dashboards/db",
             {"dashboard": _json.loads(tpl.replace("__DS_UID__", ds_uid)),
              "overwrite": True}, gorg=gorg)
-        if email:                                      # Editor in THEIR org only
-            _gf("POST", f"/orgs/{gorg}/users",
-                {"loginOrEmail": email, "role": "Editor"})
+        _ensure_grafana_member(gorg, email)            # Editor in THEIR org only
     except _rq.RequestException:
         return None                                    # Grafana down: retry later
     cur.execute("UPDATE organization SET grafana_org_id=%s WHERE id=%s::uuid",

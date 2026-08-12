@@ -297,6 +297,10 @@ def main():
         st, u = jget(op, "/grafana/api/user")
         if st != 200 or (u.get("email") or "").lower() != USER_EMAIL.lower():
             die(f"Grafana did not authenticate the user ({st}): {u}")
+        # The Grafana user only exists now (first OIDC login, just above), so the
+        # membership add attempted at org creation 404'd. Re-hit /v1/org/grafana
+        # so the api adds them to their org now that they exist (#13).
+        jget(op, "/api/v1/org/grafana")
 
         step(f"user is a member of their Grafana org ({gorg})")
         st, orgs = jget(op, "/grafana/api/user/orgs")
