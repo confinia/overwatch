@@ -84,6 +84,17 @@ def test_e2e_does_not_touch_the_deployment_checkout():
     assert "e2e-run" in e and "scp" in e
 
 
+def test_e2e_runs_after_the_sandbox_redeploy_not_racing_it():   # #151
+    """On a push to main, 'sandbox (per PR)' recreates the sandbox while the e2e
+    walks it — a mid-flight 502. The e2e must chain off that deploy completing
+    (workflow_run), not the push, and skip when the deploy failed."""
+    e = _wf("e2e.yml")
+    assert "workflow_run:" in e
+    assert re.search(r'workflows:\s*\[\s*"sandbox \(per PR\)"\s*\]', e)
+    assert "on:\n  push:" not in e                    # no longer races the push
+    assert "workflow_run.conclusion == 'success'" in e
+
+
 def test_e2e_reaches_keycloak_over_loopback_on_the_vm():
     """A container cannot reach a loopback-bound port, so the e2e runs on the
     host itself with KC_ADMIN_BASE pointing at 127.0.0.1 (#137)."""

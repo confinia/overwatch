@@ -8,8 +8,15 @@ name: e2e (sandbox)
 # The script is shipped from the runner's checkout to a scratch path rather than
 # pulled with git on the VM: deploy.yml owns that checkout, and both workflows
 # fire on the same push — sharing it made them race on .git/index.lock (#147).
+# Runs AFTER the sandbox has redeployed, not on the push itself: pushing to
+# main fires "sandbox (per PR)" (which recreates the sandbox stack) and the e2e
+# at the same time, so walking on the push races the redeploy and 502s
+# mid-flight (#151). Chaining off workflow_run makes the walk see a settled
+# sandbox. Manual dispatch still walks whatever is live now.
 on:
-  push:
+  workflow_run:
+    workflows: ["sandbox (per PR)"]
+    types: [completed]
     branches: [main]
   workflow_dispatch:
 
@@ -20,6 +27,11 @@ concurrency:
 jobs:
   e2e:
     runs-on: ubuntu-latest
+    # Skip when the sandbox redeploy failed — no point walking a broken stack.
+    # A manual dispatch has no triggering run, so it always proceeds.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
     steps:
       - uses: actions/checkout@v4
 
