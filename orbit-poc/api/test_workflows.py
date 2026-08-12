@@ -55,8 +55,9 @@ def test_e2e_walker_follows_grafana_form_and_survives_redeploys():   # #151
     assert w.count("_walk_forms(") >= 2                   # app leg + Grafana leg
     grafana = w[w.index("generic_oauth"):]
     assert "_walk_forms(" in grafana[:400]               # right after the Grafana fetch
-    assert "TRANSIENT" in w and "502" in w               # retry transient gateway errors
+    assert "TRANSIENT" in w and "502" in w and "429" in w   # transient 5xx + rate limit
     assert "wait_ready(" in w                            # and wait for readiness first
+    assert "MIN_INTERVAL" in w                           # throttled under the api's 5/s
 
 
 def test_deploy_does_not_deadlock_on_a_pending_approval():   # #203
