@@ -47,6 +47,16 @@ def test_promotion_is_gated_by_an_environment():
     assert d.index("needs: stage") < d.index("slots.sh promote")
 
 
+def test_deploy_does_not_deadlock_on_a_pending_approval():   # #203
+    """The promote job waits on the production reviewer. With
+    cancel-in-progress:false a single un-actioned approval sits in `waiting`
+    holding the concurrency group forever, wedging every later deploy (0 jobs,
+    pending). Cancelling the stale run instead keeps the pipeline alive."""
+    d = _wf("deploy.yml")
+    assert re.search(r"group:\s*deploy-production", d)        # serialized...
+    assert re.search(r"cancel-in-progress:\s*true", d)        # ...but never wedged
+
+
 def test_deploy_verifies_the_security_invariant():
     """#129 must be re-checked after every promotion."""
     d = _wf("deploy.yml")
