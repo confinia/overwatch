@@ -26,8 +26,14 @@ import urllib.request
 
 # A live-environment walk races the sandbox's own redeploy (both fire on a push
 # to main): while a container is being recreated, Caddy answers 5xx. Treat those
-# as transient and retry rather than failing the whole walk (#151).
-TRANSIENT = {502, 503, 504}
+# — and a 429 from the api's rate limiter — as transient and retry rather than
+# failing the whole walk (#151).
+TRANSIENT = {429, 502, 503, 504}
+
+# The walk fires its steps back to back (well over the api's 5/s limit), so it
+# would trip the rate limiter mid-flight. Space requests out to stay under it.
+MIN_INTERVAL = 0.25
+_last_req = [0.0]
 
 BASE = os.environ.get("BASE", "https://sandbox.overwatch.confinia.io").rstrip("/")
 # Keycloak's admin API authenticates with a Bearer token, which would collide
@@ -89,6 +95,10 @@ def fetch(op, url, data=None, headers=None, method=None, retries=6):
     if isinstance(data, dict):
         data = urllib.parse.urlencode(data).encode()
     for attempt in range(retries):
+        gap = MIN_INTERVAL - (time.monotonic() - _last_req[0])
+        if gap > 0:
+            time.sleep(gap)                          # stay under the api's 5/s
+        _last_req[0] = time.monotonic()
         req = urllib.request.Request(url, data=data, method=method)
         for k, v in (headers or {}).items():
             req.add_header(k, v)
