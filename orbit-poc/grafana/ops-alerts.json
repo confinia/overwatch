@@ -13,7 +13,7 @@
       "uid": "new-registration",
       "title": "New user registration",
       "_sql_comment": "One row per new user -> Grafana turns the text columns into alert labels, so the e-mail names who signed up, their org and country (#185). value=1 keeps the reduce/threshold (>0) firing per user.",
-      "sql": "SELECT ru.email, ru.name, COALESCE((SELECT string_agg(o.name, ', ') FROM org_user ou JOIN organization o ON o.id = ou.org WHERE ou.sub = ru.sub), '(no org)') AS org, COALESCE(ru.country, '??') AS country, 1 AS value FROM registered_user ru WHERE ru.first_seen > now() - interval '15 minutes'",
+      "sql": "SELECT ru.email, ru.name, COALESCE((SELECT string_agg(o.name, ', ') FROM org_user ou JOIN organization o ON o.id = ou.org WHERE ou.sub = ru.sub), '(no org)') AS org, COALESCE(ru.country, '??') AS country, 1 AS value FROM registered_user ru WHERE ru.first_seen > now() - interval '15 minutes' AND ru.email NOT LIKE 'e2e-bot%'",
       "summary": "New user {{ $labels.name }} <{{ $labels.email }}> | org: {{ $labels.org }} | country: {{ $labels.country }}"
     },
     {

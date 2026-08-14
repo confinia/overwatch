@@ -94,6 +94,15 @@ def test_new_registration_alert_is_personalized():   # #185
         assert frag in summary, frag
 
 
+def test_new_registration_alert_ignores_the_e2e_bot():   # ops-alert noise
+    """The signup e2e creates a disposable e2e-bot+<run>@confinia.io on every
+    run; the new-registration alert must exclude it so a push doesn't e-mail a
+    firing alert for a test user."""
+    rules = {r["uid"]: r for r in main._ops_alert_rules()}
+    sql = rules["new-registration"]["data"][0]["model"]["rawSql"]
+    assert "e2e-bot%" in sql and "NOT LIKE" in sql
+
+
 def test_record_login_captures_country():            # #185
     import inspect
     assert "country" in inspect.signature(main._record_login).parameters
