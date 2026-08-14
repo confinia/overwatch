@@ -21,12 +21,14 @@ import time
 from contextlib import asynccontextmanager, contextmanager
 
 import metering
+import oem as _oem
 import polar
 
 import re as _re
 
 import psycopg2
 import psycopg2.pool
+from psycopg2.extras import execute_values
 from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
@@ -156,6 +158,26 @@ CREATE TABLE IF NOT EXISTS billing_event (
     payload     jsonb,
     received_at timestamptz NOT NULL DEFAULT now(),
     processed   boolean NOT NULL DEFAULT false
+);
+-- Bring-your-own precise orbit (#208): a CCSDS OEM a user uploaded, stored as a
+-- private ephemeris track. Owner-scoped by the signed-in subject; deliberately
+-- SEPARATE from the public `position` fleet so an upload can never touch the
+-- shared showcase.
+CREATE TABLE IF NOT EXISTS ephemeris (
+    id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    owner_sub   uuid NOT NULL,
+    object_id   text,
+    label       text,
+    created_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ephemeris_owner_idx ON ephemeris (owner_sub, created_at DESC);
+CREATE TABLE IF NOT EXISTS ephemeris_point (
+    ephemeris_id uuid NOT NULL REFERENCES ephemeris(id) ON DELETE CASCADE,
+    ts           timestamptz NOT NULL,
+    lat          double precision NOT NULL,
+    lon          double precision NOT NULL,
+    alt_km       double precision NOT NULL,
+    PRIMARY KEY (ephemeris_id, ts)
 );
 """
 
@@ -1181,6 +1203,121 @@ def me(request: Request):
     org = _org_of(c)
     return {"sub": c["sub"], "email": c.get("email"), "name": c.get("name"),
             "organization": {"id": org[0], "name": org[1]} if org else None}
+
+
+# --------------------------------------------------------------------------
+# Bring-your-own precise orbit (#208): upload a CCSDS OEM -> a private ephemeris
+# the owner can view on the globe. Owner-scoped by the signed-in subject; never
+# writes the public `position` fleet. Store/read are factored out of the routes
+# so they can be tested (incl. isolation) without minting a token.
+# --------------------------------------------------------------------------
+_OEM_MAX_BYTES = 4_000_000
+_OEM_MAX_POINTS = 100_000
+
+
+def _store_oem(cur, owner_sub: str, oem_text: str, label: str | None = None) -> dict:
+    """Parse an OEM (raises _oem.OemError) and persist it as this owner's
+    ephemeris. Caller commits."""
+    object_id, recs = _oem.positions_from_oem(oem_text)
+    if not recs:
+        raise _oem.OemError("OEM has no state vectors")
+    if len(recs) > _OEM_MAX_POINTS:
+        raise _oem.OemError(f"OEM has too many points (>{_OEM_MAX_POINTS})")
+    lbl = (label or object_id or "ephemeris").strip()[:80]
+    cur.execute("INSERT INTO ephemeris (owner_sub, object_id, label) "
+                "VALUES (%s::uuid, %s, %s) RETURNING id", (owner_sub, object_id, lbl))
+    eph_id = cur.fetchone()[0]
+    execute_values(cur, "INSERT INTO ephemeris_point "
+                        "(ephemeris_id, ts, lat, lon, alt_km) VALUES %s",
+                   [(eph_id, dt, la, lo, al) for (dt, la, lo, al) in recs])
+    return {"id": eph_id, "object_id": object_id, "label": lbl,
+            "points": len(recs), "start": recs[0][0], "stop": recs[-1][0]}
+
+
+def _read_oem_track(cur, owner_sub: str, eph_id: str):
+    """The owner's ephemeris track, or None. The WHERE on owner_sub IS the
+    isolation — a user can only read their own."""
+    cur.execute("SELECT object_id, label FROM ephemeris "
+                "WHERE id = %s::uuid AND owner_sub = %s::uuid", (eph_id, owner_sub))
+    head = cur.fetchone()
+    if not head:
+        return None
+    cur.execute("SELECT ts, lat, lon, alt_km FROM ephemeris_point "
+                "WHERE ephemeris_id = %s::uuid ORDER BY ts", (eph_id,))
+    return {"object_id": head[0], "label": head[1], "points": cur.fetchall()}
+
+
+class OemUpload(BaseModel):
+    oem: str
+    label: str | None = None
+
+
+@app.post("/v1/ephemeris", status_code=201)
+def upload_ephemeris(request: Request, body: OemUpload):
+    """Import a CCSDS OEM (KVN, Earth-fixed frames — #208 Phase 1) as a private
+    ephemeris owned by the signed-in user. Returns its id + a summary."""
+    c = _require_user(request)
+    if len(body.oem.encode("utf-8", "ignore")) > _OEM_MAX_BYTES:
+        raise HTTPException(413, "OEM too large.")
+    try:
+        with cursor() as cur:
+            r = _store_oem(cur, c["sub"], body.oem, body.label)
+            cur.connection.commit()
+    except _oem.OemError as e:
+        raise HTTPException(422, f"Invalid OEM: {e}")
+    return {"id": str(r["id"]), "object_id": r["object_id"], "label": r["label"],
+            "points": r["points"], "start": r["start"].isoformat(),
+            "stop": r["stop"].isoformat()}
+
+
+@app.get("/v1/ephemeris")
+def list_ephemeris(request: Request):
+    """The signed-in user's uploaded ephemerides (newest first)."""
+    c = _require_user(request)
+    with cursor() as cur:
+        cur.execute(
+            "SELECT e.id, e.object_id, e.label, e.created_at, count(p.*) AS points, "
+            "min(p.ts) AS t0, max(p.ts) AS t1 "
+            "FROM ephemeris e LEFT JOIN ephemeris_point p ON p.ephemeris_id = e.id "
+            "WHERE e.owner_sub = %s::uuid GROUP BY e.id ORDER BY e.created_at DESC",
+            (c["sub"],))
+        rows = cur.fetchall()
+    return [{"id": str(r[0]), "object_id": r[1], "label": r[2],
+             "created_at": r[3].isoformat(), "points": r[4],
+             "start": r[5].isoformat() if r[5] else None,
+             "stop": r[6].isoformat() if r[6] else None} for r in rows]
+
+
+@app.get("/v1/ephemeris/{eph_id}")
+def get_ephemeris(request: Request, eph_id: str):
+    """The track points, for the globe to draw. Owner-scoped (404 for anyone
+    else's id, so ownership isn't even disclosed)."""
+    c = _require_user(request)
+    if not _UUID_RE.match(eph_id):
+        raise HTTPException(404, "No such ephemeris.")
+    with cursor() as cur:
+        track = _read_oem_track(cur, c["sub"], eph_id)
+    if track is None:
+        raise HTTPException(404, "No such ephemeris.")
+    return {"id": eph_id, "object_id": track["object_id"], "label": track["label"],
+            "points": [{"ts": t.isoformat(), "lat": la, "lon": lo, "alt_km": al}
+                       for (t, la, lo, al) in track["points"]]}
+
+
+@app.delete("/v1/ephemeris/{eph_id}", status_code=204)
+def delete_ephemeris(request: Request, eph_id: str):
+    """Remove the owner's ephemeris (points cascade). 404 for anyone else's."""
+    c = _require_user(request)
+    if not _UUID_RE.match(eph_id):
+        raise HTTPException(404, "No such ephemeris.")
+    with cursor() as cur:
+        cur.execute("DELETE FROM ephemeris WHERE id = %s::uuid AND owner_sub = %s::uuid",
+                    (eph_id, c["sub"]))
+        deleted = cur.rowcount
+        cur.connection.commit()
+    if not deleted:
+        raise HTTPException(404, "No such ephemeris.")
+    return Response(status_code=204)
 
 
 class OrgCreate(BaseModel):
