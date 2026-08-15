@@ -20,7 +20,6 @@ services:
       - .env          # DB_DSN — never committed
       - version.env
     ports:
-      - "127.0.0.1:8081:8080"   # debugging; routing goes via the app caddy
       - "127.0.0.1:12110:8080"  # 1PESI: overwatch(2)·blue(1)·web(1) (#213)
     restart: unless-stopped
 
@@ -49,7 +48,6 @@ services:
       - default
       - v2net          # direct server-to-server path to Keycloak
     ports:
-      - "127.0.0.1:8082:8000"
       - "127.0.0.1:12120:8000"  # 1PESI: overwatch(2)·blue(1)·api(2) (#213)
     restart: unless-stopped
 

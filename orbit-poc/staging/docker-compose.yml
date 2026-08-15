@@ -75,7 +75,6 @@ services:
       # Dedicated staging port range 8200-8209 (see the platform edge Caddyfile
       # for the VM-wide reservation table). 8191 = api debug/webhook-test port;
       # NOT 8087 (mapmax) nor the sandbox band.
-      - "127.0.0.1:8201:8000"
       - "127.0.0.1:12320:8000"  # 1PESI: overwatch(2)·staging(3)·api(2) (#213)
     volumes:
       # the admin-only ops boards the api seeds into the ops Grafana org (#168)
@@ -156,7 +155,6 @@ services:
       - api
       - grafana
     ports:
-      - "127.0.0.1:8200:80"
       - "127.0.0.1:12300:80"    # 1PESI: overwatch(2)·staging(3)·caddy(0) — edge target (#213)
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro

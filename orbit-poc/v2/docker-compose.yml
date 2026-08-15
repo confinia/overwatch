@@ -41,7 +41,6 @@ services:
     volumes:
       - ./keycloak:/opt/keycloak/data/import:ro
     ports:
-      - "127.0.0.1:8096:8080"
       - "127.0.0.1:12070:8080"  # 1PESI: overwatch(2)·prod(0)·keycloak(7) (#213)
     depends_on:
       kc-db:

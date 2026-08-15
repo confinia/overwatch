@@ -12,7 +12,6 @@ services:
       - .env          # DB_DSN — never committed
       - version.env
     ports:
-      - "127.0.0.1:9081:8080"
       - "127.0.0.1:12210:8080"  # 1PESI: overwatch(2)·green(2)·web(1) (#213)
     restart: unless-stopped
 
@@ -41,7 +40,6 @@ services:
       - default
       - v2net          # direct server-to-server path to Keycloak
     ports:
-      - "127.0.0.1:9082:8000"
       - "127.0.0.1:12220:8000"  # 1PESI: overwatch(2)·green(2)·api(2) (#213)
     restart: unless-stopped
 
