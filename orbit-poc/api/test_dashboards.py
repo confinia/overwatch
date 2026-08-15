@@ -46,3 +46,22 @@ def test_accounts_orgs_queries_the_org_model():    # #28
                    for p in d["panels"] for t in p.get("targets", []))
     for table in ("organization", "org_user", "org_token", "api_key"):
         assert table in sql, f"dashboard never queries {table}"
+
+
+def test_next_passes_dashboard_colour_bands():   # #217
+    """The next-passes table: sorted-by-AOS query over `pass`, a $station
+    selector, and the exact imminence colour bands."""
+    d = json.load(open(os.path.join(DASH, "public", "next-passes.json"),
+                       encoding="utf-8"))
+    assert d["uid"] == "next-passes"
+    panel = d["panels"][0]
+    sql = panel["targets"][0]["rawSql"]
+    assert "FROM pass" in sql and "aos > now()" in sql and "ORDER BY p.aos" in sql
+    assert "$station" in sql
+    ov = next(o for o in panel["fieldConfig"]["overrides"]
+              if o["matcher"]["options"] == "AOS in (h)")
+    steps = next(p["value"]["steps"] for p in ov["properties"]
+                 if p["id"] == "thresholds")
+    got = [(s.get("value"), s["color"]) for s in steps]
+    assert got == [(None, "red"), (1, "orange"), (24, "yellow"), (168, "transparent")], got
+    assert any(v["name"] == "station" for v in d["templating"]["list"])

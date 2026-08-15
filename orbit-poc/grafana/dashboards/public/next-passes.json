@@ -1,0 +1,143 @@
+{
+  "uid": "next-passes",
+  "title": "Next Passes",
+  "tags": [
+    "orbit-poc"
+  ],
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5m",
+  "time": {
+    "from": "now",
+    "to": "now+7d"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "station",
+        "label": "Ground station",
+        "type": "query",
+        "datasource": {
+          "type": "postgres",
+          "uid": "orbitcache"
+        },
+        "query": "SELECT DISTINCT observer FROM pass ORDER BY 1",
+        "refresh": 1,
+        "sort": 1,
+        "includeAll": false,
+        "multi": false,
+        "current": {}
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "table",
+      "title": "Next passes over $station",
+      "datasource": {
+        "type": "postgres",
+        "uid": "orbitcache"
+      },
+      "id": 1,
+      "gridPos": {
+        "h": 20,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT s.name AS satellite, p.aos AS \"AOS (UTC)\", round(p.max_el_deg::numeric, 0) AS \"max el (deg)\", round(extract(epoch FROM (p.los - p.aos))/60) AS \"duration (min)\", round(extract(epoch FROM (p.aos - now()))/3600, 1) AS \"AOS in (h)\" FROM pass p JOIN satellite s USING (norad) WHERE p.aos > now() AND p.observer = '$station' ORDER BY p.aos LIMIT 200",
+          "datasource": {
+            "type": "postgres",
+            "uid": "orbitcache"
+          }
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "sortBy": [
+          {
+            "displayName": "AOS (UTC)",
+            "desc": false
+          }
+        ]
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "AOS in (h)"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "value": null,
+                      "color": "red"
+                    },
+                    {
+                      "value": 1,
+                      "color": "orange"
+                    },
+                    {
+                      "value": 24,
+                      "color": "yellow"
+                    },
+                    {
+                      "value": 168,
+                      "color": "transparent"
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "unit",
+                "value": "h"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "max el (deg)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "deg"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
