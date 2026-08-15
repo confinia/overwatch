@@ -819,7 +819,7 @@ def _org_role(org_id: str) -> tuple[str, str]:
 # granted these and nothing else: Grafana's datasource proxy lets any caller
 # (anonymous Viewer — required for the public embeds) run arbitrary SQL, so the
 # database role IS the security boundary, not the dashboard JSON (#129).
-GRAFANA_PUBLIC_TABLES = ("satellite", "position", "telemetry", "reception")
+GRAFANA_PUBLIC_TABLES = ("satellite", "position", "telemetry", "reception", "pass")
 GRAFANA_ROLE = "grafana_ro"
 
 
