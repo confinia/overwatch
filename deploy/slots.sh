@@ -25,18 +25,8 @@ CADDY_DIR=deploy/caddy
 STATE=$CADDY_DIR/LIVE_COLOR
 live=$(cat "$STATE" 2>/dev/null || echo blue)
 cand=$([ "$live" = blue ] && echo green || echo blue)
-declare -A WEB_PORT=( [blue]=8081 [green]=9081 )       # legacy (still published)
-declare -A API_PORT=( [blue]=8082 [green]=9082 )
-declare -A WEB_PORT_NEW=( [blue]=12110 [green]=12210 ) # 1PESI: overwatch·color·web (#213)
-declare -A API_PORT_NEW=( [blue]=12120 [green]=12220 )
-
-# During the dual-publish window a freshly-recreated colour answers on the new
-# 12xxx port, but a colour that predates the migration only answers on legacy.
-# Try new first, fall back to legacy, so the health gate is correct either way.
-up() {  # $1 = new port, $2 = legacy port, $3 = path
-  curl -sf "http://127.0.0.1:$1$3" >/dev/null 2>&1 \
-    || curl -sf "http://127.0.0.1:$2$3" >/dev/null 2>&1
-}
+declare -A WEB_PORT=( [blue]=12110 [green]=12210 )   # 1PESI: overwatch·color·web (#213)
+declare -A API_PORT=( [blue]=12120 [green]=12220 )   # 1PESI: overwatch·color·api
 
 gen_caddy() {  # $1 = live color, $2 = candidate color
   sed -e "s/%LIVE%/$1/g" -e "s/%CANDIDATE%/$2/g" \
@@ -53,8 +43,8 @@ gen_caddy() {  # $1 = live color, $2 = candidate color
 healthy() {  # $1 = color
   local c=$1
   for _ in $(seq 1 60); do
-    if up "${WEB_PORT_NEW[$c]}" "${WEB_PORT[$c]}" /healthz \
-    && up "${API_PORT_NEW[$c]}" "${API_PORT[$c]}" /healthz; then
+    if curl -sf "http://127.0.0.1:${WEB_PORT[$c]}/healthz" >/dev/null \
+    && curl -sf "http://127.0.0.1:${API_PORT[$c]}/healthz" >/dev/null; then
       return 0
     fi
     sleep 1
@@ -115,9 +105,9 @@ status)
   echo "LIVE: $live — candidate: $cand"
   for c in blue green; do
     printf "%s: web " "$c"
-    up "${WEB_PORT_NEW[$c]}" "${WEB_PORT[$c]}" /healthz && printf "up" || printf "DOWN"
+    curl -sf "http://127.0.0.1:${WEB_PORT[$c]}/healthz" >/dev/null && printf "up" || printf "DOWN"
     printf " api "
-    up "${API_PORT_NEW[$c]}" "${API_PORT[$c]}" /healthz && printf "up" || printf "DOWN"
+    curl -sf "http://127.0.0.1:${API_PORT[$c]}/healthz" >/dev/null && printf "up" || printf "DOWN"
     echo
   done
   podman ps --format '{{.Names}} {{.Status}}' | grep -E '^(blue|green)_' || true

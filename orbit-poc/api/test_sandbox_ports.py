@@ -22,7 +22,7 @@ PROD_PORTS = {8081, 8082, 8090, 9081, 9082,   # legacy prod blue/green + caddy
 
 
 def _published_host_ports(text):
-    # matches `- "127.0.0.1:8190:80"` and `- "127.0.0.1:8191:8000"`
+    # matches `- "127.0.0.1:12400:80"` and `- "127.0.0.1:12420:8000"`
     return [int(p) for p in re.findall(r'127\.0\.0\.1:(\d+):\d+', text)]
 
 
@@ -45,18 +45,18 @@ def test_no_8087_collision():
     assert 8087 not in _published_host_ports(open(COMPOSE).read())
 
 
-def test_sandbox_has_own_caddy_on_8190():
+def test_sandbox_has_own_caddy_on_12400():
     compose = open(COMPOSE).read()
-    assert re.search(r'127\.0\.0\.1:8190:80', compose), \
-        "sandbox caddy must publish 8190"
+    assert re.search(r'127\.0\.0\.1:12400:80', compose), \
+        "sandbox caddy must publish 12400"
     # the caddy service must exist and mount the sandbox Caddyfile
     assert "./Caddyfile:/etc/caddy/Caddyfile" in compose
     assert os.path.exists(CADDYFILE), "sandbox/Caddyfile missing"
 
 
-def test_api_debug_port_is_8191():
-    assert re.search(r'127\.0\.0\.1:8191:8000', open(COMPOSE).read()), \
-        "sandbox api debug port must be 8191 (not 8087)"
+def test_api_debug_port_is_12420():
+    assert re.search(r'127\.0\.0\.1:12420:8000', open(COMPOSE).read()), \
+        "sandbox api debug port must be 12420 (not 8087)"
 
 
 def _service_block(compose, name):

@@ -100,7 +100,7 @@ def test_e2e_reaches_keycloak_over_loopback_on_the_vm():
     """A container cannot reach a loopback-bound port, so the e2e runs on the
     host itself with KC_ADMIN_BASE pointing at 127.0.0.1 (#137)."""
     e = _wf("e2e.yml")
-    assert "127.0.0.1:8096" in e
+    assert "127.0.0.1:12070" in e
     assert "e2e_sandbox.py" in e
 
 
