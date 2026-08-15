@@ -62,3 +62,16 @@ CREATE TABLE IF NOT EXISTS reception (
     PRIMARY KEY (norad, ts, observer)
 );
 CREATE INDEX IF NOT EXISTS reception_obs_idx ON reception (observer, ts DESC);
+
+-- Upcoming passes per ground station (#217): recomputed periodically by the
+-- ingest (forward SGP4 + topocentric elevation >= threshold). Drives the
+-- "next passes" Grafana table (sorted by AOS, colour-coded by imminence).
+CREATE TABLE IF NOT EXISTS pass (
+    observer     TEXT NOT NULL,
+    norad        INTEGER REFERENCES satellite(norad),
+    aos          TIMESTAMPTZ NOT NULL,   -- rise: elevation crosses up
+    los          TIMESTAMPTZ NOT NULL,   -- set:  elevation crosses down
+    max_el_deg   DOUBLE PRECISION,       -- peak elevation of the pass
+    PRIMARY KEY (observer, norad, aos)
+);
+CREATE INDEX IF NOT EXISTS pass_aos_idx ON pass (aos);
