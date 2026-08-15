@@ -269,6 +269,10 @@ async function refresh(){
   const wanted = hashNorad();
   const wantedStation = hashStation();
   const wantedOrg = hashOrgSat();
+  // #oem:<id> overlays an imported CCSDS ephemeris (#208) — an overlay, not a
+  // selection: draw once when the id changes, clear when it goes away.
+  const wantedOem = hashOem();
+  if (wantedOem !== activeOem) { activeOem = wantedOem; wantedOem ? drawOem(wantedOem) : clearOem(); }
   if (wantedStation && wantedStation !== activeStation) {
     selectStation(wantedStation);
   } else if (wantedOrg) {
@@ -280,7 +284,7 @@ async function refresh(){
     }
   } else if (wanted && wanted !== activeNorad && satsByNorad[wanted]) {
     select(satsByNorad[wanted]);
-  } else if (activeNorad === null && activeStation === null && activeOrgSat === null && !wanted && showOpen) {
+  } else if (activeNorad === null && activeStation === null && activeOrgSat === null && !wanted && !wantedOem && showOpen) {
     // Default view: land on a satellite with the freshest telemetry —
     // inside the hour when the network heard one, otherwise the most
     // recently heard overall. The page never opens on an empty panel.
@@ -300,6 +304,10 @@ function hashStation(){
 }
 function hashOrgSat(){
   const m = location.hash.match(/^#org:(.+)$/);
+  return m ? decodeURIComponent(m[1]) : null;
+}
+function hashOem(){
+  const m = location.hash.match(/^#oem:(.+)$/);
   return m ? decodeURIComponent(m[1]) : null;
 }
 
@@ -784,6 +792,8 @@ function onTrackClick(e){
 }
 
 let trackSourceAdded = false;
+let oemSourceAdded = false;   // #208: imported-ephemeris overlay (#oem:<id>)
+let activeOem = null;
 async function drawTrack(norad){
   const s = satsByNorad[norad] || {};
   // Two things at once: the blue ground track over the SELECTED window (#79),
@@ -832,6 +842,94 @@ async function drawTrack(norad){
   if (map.getLayer("track")){
     map.setPaintProperty("track", "line-width", tw);
     map.setPaintProperty("track", "line-opacity", to);
+  }
+}
+
+// --- Imported precise ephemeris (#208): plot a user-uploaded CCSDS OEM as a
+// distinct CYAN DASHED track — visually apart from the blue SGP4 orbit and the
+// amber heard arcs ("this orbit came from a file"). Owner-scoped server-side;
+// here it's a pure overlay driven by #oem:<id>. ---
+async function drawOem(id){
+  const d = await j(`/api/v1/ephemeris/${encodeURIComponent(id)}`);
+  const empty = { type:"FeatureCollection", features: [] };
+  if (!d || !Array.isArray(d.points) || !d.points.length){
+    if (oemSourceAdded) map.getSource("oem-track").setData(empty);
+    setOemBanner(d && d.detail ? { error: d.detail } : null);   // 404/401 -> hint
+    return;
+  }
+  const geo = { type:"Feature",
+    properties:{ id, label: d.label || d.object_id || "ephemeris" },
+    geometry:{ type:"MultiLineString",
+      coordinates: splitAntimeridian(d.points.map(p => [p.lon, p.lat])) }};
+  if (!oemSourceAdded){
+    map.addSource("oem-track", { type:"geojson", data: geo });
+    map.addLayer({ id:"oem-track-glow", type:"line", source:"oem-track",
+      paint:{ "line-color":"#00e5cc", "line-width":6, "line-opacity":.16 }});
+    map.addLayer({ id:"oem-track", type:"line", source:"oem-track",
+      paint:{ "line-color":"#00e5cc", "line-width":2.4, "line-opacity":.95,
+              "line-dasharray":[3, 2] }});
+    oemSourceAdded = true;
+  } else {
+    map.getSource("oem-track").setData(geo);
+  }
+  fitOem(d.points);
+  setOemBanner(d);
+}
+
+function clearOem(){
+  if (oemSourceAdded){
+    try { map.getSource("oem-track").setData({ type:"FeatureCollection", features: [] }); }
+    catch(e){}
+  }
+  setOemBanner(null);
+}
+
+function fitOem(points){
+  try {
+    const b = new maplibregl.LngLatBounds();
+    points.forEach(p => b.extend([p.lon, p.lat]));
+    map.fitBounds(b, { padding: 80, maxZoom: 5, duration: 1200 });
+  } catch(e){}
+}
+
+function setOemBanner(d){
+  const el = document.getElementById("oem-banner");
+  if (!el) return;
+  if (!d){ el.style.display = "none"; el.innerHTML = ""; return; }
+  el.style.display = "block";
+  const clear = ` <a href="#" onclick="location.hash='';return false">clear</a>`;
+  el.innerHTML = d.error
+    ? `Imported orbit unavailable — ${escapeHTML(d.error)}` + clear
+    : `<b>Imported orbit</b> — ${escapeHTML(d.label || d.object_id || "ephemeris")}` +
+      ` · ${d.points.length} pts · CCSDS OEM` + clear;
+}
+
+async function importOem(file){
+  const status = document.getElementById("oem-status");
+  const set = t => { if (status) status.textContent = t; };
+  set("reading…");
+  let text;
+  try { text = await file.text(); } catch(e){ set("read failed"); return; }
+  let r;
+  try {
+    r = await fetch(`${API_BASE}/api/v1/ephemeris`, {
+      method:"POST", headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify({ oem: text, label: file.name }) });
+  } catch(e){ set("upload failed"); return; }
+  if (r.status === 401){ location.href = `${API_BASE}/api/v1/auth/login`; return; }
+  let d = {};
+  try { d = await r.json(); } catch(e){}
+  if (!r.ok){ set((d.detail || "invalid OEM").replace(/^Invalid OEM:\s*/, "")); return; }
+  set(`✓ ${d.points} points`);
+  location.hash = `#oem:${d.id}`;      // triggers drawOem via hashchange -> refresh
+}
+
+{  // wire the Import control (elements exist: app.js is the last module in <body>)
+  const btn = document.getElementById("oem-import");
+  const fin = document.getElementById("oem-file");
+  if (btn && fin){
+    btn.addEventListener("click", () => fin.click());
+    fin.addEventListener("change", () => { if (fin.files[0]) importOem(fin.files[0]); fin.value = ""; });
   }
 }
 
