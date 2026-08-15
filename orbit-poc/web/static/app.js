@@ -448,7 +448,15 @@ async function selectStation(observer){
   setRxLegend(`<b>${observer.split("-")[0]}</b> — this station's receptions` +
     `<div class="sub">${recs.length} frames across ${sats.length} satellites, last 7 days. ` +
     `Each line points to where a satellite was when this station heard it.</div>`);
-  body.innerHTML = `<div class="empty" style="overflow-y:auto; height:100%">` +
+  // Next passes over THIS station (#217): which satellites will cover it next.
+  // Embedded from the shared next-passes board (panel 1), above the receptions.
+  const coldReload = gfReady ? "" :
+    ` onload="if(!this.dataset.r){this.dataset.r=1;const s=this.src;setTimeout(()=>{this.src=s},700)}"`;
+  const passesEmbed = `<div class="ggrid"><div class="gcell wide"><iframe loading="lazy"${coldReload} ` +
+    `src="${GRAFANA}/d-solo/next-passes/next-passes?orgId=1&panelId=1&var-station=${encodeURIComponent(observer)}&theme=dark&kiosk"></iframe></div></div>`;
+  gfReady = true;
+  body.innerHTML = passesEmbed +
+    `<div class="empty" style="overflow-y:auto">` +
     `<b>${recs.length} receptions · ${sats.length} satellites (last 7 days)</b><br><br>` +
     sats.map(x => `<a href="#${x.norad}" class="stsat">${escapeHTML(x.name)}</a> — ${x.n} frame${x.n>1?"s":""}, last ${age(x.last)}`).join("<br>") +
     `<br><br><span style="opacity:.7">Tracked fleet only (${allSats.length} satellites), ` +
@@ -519,6 +527,10 @@ async function embedDashboards(s){
   // refresh does) so a Grafana-home first paint becomes the real panel.
   const coldReload = gfReady ? "" :
     ` onload="if(!this.dataset.r){this.dataset.r=1;const s=this.src;setTimeout(()=>{this.src=s},700)}"`;
+  // Next passes for THIS satellite (#217, inverted view): which ground stations
+  // will cover it next. Embedded from the shared next-passes board (panel 2).
+  const passesCell = `<div class="gcell wide"><iframe loading="lazy"${coldReload} ` +
+    `src="${GRAFANA}/d-solo/next-passes/next-passes?orgId=1&panelId=2&var-norad=${s.norad}&theme=dark&kiosk"></iframe></div>`;
   // Ask the product API which telemetry fields exist (same 7-day window as
   // the dashboard) and embed only the panels that will actually show data.
   let all = null;
@@ -528,7 +540,8 @@ async function embedDashboards(s){
   } catch (e) { /* /v1 unreachable (local dev): fall back below */ }
   if (s.norad !== activeNorad) return;
   if (all === null) {
-    body.innerHTML = `<iframe${coldReload} src="${GRAFANA}/d/${DASH_UID}/orbit-telemetry?${qs}&kiosk"></iframe>`;
+    body.innerHTML = `<div class="ggrid">` + passesCell +
+      `<div class="gcell wide"><iframe${coldReload} src="${GRAFANA}/d/${DASH_UID}/orbit-telemetry?${qs}&kiosk"></iframe></div></div>`;
     gfReady = true;
     return;
   }
@@ -569,7 +582,7 @@ async function embedDashboards(s){
   ).join("");
   const fieldsCell = all.length
     ? `<div class="gcell wide fields-cell">${fieldsPanelHTML(all)}</div>` : "";
-  body.innerHTML = `<div class="ggrid">` + fieldsCell + grafanaCells + `</div>`;
+  body.innerHTML = `<div class="ggrid">` + passesCell + fieldsCell + grafanaCells + `</div>`;
   gfReady = true;                          // one cold reload done; session warm
   if (all.length) wireFieldRows();
 }

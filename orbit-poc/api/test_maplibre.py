@@ -51,3 +51,13 @@ def test_oem_import_and_overlay_wired():   # #208 Phase 1c-2
     assert "/api/v1/ephemeris" in app and "JSON.stringify({ oem:" in app  # importOem upload
     for el in ('id="oem-import"', 'id="oem-file"', 'id="oem-banner"'):
         assert el in INDEX, el                                    # UI present
+
+
+def test_next_passes_embedded_in_both_views():   # #217 (in-app integration)
+    """The next-passes board is embedded IN the app, both ways: the satellite
+    view shows covering stations (panel 2, var-norad); the station view shows
+    passing satellites (panel 1, var-station)."""
+    app = open(APP, encoding="utf-8").read()
+    assert "d-solo/next-passes/next-passes" in app
+    assert "panelId=2&var-norad=" in app            # satellite view -> stations (inverted)
+    assert "panelId=1&var-station=" in app          # station view -> satellites
