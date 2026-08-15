@@ -38,3 +38,16 @@ def test_app_code_is_a_separate_classic_script():
     body = open(APP, encoding="utf-8").read()
     assert "new maplibregl.Map(" in body          # the map still lives there
     assert "import " not in body.split("\n\n")[0]  # not turned into a module
+
+
+def test_oem_import_and_overlay_wired():   # #208 Phase 1c-2
+    """A user-uploaded CCSDS OEM plots on the globe: an #oem:<id> deep link
+    draws /v1/ephemeris/<id> as a distinct cyan overlay, and the Import control
+    POSTs a file to the owner-scoped /v1/ephemeris endpoint."""
+    app = open(APP, encoding="utf-8").read()
+    assert "function hashOem" in app and "#oem:" in app          # deep-link route
+    assert "/api/v1/ephemeris/" in app                            # drawOem fetches track
+    assert "oem-track" in app and "00e5cc" in app                 # distinct cyan overlay
+    assert "/api/v1/ephemeris" in app and "JSON.stringify({ oem:" in app  # importOem upload
+    for el in ('id="oem-import"', 'id="oem-file"', 'id="oem-banner"'):
+        assert el in INDEX, el                                    # UI present

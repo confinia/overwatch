@@ -158,6 +158,17 @@
     border-radius:8px; padding:8px 12px; font-size:12px; color:var(--text); line-height:1.4; }
   #rxlegend b { color:#f5a623; }
   #rxlegend .sub { color:var(--dim); font-size:11px; margin-top:2px; }
+  /* Import-OEM control (#208) + the imported-orbit banner (cyan, top-left). */
+  #oembar { display:flex; align-items:center; gap:8px; padding:8px 0 2px; }
+  #oem-import { background:var(--panel); border:1px solid var(--line); color:var(--text);
+    border-radius:6px; padding:5px 9px; font-size:12px; cursor:pointer; }
+  #oem-import:hover { border-color:#00e5cc; color:#00e5cc; }
+  #oem-status { color:var(--dim); font-size:11px; }
+  #oem-banner { position:absolute; top:10px; left:10px; z-index:5; max-width:300px;
+    background:var(--panel); border:1px solid #00e5cc66; border-radius:8px;
+    padding:7px 11px; font-size:12px; color:var(--text); box-shadow:0 2px 10px #0007; }
+  #oem-banner b { color:#00e5cc; }
+  #oem-banner a { color:var(--accent); margin-left:6px; }
   .maplibregl-popup-content { background:#121826; color:var(--text);
     border:1px solid var(--line); border-radius:8px; padding:10px 12px;
     font-size:12px; line-height:1.55; box-shadow:0 4px 18px rgba(0,0,0,.5); }
@@ -192,6 +203,7 @@
     <div id="fleetbar" title="Fleet link status">loading fleet…</div>
     <div id="rangebar" title="Time window for receptions, decoded fields and track"></div>
     <div id="rxlegend" style="display:none"></div>
+    <div id="oem-banner" style="display:none"></div>
     <div id="panel">
       <div class="head" id="panelHead">Select a satellite to inspect its telemetry</div>
       <div id="panelBody">
@@ -208,6 +220,11 @@
         sovereign-hostable <span id="ver"></span><span id="acct"></span></p>
     </header>
     <input id="search" type="search" placeholder="Search satellites (name or NORAD id)…"/>
+    <div id="oembar" title="Import a CCSDS OEM ephemeris (Earth-fixed frames) and plot it on the globe">
+      <button id="oem-import" type="button">↥ Import orbit (OEM)</button>
+      <input id="oem-file" type="file" accept=".oem,.txt,text/plain" hidden/>
+      <span id="oem-status"></span>
+    </div>
     <div id="list"></div>
     <div id="siteftr">
       <a href="mailto:contact@confinia.io?subject=Overwatch">Contact</a> ·
