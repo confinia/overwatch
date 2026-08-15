@@ -6,7 +6,7 @@
 #
 # One color is LIVE (production), the other is the CANDIDATE, kept warm for an
 # instant rollback. Since #154 the candidate is NOT publicly served: staging is
-# its own stack with its own database (ovw-staging, :8200). The app caddy's
+# its own stack with its own database (ovw-staging, :12300). The app caddy's
 # config is generated from deploy/caddy/Caddyfile.tmpl with the two colors
 # substituted; switching = regenerate + graceful reload. No container is
 # touched at promote time, so:
