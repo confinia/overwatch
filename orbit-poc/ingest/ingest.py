@@ -49,6 +49,12 @@ SATNOGS_BASE      = "https://db.satnogs.org/api"
 ELEMENTS_INTERVAL  = int(os.environ.get("ELEMENTS_INTERVAL",  6 * 3600))
 POSITION_INTERVAL  = int(os.environ.get("POSITION_INTERVAL",  15))
 TELEMETRY_INTERVAL = int(os.environ.get("TELEMETRY_INTERVAL", 30 * 60))
+# Next-pass prediction (#217): heavy-ish forward scan, so run it a few times a
+# day. Bounded to the most-active stations x the fleet, 7-day horizon at 60 s.
+PASSES_INTERVAL     = int(os.environ.get("PASSES_INTERVAL",     6 * 3600))
+PASSES_HORIZON_H    = int(os.environ.get("PASSES_HORIZON_H",    168))
+PASSES_MIN_EL       = float(os.environ.get("PASSES_MIN_EL",     10.0))
+PASSES_MAX_STATIONS = int(os.environ.get("PASSES_MAX_STATIONS", 20))
 
 # Be a good citizen: identify ourselves.
 UA = {"User-Agent": "orbit-poc/0.1 (educational; contact: you@example.org)"}
@@ -253,6 +259,53 @@ def propagate_positions():
             # prune: keep a week so position joins telemetry history
             cur.execute("DELETE FROM position WHERE ts < now() - interval '7 days'")
             conn.commit()
+
+
+def compute_passes():
+    """Recompute upcoming passes (#217): for the most-active ground stations x
+    the fleet, forward-propagate and record each rise->set window into `pass`.
+    Bounded and idempotent; Grafana reads the table directly."""
+    import passes as _passes
+    with db() as conn, conn.cursor() as cur:
+        # created in init.sql on a fresh DB; ensure it on existing ones too.
+        cur.execute("""CREATE TABLE IF NOT EXISTS pass (
+            observer TEXT NOT NULL, norad INTEGER REFERENCES satellite(norad),
+            aos TIMESTAMPTZ NOT NULL, los TIMESTAMPTZ NOT NULL,
+            max_el_deg DOUBLE PRECISION, PRIMARY KEY (observer, norad, aos))""")
+        cur.execute("CREATE INDEX IF NOT EXISTS pass_aos_idx ON pass (aos)")
+        conn.commit()
+        cur.execute("""SELECT observer, max(lat), max(lon) FROM reception
+            WHERE lat IS NOT NULL AND ts > now() - interval '7 days'
+            GROUP BY observer ORDER BY count(*) DESC LIMIT %s""",
+            (PASSES_MAX_STATIONS,))
+        stations = cur.fetchall()
+        cur.execute("""SELECT DISTINCT ON (norad) norad, tle1, tle2
+            FROM elements ORDER BY norad, epoch DESC""")
+        sats = cur.fetchall()
+    if not stations or not sats:
+        return
+    start = datetime.now(timezone.utc)
+    rows = []
+    for observer, lat, lon in stations:
+        for norad, tle1, tle2 in sats:
+            try:
+                for aos, los, mx in _passes.find_passes(
+                        tle1, tle2, float(lat), float(lon), start,
+                        hours=PASSES_HORIZON_H, min_el=PASSES_MIN_EL):
+                    rows.append((observer, norad, aos, los, mx))
+            except Exception as ex:
+                log.debug("passes failed %s/%s: %s", observer, norad, ex)
+    with db() as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM pass WHERE aos < now()")        # drop stale/past
+        if rows:
+            execute_values(cur, """INSERT INTO pass
+                (observer, norad, aos, los, max_el_deg) VALUES %s
+                ON CONFLICT (observer, norad, aos)
+                DO UPDATE SET los = EXCLUDED.los,
+                              max_el_deg = EXCLUDED.max_el_deg""", rows)
+        conn.commit()
+    log.info("passes: %d upcoming across %d stations x %d sats",
+             len(rows), len(stations), len(sats))
 
 
 def _sun_unit_vector(jd):
@@ -560,6 +613,8 @@ def main():
     threading.Thread(target=loop, args=(fetch_elements, ELEMENTS_INTERVAL, "elements"),
                      daemon=True).start()
     threading.Thread(target=loop, args=(fetch_telemetry, TELEMETRY_INTERVAL, "telemetry"),
+                     daemon=True).start()
+    threading.Thread(target=loop, args=(compute_passes, PASSES_INTERVAL, "passes"),
                      daemon=True).start()
     # positions in the main thread
     loop(propagate_positions, POSITION_INTERVAL, "positions")
