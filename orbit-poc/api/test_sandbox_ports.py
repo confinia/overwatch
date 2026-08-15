@@ -13,8 +13,12 @@ SANDBOX = os.path.join(HERE, "..", "sandbox")
 COMPOSE = os.path.join(SANDBOX, "docker-compose.yml")
 CADDYFILE = os.path.join(SANDBOX, "Caddyfile")
 
-RESERVED = range(8190, 8200)              # 8190-8199 inclusive
-PROD_PORTS = {8081, 8082, 8090, 9081, 9082}   # overwatch prod blue/green + caddy
+RESERVED = range(8190, 8200)              # legacy sandbox band, 8190-8199
+# 1PESI (#213): the sandbox keeps its own band under the new scheme too —
+# overwatch(2)·sandbox(4)·*  ->  124xx. Dual-published alongside legacy.
+SANDBOX_1PESI = range(12400, 12500)
+PROD_PORTS = {8081, 8082, 8090, 9081, 9082,   # legacy prod blue/green + caddy
+              12000, 12040, 12070, 12110, 12120, 12210, 12220}  # + 1PESI prod
 
 
 def _published_host_ports(text):
@@ -26,7 +30,8 @@ def test_all_sandbox_ports_in_reserved_range():
     ports = _published_host_ports(open(COMPOSE).read())
     assert ports, "no 127.0.0.1-published ports found in sandbox compose"
     for p in ports:
-        assert p in RESERVED, f"sandbox port {p} outside reserved 8190-8199"
+        assert p in RESERVED or p in SANDBOX_1PESI, \
+            f"sandbox port {p} outside sandbox bands (8190-8199 / 124xx)"
 
 
 def test_sandbox_does_not_reuse_prod_ports():

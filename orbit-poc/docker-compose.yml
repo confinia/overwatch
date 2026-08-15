@@ -71,6 +71,7 @@ services:
       - caddy_data:/data
     ports:
       - "127.0.0.1:8090:80"
+      - "127.0.0.1:12000:80"    # 1PESI: overwatch(2)·prod(0)·caddy(0) — edge target (#213)
     networks:
       - default
       - v2net          # reach the isolated v2 stack (keycloak) by DNS
@@ -114,6 +115,7 @@ services:
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
     ports:
       - "127.0.0.1:3001:3000"   # public access goes through caddy (/grafana)
+      - "127.0.0.1:12040:3000"  # 1PESI: overwatch(2)·prod(0)·grafana(4) (#213)
     restart: unless-stopped
 
   # --- Access observability: web traces -> collector (spanmetrics) ->
