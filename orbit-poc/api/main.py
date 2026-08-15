@@ -179,6 +179,15 @@ CREATE TABLE IF NOT EXISTS ephemeris_point (
     alt_km       double precision NOT NULL,
     PRIMARY KEY (ephemeris_id, ts)
 );
+-- A registered user's favourite/focus satellites (#221): open-data satellites
+-- they added from the fleet to personalise their view. Owner-scoped by subject.
+CREATE TABLE IF NOT EXISTS user_satellite (
+    sub        uuid NOT NULL,
+    norad      integer NOT NULL REFERENCES satellite(norad),
+    added_at   timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (sub, norad)
+);
+CREATE INDEX IF NOT EXISTS user_satellite_sub_idx ON user_satellite (sub, added_at DESC);
 """
 
 
@@ -1198,11 +1207,73 @@ def auth_logout():
 
 @app.get("/v1/me")
 def me(request: Request):
-    """Who am I — identity and organization from the shared OpenID token."""
+    """Who am I — identity, organization, and favourite satellites (#221)."""
     c = _require_user(request)
     org = _org_of(c)
+    with cursor() as cur:
+        favs = _list_favorites(cur, c["sub"])
     return {"sub": c["sub"], "email": c.get("email"), "name": c.get("name"),
-            "organization": {"id": org[0], "name": org[1]} if org else None}
+            "organization": {"id": org[0], "name": org[1]} if org else None,
+            "satellites": [{"norad": r[0], "name": r[1]} for r in favs]}
+
+
+# --------------------------------------------------------------------------
+# Favourite / focus satellites (#221): a registered user adds open-data
+# satellites from the fleet to personalise their view. Owner-scoped by subject;
+# no private data — just which public satellites they foreground. Store/read are
+# factored out so isolation is testable without a token.
+# --------------------------------------------------------------------------
+def _add_favorite(cur, sub: str, norad: int) -> None:
+    cur.execute("INSERT INTO user_satellite (sub, norad) VALUES (%s::uuid, %s) "
+                "ON CONFLICT (sub, norad) DO NOTHING", (sub, norad))
+
+
+def _list_favorites(cur, sub: str):
+    cur.execute("SELECT us.norad, s.name FROM user_satellite us "
+                "JOIN satellite s USING (norad) WHERE us.sub = %s::uuid "
+                "ORDER BY us.added_at DESC", (sub,))
+    return cur.fetchall()
+
+
+def _remove_favorite(cur, sub: str, norad: int) -> int:
+    cur.execute("DELETE FROM user_satellite WHERE sub = %s::uuid AND norad = %s",
+                (sub, norad))
+    return cur.rowcount
+
+
+class SatAdd(BaseModel):
+    norad: int
+
+
+@app.get("/v1/me/satellites")
+def list_my_satellites(request: Request):
+    """The signed-in user's favourite satellites (newest first)."""
+    c = _require_user(request)
+    with cursor() as cur:
+        rows = _list_favorites(cur, c["sub"])
+    return [{"norad": r[0], "name": r[1]} for r in rows]
+
+
+@app.post("/v1/me/satellites", status_code=201)
+def add_my_satellite(request: Request, body: SatAdd):
+    """Add an open-data fleet satellite to the user's favourites."""
+    c = _require_user(request)
+    with cursor() as cur:
+        if not known_norad(cur, body.norad):
+            raise HTTPException(404, f"Unknown satellite {body.norad}.")
+        _add_favorite(cur, c["sub"], body.norad)
+        cur.connection.commit()
+    return {"norad": body.norad, "added": True}
+
+
+@app.delete("/v1/me/satellites/{norad}", status_code=204)
+def remove_my_satellite(request: Request, norad: int):
+    """Remove a satellite from the user's favourites (owner-scoped)."""
+    c = _require_user(request)
+    with cursor() as cur:
+        _remove_favorite(cur, c["sub"], norad)
+        cur.connection.commit()
+    return Response(status_code=204)
 
 
 # --------------------------------------------------------------------------
