@@ -9,7 +9,7 @@ source .env
 
 echo "== waiting for keycloak"
 for _ in $(seq 1 60); do
-  curl -sf http://127.0.0.1:8096/auth/realms/overwatch/.well-known/openid-configuration >/dev/null && break
+  curl -sf http://127.0.0.1:12070/auth/realms/overwatch/.well-known/openid-configuration >/dev/null && break
   sleep 2
 done
 
