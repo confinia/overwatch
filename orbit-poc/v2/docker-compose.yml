@@ -4,7 +4,16 @@
 # routes /auth/* here via the host port. Nothing in this stack touches the
 # v1 database or Grafana.
 #
-# Ports (127.0.0.1): 8096 keycloak (8095 is reserved by ecobuilding).
+# Ports (127.0.0.1): 12070 keycloak (1PESI: overwatch·prod·keycloak, #213).
+#
+# CRITICAL: the project name MUST be `ovw2` — the containers (ovw2_keycloak_1),
+# the network (ovw2_default, which blue/green/staging/sandbox join as external),
+# and the DB volume (ovw2_kc_pgdata) are all named from it. Running this WITHOUT
+# `-p ovw2` (e.g. a bare `podman-compose up` from this `v2/` dir) forks a
+# PARALLEL stack named `v2_*` with a FRESH empty DB on the wrong network —
+# realms look wiped and every stack loses Keycloak (auth down everywhere). The
+# `name:` below pins it so a bare up still lands on ovw2.
+name: ovw2
 services:
   kc-db:
     image: docker.io/library/postgres:16
