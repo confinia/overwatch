@@ -61,3 +61,13 @@ def test_next_passes_embedded_in_both_views():   # #217 (in-app integration)
     assert "d-solo/next-passes/next-passes" in app
     assert "panelId=2&var-norad=" in app            # satellite view -> stations (inverted)
     assert "panelId=1&var-station=" in app          # station view -> satellites
+
+
+def test_favorite_satellites_wired():   # #221
+    """Signed-in users star satellites: a ★ toggle POSTs/DELETEs the owner-scoped
+    /v1/me/satellites, favourites float to the top, and open by default."""
+    app = open(APP, encoding="utf-8").read()
+    assert "function toggleFavorite" in app
+    assert "/api/v1/me/satellites" in app
+    assert "myFavorites" in app and "signedIn" in app
+    assert 'class="fav' in app                       # the star control on each row

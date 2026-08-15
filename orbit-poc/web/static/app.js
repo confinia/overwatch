@@ -55,6 +55,8 @@ renderRangebar();
 // sign-in/register link (Keycloak handles both); signed in without org ->
 // create-organization action; with org -> private fleet section in the list.
 let orgInfo = null;
+let signedIn = false;                 // #221: favourites are a signed-in feature
+let myFavorites = new Set();          // norads the user starred
 // View mode: anonymous -> always the full open-data fleet. Signed in with
 // an organization -> private fleet only by DEFAULT; open data is an
 // activable option (persisted per browser).
@@ -79,6 +81,8 @@ async function loadAccount(){
     const r = await fetch(`${API_BASE}/api/v1/me`);
     if (!r.ok) throw 0;
     const me = await r.json();
+    signedIn = true;                                          // #221
+    myFavorites = new Set((me.satellites || []).map(x => x.norad));
     if (me.organization){
       el.innerHTML = ` · <b>${me.organization.name}</b> ` +
         `<a class="action" href="/w/account">account</a> · ` +
@@ -100,6 +104,7 @@ async function loadAccount(){
   } catch (e) {
     el.innerHTML = ` · <a class="action" href="${API_BASE}/api/v1/auth/login">Sign in / Register</a>`;
     orgInfo = null;
+    signedIn = false; myFavorites = new Set();               // #221
   }
   if (!orgInfo) showOpen = true;       // anonymous: always full open data
   applyOpenVisibility();
@@ -112,6 +117,22 @@ async function loadAccount(){
     if (os) selectOrgSat(os);
   }
 }
+// #221: star/unstar a satellite (owner-scoped). Global so the inline onclick
+// in the list rows can reach it (the app is a classic script).
+async function toggleFavorite(norad){
+  const on = myFavorites.has(norad);
+  try {
+    const r = on
+      ? await fetch(`${API_BASE}/api/v1/me/satellites/${norad}`, { method: "DELETE" })
+      : await fetch(`${API_BASE}/api/v1/me/satellites`, { method: "POST",
+          headers: { "Content-Type": "application/json" }, body: JSON.stringify({ norad }) });
+    if (r.status === 401){ location.href = `${API_BASE}/api/v1/auth/login`; return; }
+    if (!r.ok) return;
+    if (on) myFavorites.delete(norad); else myFavorites.add(norad);
+    renderList(allSats);
+  } catch (e) { /* offline: leave the set unchanged */ }
+}
+
 async function deleteOrg(id, name){
   if (!confirm(`Delete organization "${name}"? This purges its private data — irreversible.`)) return;
   const r = await fetch(`${API_BASE}/api/v1/orgs/${id}`, { method: "DELETE" });
@@ -288,9 +309,15 @@ async function refresh(){
     // Default view: land on a satellite with the freshest telemetry —
     // inside the hour when the network heard one, otherwise the most
     // recently heard overall. The page never opens on an empty panel.
-    const heard = sats.filter(s => s.last_frame)
-      .sort((a, b) => new Date(b.last_frame) - new Date(a.last_frame));
-    if (heard.length) select(heard[0], true);
+    // #221: a signed-in user with favourites opens on their first favourite;
+    // otherwise the freshest-telemetry default.
+    const fav = signedIn ? [...myFavorites].map(n => satsByNorad[n]).find(Boolean) : null;
+    if (fav) { select(fav, true); }
+    else {
+      const heard = sats.filter(s => s.last_frame)
+        .sort((a, b) => new Date(b.last_frame) - new Date(a.last_frame));
+      if (heard.length) select(heard[0], true);
+    }
   }
 }
 
@@ -353,6 +380,8 @@ function renderList(sats){
   const shown = (q ? sats.filter(s =>
     s.name.toLowerCase().includes(q) || String(s.norad).includes(q)) : sats)
     .slice().sort((a, b) =>
+      // #221: the user's favourites float to the top when signed in.
+      ((myFavorites.has(b.norad) ? 1 : 0) - (myFavorites.has(a.norad) ? 1 : 0)) ||
       (b.has_telemetry - a.has_telemetry) || a.name.localeCompare(b.name));
   for (const s of shown){
     const div = document.createElement("div");
@@ -361,8 +390,14 @@ function renderList(sats){
       : `${s.lat.toFixed(1)}°, ${s.lon.toFixed(1)}° · ${Math.round(s.alt_km)} km`;
     const heard = " · " + (s.last_frame
       ? "heard " + age(s.last_frame) : "no frames yet");
+    // #221: a ★ toggle to add/remove this satellite from your set (signed-in
+    // only). stopPropagation so starring doesn't also select the satellite.
+    const on = myFavorites.has(s.norad);
+    const favBtn = signedIn
+      ? `<span class="fav${on ? " on" : ""}" title="${on ? "Remove from your satellites" : "Add to your satellites"}" onclick="event.stopPropagation();toggleFavorite(${s.norad})">${on ? "★" : "☆"}</span>`
+      : "";
     div.innerHTML =
-      `<div class="row"><span class="name"><span class="sdot fdot ${linkStatus(s)}${isLive(s) ? " live" : ""}"></span>${s.country ? flag(s.country) + " " : ""}${s.name}</span></div>
+      `<div class="row"><span class="name"><span class="sdot fdot ${linkStatus(s)}${isLive(s) ? " live" : ""}"></span>${s.country ? flag(s.country) + " " : ""}${s.name}</span>${favBtn}</div>
        <div class="meta">NORAD ${s.norad} · ${pos}${heard}</div>`;
     div.onclick = () => select(s);
     list.appendChild(div);
