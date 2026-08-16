@@ -89,3 +89,18 @@ def test_next_passes_has_coverage_timelines():   # #232
         assert p["fieldConfig"]["defaults"]["color"]["mode"] == "palette-classic"
     grouped = {("p.observer AS metric" in p["targets"][0]["rawSql"]) for p in tls}
     assert True in grouped, "no timeline grouped by ground station"
+
+
+def test_timelines_pivot_long_frames_into_bands():   # #232
+    """Grafana 11's SQL datasource returns ONE long frame (time, metric, value).
+    Without prepareTimeSeries the timeline draws a single lumped band instead of
+    one per ground station — verified against the live query API."""
+    d = json.load(open(os.path.join(DASH, "public", "next-passes.json"),
+                       encoding="utf-8"))
+    for p in d["panels"]:
+        if p["type"] != "state-timeline":
+            continue
+        tr = p.get("transformations") or []
+        assert any(t["id"] == "prepareTimeSeries" and
+                   t.get("options", {}).get("format") == "wide" for t in tr), \
+            f"{p['title']}: long frame is never pivoted into per-series bands"
