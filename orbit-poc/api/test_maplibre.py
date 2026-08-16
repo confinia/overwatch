@@ -129,3 +129,18 @@ def test_default_landing_satellite():
     i_def = app.index("else if (dflt) { select(dflt, true); }")
     assert i_fav < i_def, "the user's favourite must take precedence"
     assert "satsByNorad[DEFAULT_NORAD]" in app     # fallback when absent
+
+
+def test_private_satellite_clears_open_data_map_state():
+    """Selecting a PRIVATE org satellite must not inherit the previously
+    selected open-data satellite's map state. Its telemetry is pushed by the
+    org — SatNOGS never heard it — so a leftover "N ground stations heard this
+    satellite" legend, orange reception lines or a blue ground track would be
+    read as belonging to the private satellite. All of it is cleared."""
+    app = open(APP, encoding="utf-8").read()
+    fn = app[app.index("function selectOrgSat"):]
+    fn = fn[:fn.index("\n}")]
+    assert 'setRxLegend("")' in fn, "stale reception legend kept"
+    for src in ("rx-links", "rx-stations", "rx-endpoints", "track", "track-arcs"):
+        assert src in fn, f"{src} not cleared for a private satellite"
+    assert "clearPulse()" in fn
