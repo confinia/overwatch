@@ -185,8 +185,11 @@ def passes(norad):
     with db() as conn, conn.cursor() as cur:
         cur.execute("""
             SELECT observer, aos, max_el_deg,
-                   extract(epoch FROM (aos - now()))  AS in_s,
-                   extract(epoch FROM (los - aos))    AS dur_s
+                   -- ::float, or psycopg2 hands back Decimal and jsonify
+                   -- serialises it as a STRING ("419.11") — the client would be
+                   -- one implicit coercion away from string maths.
+                   extract(epoch FROM (aos - now()))::float AS in_s,
+                   extract(epoch FROM (los - aos))::float   AS dur_s
             FROM pass
             WHERE norad = %s AND aos > now()
               AND aos < now() + interval '24 hours'

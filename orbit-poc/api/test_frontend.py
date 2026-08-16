@@ -354,5 +354,8 @@ def test_next_contacts_panel_is_native_and_sorted():   # #217/#232
     assert '"/api/passes/<int:norad>"' in api
     assert "aos > now()" in api and "interval '24 hours'" in api
     assert "ORDER BY aos" in api                      # soonest first
+    # numbers must arrive as numbers: psycopg2 maps numeric -> Decimal, which
+    # jsonify emits as a quoted string
+    assert "::float AS in_s" in api and "::float   AS dur_s" in api
     idx = open(os.path.join(STATIC, "index.html"), encoding="utf-8").read()
     assert ".np-tbl" in idx                           # styled, not raw markup
