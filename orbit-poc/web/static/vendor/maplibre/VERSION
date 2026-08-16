@@ -1,0 +1,6 @@
+maplibre-gl 6.4.0
+Vendored from https://unpkg.com/maplibre-gl@6.4.0/dist/ on 2026-08-16.
+Files: maplibre-gl.mjs, maplibre-gl-shared.mjs, maplibre-gl-worker.mjs, maplibre-gl.css
+The three .mjs chunks resolve each other by relative path — keep them together.
+Served from our own origin (RULES.md rule 25: no third-party CDN in a render path).
+To upgrade: re-download the four files, bump this file, verify the globe renders.

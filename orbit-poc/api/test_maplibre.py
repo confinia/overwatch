@@ -21,9 +21,27 @@ def test_retired_umd_bundle_is_gone():
     assert not re.search(r'<script[^>]+src=[^>]*maplibre-gl\.js', INDEX)
 
 
-def test_single_pinned_version_everywhere():
-    versions = set(re.findall(r"maplibre-gl@([0-9]+\.[0-9]+\.[0-9]+)", INDEX))
-    assert versions == {"6.4.0"}, versions
+def test_maplibre_is_vendored_not_fetched_from_a_cdn():
+    """RULES.md rule 25 — nothing in the render path may come from a CDN we do
+    not control. MapLibre is served from our own origin: sovereignty (an
+    EU-hosted product must not need a US CDN to draw its globe), availability
+    (a CDN outage blanks the map with no deploy of ours), privacy (visitor IPs
+    handed to a third party) and integrity (a compromised CDN runs JS in our
+    page). The version lives beside the bundle now that it is not in a URL."""
+    assert "unpkg.com" not in INDEX and "cdn.jsdelivr" not in INDEX
+    assert "/vendor/maplibre/maplibre-gl.mjs" in INDEX
+    assert "/vendor/maplibre/maplibre-gl.css" in INDEX
+    vd = os.path.join(STATIC, "vendor", "maplibre")
+    # the ESM build splits into chunks that resolve each other relatively —
+    # shipping only the entrypoint gives a blank globe at runtime
+    for f, min_kb in (("maplibre-gl.mjs", 400), ("maplibre-gl-shared.mjs", 300),
+                      ("maplibre-gl-worker.mjs", 10), ("maplibre-gl.css", 40)):
+        p = os.path.join(vd, f)
+        assert os.path.exists(p), f"missing vendored {f}"
+        # a truncated download or an error page would still "exist"
+        assert os.path.getsize(p) > min_kb * 1024, f"{f} looks truncated"
+    assert os.path.exists(os.path.join(vd, "VERSION"))
+    assert "6.4.0" in open(os.path.join(vd, "VERSION"), encoding="utf-8").read()
 
 
 def test_library_is_exposed_globally_before_the_app_loads():
