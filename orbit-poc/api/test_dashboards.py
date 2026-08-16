@@ -49,12 +49,16 @@ def test_accounts_orgs_queries_the_org_model():    # #28
         assert table in sql, f"dashboard never queries {table}"
 
 
-def test_next_passes_is_timeline_only_coloured_per_station():   # #232
-    """Next passes is ONE graphical view per direction — no tables — and the
-    colour identifies the ground station: state-timeline colours by VALUE, so
-    the value must be the station label, not the elevation (an elevation value
-    produced a colour and a legend entry per distinct degree, swamping the
-    panel). The y-axis already names each row, so the legend stays off."""
+def test_next_passes_is_timeline_only_with_named_station_rows():   # #232
+    """Next passes is ONE graphical view per direction — no tables — and every
+    ground station is its own NAMED row.
+
+    The row names come from prepareTimeSeries pivoting the long frame, which
+    only works when `value` is NUMERIC and `metric` carries the label. Making
+    both columns text broke the pivot and collapsed the panel to two rows
+    literally called "value" and "metric" — this test pins that shape.
+    Colour is by series NAME (one per station), not by value (which produced a
+    colour, and a legend row, per distinct elevation)."""
     d = json.load(open(os.path.join(DASH, "public", "next-passes.json"),
                        encoding="utf-8"))
     assert d["uid"] == "next-passes"
@@ -65,10 +69,10 @@ def test_next_passes_is_timeline_only_coloured_per_station():   # #232
     assert any("norad = $norad" in q for q in sqls)          # satellite -> stations
     for p, q in zip(d["panels"], sqls):
         assert "FROM pass" in q and "aos > now()" in q
-        assert "AS metric" in q and "NULL::text AS value" in q   # band ends at LOS
-        # the value IS the series label -> one colour per station, not per degree
-        assert re.search(r"SELECT p\.aos AS time, (.+?) AS value, \1 AS metric", q), q
-        assert p["fieldConfig"]["defaults"]["color"]["mode"] == "palette-classic"
+        assert "p.max_el_deg AS value" in q, "value must stay numeric or the pivot dies"
+        assert re.search(r"(p\.observer|s\.name) AS metric", q), "no series label"
+        assert "NULL AS value" in q                          # band ends at LOS
+        assert p["fieldConfig"]["defaults"]["color"]["mode"] == "palette-classic-by-name"
         assert p["options"]["legend"]["showLegend"] is False, "legend floods the panel"
 
 
