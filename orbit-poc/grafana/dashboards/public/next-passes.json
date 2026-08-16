@@ -6,7 +6,7 @@
   ],
   "timezone": "utc",
   "schemaVersion": 39,
-  "version": 4,
+  "version": 5,
   "refresh": "5m",
   "time": {
     "from": "now",
@@ -65,7 +65,7 @@
         {
           "refId": "A",
           "format": "time_series",
-          "rawSql": "SELECT p.aos AS time, p.observer AS value, p.observer AS metric FROM pass p JOIN satellite s USING (norad) WHERE p.aos > now() AND p.norad = $norad UNION ALL SELECT p.los AS time, NULL::text AS value, p.observer AS metric FROM pass p JOIN satellite s USING (norad) WHERE p.aos > now() AND p.norad = $norad ORDER BY 1",
+          "rawSql": "SELECT p.aos AS time, p.max_el_deg AS value, p.observer AS metric FROM pass p JOIN satellite s USING (norad) WHERE p.aos > now() AND p.norad = $norad UNION ALL SELECT p.los AS time, NULL AS value, p.observer AS metric FROM pass p JOIN satellite s USING (norad) WHERE p.aos > now() AND p.norad = $norad ORDER BY 1",
           "datasource": {
             "type": "postgres",
             "uid": "orbitcache"
@@ -98,12 +98,16 @@
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "palette-classic"
+            "mode": "palette-classic-by-name"
           },
           "custom": {
             "lineWidth": 0,
             "fillOpacity": 85
           },
+          "unit": "deg",
+          "decimals": 1,
+          "min": 0,
+          "max": 90,
           "noValue": "no pass"
         },
         "overrides": []
@@ -127,7 +131,7 @@
         {
           "refId": "A",
           "format": "time_series",
-          "rawSql": "SELECT p.aos AS time, s.name AS value, s.name AS metric FROM pass p JOIN satellite s USING (norad) WHERE p.aos > now() AND p.observer = '$station' UNION ALL SELECT p.los AS time, NULL::text AS value, s.name AS metric FROM pass p JOIN satellite s USING (norad) WHERE p.aos > now() AND p.observer = '$station' ORDER BY 1",
+          "rawSql": "SELECT p.aos AS time, p.max_el_deg AS value, s.name AS metric FROM pass p JOIN satellite s USING (norad) WHERE p.aos > now() AND p.observer = '$station' UNION ALL SELECT p.los AS time, NULL AS value, s.name AS metric FROM pass p JOIN satellite s USING (norad) WHERE p.aos > now() AND p.observer = '$station' ORDER BY 1",
           "datasource": {
             "type": "postgres",
             "uid": "orbitcache"
@@ -160,12 +164,16 @@
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "palette-classic"
+            "mode": "palette-classic-by-name"
           },
           "custom": {
             "lineWidth": 0,
             "fillOpacity": 85
           },
+          "unit": "deg",
+          "decimals": 1,
+          "min": 0,
+          "max": 90,
           "noValue": "no pass"
         },
         "overrides": []
