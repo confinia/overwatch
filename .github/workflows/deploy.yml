@@ -7,8 +7,15 @@ name: deploy
 # Promotion is a separate job behind the `production` GitHub Environment: add a
 # required reviewer there and going live stays a human decision (RULES.md rule
 # 17 — done means promoted AND verified).
+# Sequenced AFTER the sandbox rebuild: sandbox is where a change is validated
+# before production is touched. Chaining on workflow_run (instead of firing both
+# on the same push) means the sandbox is already carrying the commit by the time
+# the production candidate is built, and `promote` still waits for the founder's
+# approval — so nothing reaches production unvalidated.
 on:
-  push:
+  workflow_run:
+    workflows: ["sandbox (per PR)"]
+    types: [completed]
     branches: [main]
   workflow_dispatch:
 
@@ -25,6 +32,11 @@ concurrency:
 jobs:
   stage:
     runs-on: ubuntu-latest
+    # A failed sandbox rebuild means the commit is not validated anywhere —
+    # don't build a production candidate from it. Manual dispatch always runs.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
     steps:
       - name: Authorize the SSH session
         run: |
@@ -50,6 +62,18 @@ jobs:
             otel-collector prometheus caddy >/dev/null
           for c in $(podman ps --format '{{.Names}}' | grep ^orbit-poc); do
             podman update --restart=always "$c" >/dev/null; done
+          # Provisioned dashboards live in a read-only mount, and grafana is
+          # started with --no-recreate, so an edited board would otherwise sit
+          # in the repo and never reach production. Ask Grafana to re-read them
+          # (no restart, no downtime for the embeds).
+          podman exec orbit-poc_grafana_1 sh -c \
+            'wget -qO- --post-data="" \
+             "http://admin:$GF_SECURITY_ADMIN_PASSWORD@localhost:3000/api/admin/provisioning/dashboards/reload"' \
+            >/dev/null 2>&1 || echo "grafana dashboard reload skipped (not reachable)"
+          # Same class of problem for the ingest: --no-recreate leaves it on the
+          # old image, so pass computation / decoders would silently lag main.
+          # (already inside orbit-poc from the compose call above)
+          podman-compose up -d --build ingest >/dev/null 2>&1 || true
           cd ~/projects/overwatch
           bash deploy/run-tests.sh          # the gate: no candidate on a red suite
           bash deploy/slots.sh stage

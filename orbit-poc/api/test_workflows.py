@@ -136,3 +136,25 @@ def test_registration_alert_e2e_wired():         # #193
     assert "rule_uid=new-registration" in s and \
            "Sending alerts to local notifier" in s                 # asserts the send
     assert "DELETE FROM registered_user" in s                      # cleans up
+
+
+def test_production_deploy_runs_after_the_sandbox_is_updated():
+    """Sandbox first, production second. Firing both on the same push meant a
+    commit could reach the production candidate before it existed anywhere
+    validatable; chaining deploy on the sandbox rebuild guarantees the sandbox
+    already carries the commit, and a failed sandbox blocks the prod candidate."""
+    d = _wf("deploy.yml")
+    assert "workflow_run:" in d
+    assert re.search(r'workflows:\s*\[\s*"sandbox \(per PR\)"\s*\]', d)
+    assert "on:\n  push:" not in d               # no longer races the sandbox
+    assert "workflow_run.conclusion == 'success'" in d
+    assert re.search(r"environment:\s*production", d)   # promote still gated
+
+
+def test_deploy_applies_grafana_dashboards_and_ingest():
+    """The core singletons come up with --no-recreate, so an edited dashboard or
+    a changed ingest would sit in the repo and never reach production unless
+    someone touched the VM by hand. CI must apply both."""
+    d = _wf("deploy.yml")
+    assert "provisioning/dashboards/reload" in d     # boards re-read, no restart
+    assert "--build ingest" in d                     # ingest follows main
