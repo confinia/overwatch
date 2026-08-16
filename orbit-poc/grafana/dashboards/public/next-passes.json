@@ -102,7 +102,15 @@
           "noValue": "no pass"
         },
         "overrides": []
-      }
+      },
+      "transformations": [
+        {
+          "id": "prepareTimeSeries",
+          "options": {
+            "format": "wide"
+          }
+        }
+      ]
     },
     {
       "type": "state-timeline",
@@ -159,7 +167,15 @@
           "noValue": "no pass"
         },
         "overrides": []
-      }
+      },
+      "transformations": [
+        {
+          "id": "prepareTimeSeries",
+          "options": {
+            "format": "wide"
+          }
+        }
+      ]
     },
     {
       "type": "table",
