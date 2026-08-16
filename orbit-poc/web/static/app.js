@@ -61,11 +61,27 @@ let myFavorites = new Set();          // norads the user starred
 // an organization -> private fleet only by DEFAULT; open data is an
 // activable option (persisted per browser).
 let showOpen = true;
+function favouriteOpenSats(){
+  // #255: "hide open-data fleet" means "show only what I follow", not "show
+  // nothing" — a starred satellite stays visible in the list and on the globe.
+  return signedIn ? [...myFavorites].filter(n => satsByNorad[n]) : [];
+}
 function applyOpenVisibility(){
-  const vis = showOpen ? "visible" : "none";
+  const favs = favouriteOpenSats();
+  const keepSome = !showOpen && favs.length > 0;
+  const vis = (showOpen || keepSome) ? "visible" : "none";
   for (const l of ["sats","sats-hit","sat-labels","track","track-arcs","rx-links",
                    "rx-links-glow","rx-endpoints","rx-links-hit","rx-stations","rx-stations-hit","rx-station-labels"]){
     try { if (map.getLayer(l)) map.setLayoutProperty(l, "visibility", vis); } catch(e){}
+  }
+  // In "only my satellites" mode the dot layers are filtered to the favourites
+  // rather than hidden; the reception/track layers follow the selection anyway.
+  for (const l of ["sats","sats-hit","sat-labels"]){
+    try {
+      if (!map.getLayer(l)) continue;
+      map.setFilter(l, keepSome
+        ? ["in", ["get","norad"], ["literal", favs]] : null);
+    } catch(e){}
   }
   const fb = document.getElementById("fleetbar");
   if (fb) fb.style.display = showOpen ? "flex" : "none";
@@ -73,6 +89,24 @@ function applyOpenVisibility(){
 function toggleOpen(){
   showOpen = !showOpen;
   localStorage.setItem("ovw_showOpen", showOpen ? "1" : "0");
+  // Hiding the fleet used to leave the selected open-data satellite on screen —
+  // its panel, legend and track stayed while it vanished from the list (#255).
+  // Keep it only if it is one the user actually follows.
+  if (!showOpen && activeNorad != null && !myFavorites.has(activeNorad)){
+    activeNorad = null;
+    setRxLegend("");
+    const empty = { type:"FeatureCollection", features: [] };
+    for (const src of ["track","track-arcs","rx-links","rx-stations","rx-endpoints"]){
+      const o = map.getSource(src);
+      if (o) { try { o.setData(empty); } catch(e){} }
+    }
+    const head = document.getElementById("panelHead");
+    const body = document.getElementById("panelBody");
+    if (head) head.textContent = "Select a satellite to inspect its telemetry";
+    if (body) body.innerHTML = `<div class="empty">Showing your satellites only. ` +
+      `Star an open-data satellite (★) to keep following it here.</div>`;
+    if (location.hash) history.replaceState(null, "", location.pathname);
+  }
   applyOpenVisibility(); renderList(allSats);
 }
 async function loadAccount(){
@@ -442,9 +476,14 @@ function renderList(sats){
       list.appendChild(div);
     }
   }
-  if (orgInfo && !showOpen) return;   // private mode: org fleet only
-  const shown = (q ? sats.filter(s =>
-    s.name.toLowerCase().includes(q) || String(s.norad).includes(q)) : sats)
+  // #255: private mode shows the org fleet PLUS the user's starred open-data
+  // satellites — hiding the fleet should not hide what they chose to follow.
+  const onlyFavs = orgInfo && !showOpen;
+  const favSet = onlyFavs ? new Set(favouriteOpenSats()) : null;
+  if (onlyFavs && favSet.size === 0) return;   // nothing starred: org fleet only
+  const pool = onlyFavs ? sats.filter(s => favSet.has(s.norad)) : sats;
+  const shown = (q ? pool.filter(s =>
+    s.name.toLowerCase().includes(q) || String(s.norad).includes(q)) : pool)
     .slice().sort((a, b) =>
       // #221: the user's favourites float to the top when signed in.
       ((myFavorites.has(b.norad) ? 1 : 0) - (myFavorites.has(a.norad) ? 1 : 0)) ||
