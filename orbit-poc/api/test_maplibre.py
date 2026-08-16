@@ -71,3 +71,16 @@ def test_favorite_satellites_wired():   # #221
     assert "/api/v1/me/satellites" in app
     assert "myFavorites" in app and "signedIn" in app
     assert 'class="fav' in app                       # the star control on each row
+
+
+def test_sign_out_asks_confirmation():   # #223
+    """A stray click must not drop the session: every user-facing sign-out
+    confirms first. The post-delete-org redirect is exempt (already confirmed)."""
+    app = open(APP, encoding="utf-8").read()
+    assert "function signOut" in app and 'confirm("Sign out of Overwatch?")' in app
+    # no bare sign-out link left that navigates straight to logout
+    assert 'href="${API_BASE}/api/v1/auth/logout" style' not in app
+    acct = open(os.path.join(STATIC, "account.html"), encoding="utf-8").read()
+    for line in acct.splitlines():
+        if "auth/logout" in line and "Sign out" in line:
+            assert "confirm(" in line, line

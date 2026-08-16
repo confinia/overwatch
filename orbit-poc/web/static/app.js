@@ -87,7 +87,7 @@ async function loadAccount(){
       el.innerHTML = ` · <b>${me.organization.name}</b> ` +
         `<a class="action" href="/w/account">account</a> · ` +
         `<a href="#" onclick="deleteOrg('${me.organization.id}','${me.organization.name}');return false" style="color:var(--dim)">delete org</a> · ` +
-        `<a href="${API_BASE}/api/v1/auth/logout" style="color:var(--dim)">sign out</a>`;
+        `<a href="#" onclick="signOut();return false" style="color:var(--dim)">sign out</a>`;
       const inv = await (await fetch(`${API_BASE}/api/v1/org/satellites`)).json();
       const by = {};
       for (const row of inv) (by[row.satellite] = by[row.satellite] || []).push(row);
@@ -98,7 +98,7 @@ async function loadAccount(){
       el.innerHTML = ` · ${me.email || "signed in"} — ` +
         `<a class="action" href="#" onclick="createOrg();return false">Create your organization</a> · ` +
         `<a href="/w/account" style="color:var(--dim)">account</a> · ` +
-        `<a href="${API_BASE}/api/v1/auth/logout" style="color:var(--dim)">sign out</a>`;
+        `<a href="#" onclick="signOut();return false" style="color:var(--dim)">sign out</a>`;
       orgInfo = null;
     }
   } catch (e) {
@@ -117,6 +117,13 @@ async function loadAccount(){
     if (os) selectOrgSat(os);
   }
 }
+// #223: signing out ends the Keycloak SSO session too, so confirm first — a
+// stray click shouldn't drop the session. Global: called from inline onclick.
+function signOut(){
+  if (!confirm("Sign out of Overwatch?")) return;
+  location.href = `${API_BASE}/api/v1/auth/logout`;
+}
+
 // #221: star/unstar a satellite (owner-scoped). Global so the inline onclick
 // in the list rows can reach it (the app is a classic script).
 async function toggleFavorite(norad){
