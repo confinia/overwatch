@@ -8,6 +8,7 @@ runner."""
 import glob
 import json
 import os
+import re
 
 HERE = os.path.dirname(__file__)
 DASH = os.path.join(HERE, "..", "grafana", "dashboards")
@@ -48,47 +49,27 @@ def test_accounts_orgs_queries_the_org_model():    # #28
         assert table in sql, f"dashboard never queries {table}"
 
 
-def test_next_passes_dashboard_both_views_and_colour_bands():   # #217
-    """Two views over `pass`: satellites-over-a-station AND the inverted
-    stations-covering-a-satellite; both sorted by AOS with the exact imminence
-    colour bands, selectable by $station and $norad."""
+def test_next_passes_is_timeline_only_coloured_per_station():   # #232
+    """Next passes is ONE graphical view per direction — no tables — and the
+    colour identifies the ground station: state-timeline colours by VALUE, so
+    the value must be the station label, not the elevation (an elevation value
+    produced a colour and a legend entry per distinct degree, swamping the
+    panel). The y-axis already names each row, so the legend stays off."""
     d = json.load(open(os.path.join(DASH, "public", "next-passes.json"),
                        encoding="utf-8"))
     assert d["uid"] == "next-passes"
+    assert [p["type"] for p in d["panels"]] == ["state-timeline"] * 2, \
+        "next passes must be timeline-only (tables removed)"
     sqls = [p["targets"][0]["rawSql"] for p in d["panels"]]
-    joined = "\n".join(sqls)
-    assert "FROM pass" in joined and "aos > now()" in joined
-    assert any("observer = '$station'" in s for s in sqls)   # station -> satellites
-    assert any("norad = $norad" in s for s in sqls)          # satellite -> stations (inverted)
-    for p in d["panels"]:                        # tables colour-code AOS-in-h
-        if p["type"] != "table":
-            continue
-        ov = next(o for o in p["fieldConfig"]["overrides"]
-                  if o["matcher"]["options"] == "AOS in (h)")
-        steps = next(x["value"]["steps"] for x in ov["properties"]
-                     if x["id"] == "thresholds")
-        assert [(s.get("value"), s["color"]) for s in steps] == \
-            [(None, "red"), (1, "orange"), (24, "yellow"), (168, "transparent")]
-    names = {v["name"] for v in d["templating"]["list"]}
-    assert {"station", "norad"} <= names
-
-
-def test_next_passes_has_coverage_timelines():   # #232
-    """Passes are shown graphically, not only as a table: a state-timeline per
-    view, one coloured band per ground station (resp. per satellite), so
-    overlapping coverage is visible at a glance."""
-    d = json.load(open(os.path.join(DASH, "public", "next-passes.json"),
-                       encoding="utf-8"))
-    tls = [p for p in d["panels"] if p["type"] == "state-timeline"]
-    assert len(tls) == 2, "expected a timeline for both views"
-    for p in tls:
-        sql = p["targets"][0]["rawSql"]
-        assert p["targets"][0]["format"] == "time_series"
-        assert "AS metric" in sql                  # one band per station/satellite
-        assert "UNION ALL" in sql and "NULL AS value" in sql   # band ends at LOS
+    assert any("observer = '$station'" in q for q in sqls)   # station -> satellites
+    assert any("norad = $norad" in q for q in sqls)          # satellite -> stations
+    for p, q in zip(d["panels"], sqls):
+        assert "FROM pass" in q and "aos > now()" in q
+        assert "AS metric" in q and "NULL::text AS value" in q   # band ends at LOS
+        # the value IS the series label -> one colour per station, not per degree
+        assert re.search(r"SELECT p\.aos AS time, (.+?) AS value, \1 AS metric", q), q
         assert p["fieldConfig"]["defaults"]["color"]["mode"] == "palette-classic"
-    grouped = {("p.observer AS metric" in p["targets"][0]["rawSql"]) for p in tls}
-    assert True in grouped, "no timeline grouped by ground station"
+        assert p["options"]["legend"]["showLegend"] is False, "legend floods the panel"
 
 
 def test_timelines_pivot_long_frames_into_bands():   # #232

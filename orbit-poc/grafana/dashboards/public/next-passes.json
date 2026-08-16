@@ -6,7 +6,7 @@
   ],
   "timezone": "utc",
   "schemaVersion": 39,
-  "version": 3,
+  "version": 4,
   "refresh": "5m",
   "time": {
     "from": "now",
@@ -56,7 +56,7 @@
       },
       "id": 3,
       "gridPos": {
-        "h": 11,
+        "h": 18,
         "w": 24,
         "x": 0,
         "y": 0
@@ -65,20 +65,28 @@
         {
           "refId": "A",
           "format": "time_series",
-          "rawSql": "SELECT p.aos AS time, p.max_el_deg AS value, p.observer AS metric FROM pass p JOIN satellite s USING (norad) WHERE p.aos > now() AND p.norad = $norad UNION ALL SELECT p.los AS time, NULL AS value, p.observer AS metric FROM pass p JOIN satellite s USING (norad) WHERE p.aos > now() AND p.norad = $norad ORDER BY 1",
+          "rawSql": "SELECT p.aos AS time, p.observer AS value, p.observer AS metric FROM pass p JOIN satellite s USING (norad) WHERE p.aos > now() AND p.norad = $norad UNION ALL SELECT p.los AS time, NULL::text AS value, p.observer AS metric FROM pass p JOIN satellite s USING (norad) WHERE p.aos > now() AND p.norad = $norad ORDER BY 1",
           "datasource": {
             "type": "postgres",
             "uid": "orbitcache"
           }
         }
       ],
+      "transformations": [
+        {
+          "id": "prepareTimeSeries",
+          "options": {
+            "format": "wide"
+          }
+        }
+      ],
       "options": {
         "showValue": "never",
         "mergeValues": true,
-        "rowHeight": 0.85,
+        "rowHeight": 0.9,
         "alignValue": "left",
         "legend": {
-          "showLegend": true,
+          "showLegend": false,
           "displayMode": "list",
           "placement": "bottom"
         },
@@ -94,23 +102,12 @@
           },
           "custom": {
             "lineWidth": 0,
-            "fillOpacity": 80
+            "fillOpacity": 85
           },
-          "unit": "deg",
-          "min": 0,
-          "max": 90,
           "noValue": "no pass"
         },
         "overrides": []
-      },
-      "transformations": [
-        {
-          "id": "prepareTimeSeries",
-          "options": {
-            "format": "wide"
-          }
-        }
-      ]
+      }
     },
     {
       "type": "state-timeline",
@@ -121,29 +118,37 @@
       },
       "id": 4,
       "gridPos": {
-        "h": 11,
+        "h": 18,
         "w": 24,
         "x": 0,
-        "y": 11
+        "y": 18
       },
       "targets": [
         {
           "refId": "A",
           "format": "time_series",
-          "rawSql": "SELECT p.aos AS time, p.max_el_deg AS value, s.name AS metric FROM pass p JOIN satellite s USING (norad) WHERE p.aos > now() AND p.observer = '$station' UNION ALL SELECT p.los AS time, NULL AS value, s.name AS metric FROM pass p JOIN satellite s USING (norad) WHERE p.aos > now() AND p.observer = '$station' ORDER BY 1",
+          "rawSql": "SELECT p.aos AS time, s.name AS value, s.name AS metric FROM pass p JOIN satellite s USING (norad) WHERE p.aos > now() AND p.observer = '$station' UNION ALL SELECT p.los AS time, NULL::text AS value, s.name AS metric FROM pass p JOIN satellite s USING (norad) WHERE p.aos > now() AND p.observer = '$station' ORDER BY 1",
           "datasource": {
             "type": "postgres",
             "uid": "orbitcache"
           }
         }
       ],
+      "transformations": [
+        {
+          "id": "prepareTimeSeries",
+          "options": {
+            "format": "wide"
+          }
+        }
+      ],
       "options": {
         "showValue": "never",
         "mergeValues": true,
-        "rowHeight": 0.85,
+        "rowHeight": 0.9,
         "alignValue": "left",
         "legend": {
-          "showLegend": true,
+          "showLegend": false,
           "displayMode": "list",
           "placement": "bottom"
         },
@@ -159,236 +164,11 @@
           },
           "custom": {
             "lineWidth": 0,
-            "fillOpacity": 80
+            "fillOpacity": 85
           },
-          "unit": "deg",
-          "min": 0,
-          "max": 90,
           "noValue": "no pass"
         },
         "overrides": []
-      },
-      "transformations": [
-        {
-          "id": "prepareTimeSeries",
-          "options": {
-            "format": "wide"
-          }
-        }
-      ]
-    },
-    {
-      "type": "table",
-      "title": "Next passes over $station (which satellites)",
-      "datasource": {
-        "type": "postgres",
-        "uid": "orbitcache"
-      },
-      "id": 1,
-      "gridPos": {
-        "h": 9,
-        "w": 24,
-        "x": 0,
-        "y": 22
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "format": "table",
-          "rawSql": "SELECT s.name AS satellite, p.aos AS \"AOS (UTC)\", round(p.max_el_deg::numeric, 0) AS \"max el (deg)\", round(extract(epoch FROM (p.los - p.aos))/60) AS \"duration (min)\", round(extract(epoch FROM (p.aos - now()))/3600, 1) AS \"AOS in (h)\" FROM pass p JOIN satellite s USING (norad) WHERE p.aos > now() AND p.observer = '$station' ORDER BY p.aos LIMIT 200",
-          "datasource": {
-            "type": "postgres",
-            "uid": "orbitcache"
-          }
-        }
-      ],
-      "options": {
-        "showHeader": true,
-        "cellHeight": "sm",
-        "footer": {
-          "show": false
-        },
-        "sortBy": [
-          {
-            "displayName": "AOS (UTC)",
-            "desc": false
-          }
-        ]
-      },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "align": "auto"
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "AOS in (h)"
-            },
-            "properties": [
-              {
-                "id": "custom.cellOptions",
-                "value": {
-                  "type": "color-background",
-                  "mode": "basic"
-                }
-              },
-              {
-                "id": "thresholds",
-                "value": {
-                  "mode": "absolute",
-                  "steps": [
-                    {
-                      "value": null,
-                      "color": "red"
-                    },
-                    {
-                      "value": 1,
-                      "color": "orange"
-                    },
-                    {
-                      "value": 24,
-                      "color": "yellow"
-                    },
-                    {
-                      "value": 168,
-                      "color": "transparent"
-                    }
-                  ]
-                }
-              },
-              {
-                "id": "unit",
-                "value": "h"
-              },
-              {
-                "id": "decimals",
-                "value": 1
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "max el (deg)"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "deg"
-              }
-            ]
-          }
-        ]
-      }
-    },
-    {
-      "type": "table",
-      "title": "Ground stations covering the satellite (next passes)",
-      "datasource": {
-        "type": "postgres",
-        "uid": "orbitcache"
-      },
-      "id": 2,
-      "gridPos": {
-        "h": 9,
-        "w": 24,
-        "x": 0,
-        "y": 31
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "format": "table",
-          "rawSql": "SELECT p.observer AS \"ground station\", p.aos AS \"AOS (UTC)\", round(p.max_el_deg::numeric, 0) AS \"max el (deg)\", round(extract(epoch FROM (p.los - p.aos))/60) AS \"duration (min)\", round(extract(epoch FROM (p.aos - now()))/3600, 1) AS \"AOS in (h)\" FROM pass p WHERE p.aos > now() AND p.norad = $norad ORDER BY p.aos LIMIT 200",
-          "datasource": {
-            "type": "postgres",
-            "uid": "orbitcache"
-          }
-        }
-      ],
-      "options": {
-        "showHeader": true,
-        "cellHeight": "sm",
-        "footer": {
-          "show": false
-        },
-        "sortBy": [
-          {
-            "displayName": "AOS (UTC)",
-            "desc": false
-          }
-        ]
-      },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "align": "auto"
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "AOS in (h)"
-            },
-            "properties": [
-              {
-                "id": "custom.cellOptions",
-                "value": {
-                  "type": "color-background",
-                  "mode": "basic"
-                }
-              },
-              {
-                "id": "thresholds",
-                "value": {
-                  "mode": "absolute",
-                  "steps": [
-                    {
-                      "value": null,
-                      "color": "red"
-                    },
-                    {
-                      "value": 1,
-                      "color": "orange"
-                    },
-                    {
-                      "value": 24,
-                      "color": "yellow"
-                    },
-                    {
-                      "value": 168,
-                      "color": "transparent"
-                    }
-                  ]
-                }
-              },
-              {
-                "id": "unit",
-                "value": "h"
-              },
-              {
-                "id": "decimals",
-                "value": 1
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "max el (deg)"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "deg"
-              }
-            ]
-          }
-        ]
       }
     }
   ]
