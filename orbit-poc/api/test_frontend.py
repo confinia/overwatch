@@ -338,3 +338,21 @@ def test_favicon_is_the_logo_mark(html):        # #199
     fav = open(os.path.join(STATIC, "favicon.svg"), encoding="utf-8").read()
     assert "<ellipse" in fav                      # the orbit ring (logo family)
     assert "5aa9ff" in fav.lower()                # brand accent
+
+
+def test_next_contacts_panel_is_native_and_sorted():   # #217/#232
+    """The satellite view must tell the end user when the next contact is —
+    natively (no Grafana iframe, so it paints immediately), soonest first, with
+    the imminence and whether the pass is usable (max elevation)."""
+    app = open(os.path.join(STATIC, "app.js"), encoding="utf-8").read()
+    assert "passesPanelHTML" in app and "/api/passes/" in app
+    assert "Next contact" in app                      # the headline fact
+    for cls in ("im-red", "im-orange", "el-high"):    # imminence + pass quality
+        assert cls in app, cls
+    api = open(os.path.join(os.path.dirname(__file__), "..", "web", "app.py"),
+               encoding="utf-8").read()
+    assert '"/api/passes/<int:norad>"' in api
+    assert "aos > now()" in api and "interval '24 hours'" in api
+    assert "ORDER BY aos" in api                      # soonest first
+    idx = open(os.path.join(STATIC, "index.html"), encoding="utf-8").read()
+    assert ".np-tbl" in idx                           # styled, not raw markup
