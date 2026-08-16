@@ -74,7 +74,7 @@ def test_alert_rules_watch_the_right_tables():
     assert "registered_user" in rules["new-registration"]["data"][0]["model"]["rawSql"]
     assert "api_key" in rules["new-api-key"]["data"][0]["model"]["rawSql"]
     for r in rules.values():
-        assert r["data"][0]["datasourceUid"] == "orbitcache"
+        assert r["data"][0]["datasourceUid"] == main.OPS_DS_UID
         assert r["folderUID"] == "ops-alerts"
         assert r["condition"] == "C"
 

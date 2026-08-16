@@ -152,7 +152,7 @@
       "type": "bargauge",
       "datasource": {
         "type": "postgres",
-        "uid": "orbitcache"
+        "uid": "orbitcache-ops"
       },
       "gridPos": {
         "h": 8,
@@ -181,7 +181,7 @@
       "type": "table",
       "datasource": {
         "type": "postgres",
-        "uid": "orbitcache"
+        "uid": "orbitcache-ops"
       },
       "gridPos": {
         "h": 8,
