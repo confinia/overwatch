@@ -89,3 +89,14 @@ def test_timelines_pivot_long_frames_into_bands():   # #232
         assert any(t["id"] == "prepareTimeSeries" and
                    t.get("options", {}).get("format") == "wide" for t in tr), \
             f"{p['title']}: long frame is never pivoted into per-series bands"
+
+
+def test_next_passes_focuses_on_the_next_24h():   # #232
+    """The board answers "what's coming up", not "the next week": the time range
+    and the queries are both bounded to 24 h — the query bound also keeps the
+    embed light, since a 7-day horizon was fetched only to be clipped."""
+    d = json.load(open(os.path.join(DASH, "public", "next-passes.json"),
+                       encoding="utf-8"))
+    assert d["time"] == {"from": "now", "to": "now+24h"}
+    for p in d["panels"]:
+        assert "interval '24 hours'" in p["targets"][0]["rawSql"], p["title"]
