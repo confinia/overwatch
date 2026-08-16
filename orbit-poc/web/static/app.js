@@ -198,6 +198,24 @@ fetch(`${API_BASE}/api/version`).then(r => r.json()).then(v => {
     `v${v.version} · API ${v.api}</a>`;
 }).catch(() => {});
 
+// #256: payment mode must never be ambiguous. The value comes from the API that
+// actually performs the checkout — never from a POLAR_ENV copied into this
+// container, because two sources drift and a badge that wrongly says "sandbox"
+// while real cards are charged is worse than no badge at all.
+fetch(`${API_BASE}/api/v1/billing/mode`).then(r => r.json()).then(m => {
+  const el = document.getElementById("paymode");
+  if (!el) return;
+  if (m.polar_env === "sandbox"){
+    el.className = "paymode sandbox";
+    el.textContent = "sandbox payments";
+    el.title = "Checkout runs against Polar SANDBOX \u2014 test cards only, no real money.";
+  } else if (m.polar_env === "off"){
+    el.className = "paymode off";
+    el.textContent = "billing off";
+    el.title = "Billing is disabled in this environment.";
+  }                                  // production: no tag, nothing to warn about
+}).catch(() => {});
+
 // Basemap: Sentinel-2 cloudless by EOX — real Copernicus imagery, processed
 // and served from Europe. The glyph server only feeds the text labels.
 const map = new maplibregl.Map({

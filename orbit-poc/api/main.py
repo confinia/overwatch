@@ -1731,6 +1731,18 @@ def _apply_billing_event(cur, ev):
                     "entitled_until=now() WHERE id=%s::uuid", (org_id,))
 
 
+@app.get("/v1/billing/mode")
+def billing_mode():
+    """Which payment mode this API is actually in — public and unauthenticated.
+
+    The UI badge MUST come from here, not from a POLAR_ENV copied into the web
+    container: two sources drift, and a payment-safety badge that can say
+    "sandbox" while the API charges real cards is worse than no badge (#256).
+    Exposes only the mode, never a token or product id.
+    """
+    return {"polar_env": polar.POLAR_ENV}
+
+
 @app.post("/v1/billing/checkout")
 def billing_checkout(request: Request):
     """Mint an embedded checkout for the caller's org — they never leave Overwatch."""
