@@ -369,3 +369,17 @@ def test_next_contacts_panel_is_native_and_sorted():   # #217/#232
     assert "::float AS in_s" in api and "::float   AS dur_s" in api
     idx = open(os.path.join(STATIC, "index.html"), encoding="utf-8").read()
     assert ".np-tbl" in idx                           # styled, not raw markup
+
+
+def test_payment_mode_tag_comes_from_the_api(html):   # #256
+    """Payment mode must never be ambiguous, and the badge must not be able to
+    lie: it reads the API that actually performs the checkout, never a POLAR_ENV
+    copied into the web container (two sources drift). Sandbox is flagged;
+    production shows nothing."""
+    assert "/api/v1/billing/mode" in html
+    assert "sandbox payments" in html
+    assert 'id="paymode"' in html and ".paymode.sandbox" in html
+    # the web app must NOT invent the value locally
+    api = open(os.path.join(os.path.dirname(__file__), "..", "web", "app.py"),
+               encoding="utf-8").read()
+    assert "POLAR_ENV" not in api, "web container must not source payment mode itself"
