@@ -496,9 +496,7 @@ async function selectStation(observer){
     ` onload="if(!this.dataset.r){this.dataset.r=1;const s=this.src;setTimeout(()=>{this.src=s},700)}"`;
   const passesEmbed = `<div class="ggrid">` +
     `<div class="gcell wide tall"><iframe loading="lazy"${coldReload} ` +
-    `src="${GRAFANA}/d-solo/next-passes/next-passes?orgId=1&panelId=4&var-station=${encodeURIComponent(observer)}&theme=dark&kiosk"></iframe></div>` +
-    `<div class="gcell wide"><iframe loading="lazy"${coldReload} ` +
-    `src="${GRAFANA}/d-solo/next-passes/next-passes?orgId=1&panelId=1&var-station=${encodeURIComponent(observer)}&theme=dark&kiosk"></iframe></div></div>`;
+    `src="${GRAFANA}/d-solo/next-passes/next-passes?orgId=1&panelId=4&var-station=${encodeURIComponent(observer)}&theme=dark&kiosk"></iframe></div></div>`;
   gfReady = true;
   body.innerHTML = passesEmbed +
     `<div class="empty" style="overflow-y:auto">` +
@@ -578,9 +576,7 @@ async function embedDashboards(s){
   // a glance, #232), the sortable table underneath for the exact times.
   const passesCell =
     `<div class="gcell wide tall"><iframe loading="lazy"${coldReload} ` +
-    `src="${GRAFANA}/d-solo/next-passes/next-passes?orgId=1&panelId=3&var-norad=${s.norad}&theme=dark&kiosk"></iframe></div>` +
-    `<div class="gcell wide"><iframe loading="lazy"${coldReload} ` +
-    `src="${GRAFANA}/d-solo/next-passes/next-passes?orgId=1&panelId=2&var-norad=${s.norad}&theme=dark&kiosk"></iframe></div>`;
+    `src="${GRAFANA}/d-solo/next-passes/next-passes?orgId=1&panelId=3&var-norad=${s.norad}&theme=dark&kiosk"></iframe></div>`;
   // Ask the product API which telemetry fields exist (same 7-day window as
   // the dashboard) and embed only the panels that will actually show data.
   let all = null;
