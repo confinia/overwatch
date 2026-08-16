@@ -275,13 +275,35 @@ document.getElementById("search").addEventListener("input", () => renderList(all
 
 // Satellites render as a GeoJSON circle layer (scales to thousands —
 // DOM markers would crawl past a few hundred).
+
+// #: the selected satellite pulses so it is obvious where it is on the globe.
+// MapLibre paint properties cannot be CSS-animated, so drive the halo from the
+// frame loop — throttled to ~25 fps, and idle when nothing is selected.
+let _pulseLast = 0;
+function pulseSelected(ts){
+  requestAnimationFrame(pulseSelected);
+  if (activeNorad == null || !map.getLayer("sat-pulse")) return;
+  if (ts - _pulseLast < 40) return;            // ~25 fps is plenty for a beacon
+  _pulseLast = ts;
+  const t = (ts % 1600) / 1600;                // one breath every 1.6 s
+  map.setPaintProperty("sat-pulse", "circle-radius", 12 + 20 * t);
+  map.setPaintProperty("sat-pulse", "circle-opacity", 0.38 * (1 - t));
+}
+
+// Repaint the fleet so the `sel` flag (and therefore the highlight) follows the
+// selection immediately, instead of waiting for the next 15 s refresh.
+function refreshSatHighlight(){
+  const src = map.getSource("sats");
+  if (src && allSats.length) src.setData(satsGeojson(allSats));
+}
+
 function satsGeojson(sats){
   return { type:"FeatureCollection", features: sats
     .filter(s => s.lat != null)
     .map(s => ({ type:"Feature",
       geometry:{ type:"Point", coordinates:[s.lon, s.lat] },
       properties:{ norad:s.norad, tel:!!s.has_telemetry, name:s.name,
-                   live:isLive(s) } })) };
+                   live:isLive(s), sel: s.norad === activeNorad } })) };
 }
 
 async function refresh(){
@@ -513,6 +535,7 @@ async function select(s, auto = false){
   if (!auto && s.norad !== activeNorad) beacon("select", s.norad);
   activeStation = null; activeOrgSat = null;
   activeNorad = s.norad;
+  refreshSatHighlight();                 // highlight follows the selection now
   if (location.hash !== "#" + s.norad) {
     history.replaceState(null, "", "#" + s.norad);
   }
@@ -649,7 +672,7 @@ async function embedDashboards(s){
   // Grafana iframe — so a field click can reach the parent map (#42) and each
   // field can be coloured by its source category (#46).
   const panels = [
-    { id: 5, wide: true, show: true },  // orbit altitude: position cache, live for every satellite
+    // orbit altitude (panel 5) stays in Grafana only — dropped from the app view.
     { id: 14, show: true },            // #86 reception summary (half — pairs with frames/hour)
     { id: 7, show: all.length > 0 },   // frames per hour (half — pairs with reception summary)
     { id: 13, wide: true, show: true },  // #86 ground-station leaderboard — SatNOGS leads with this
@@ -1036,12 +1059,24 @@ map.on("load", () => {
   map.addSource("sats", { type:"geojson", data:satsGeojson([]) });
   map.addLayer({ id:"sats", type:"circle", source:"sats",
     paint:{
-      "circle-radius":["case", ["get","live"], TOUCH ? 10 : 6.5, TOUCH ? 8 : 4.5],
+      // the SELECTED satellite is drawn markedly larger so the eye finds it on
+      // the globe without hunting (it also gets the pulsing halo below).
+      "circle-radius":["case",
+        ["get","sel"],  TOUCH ? 15 : 11,
+        ["get","live"], TOUCH ? 10 : 6.5,
+        TOUCH ? 8 : 4.5],
       "circle-color":["case", ["get","live"], "#4dffa6",
         ["case", ["get","tel"], "#39d98a", "#7c8aa5"]],
-      "circle-stroke-width":["case", ["get","live"], 3, 1.5],
-      "circle-stroke-color":["case", ["get","live"],
-        "rgba(57,217,138,.5)", "rgba(90,169,255,.45)"] }});
+      "circle-stroke-width":["case", ["get","sel"], 3.5, ["get","live"], 3, 1.5],
+      "circle-stroke-color":["case",
+        ["get","sel"], "#ffffff",
+        ["get","live"], "rgba(57,217,138,.5)", "rgba(90,169,255,.45)"] }});
+    // Pulsing halo under the selected dot — a beacon that says "it is HERE".
+    map.addLayer({ id:"sat-pulse", type:"circle", source:"sats",
+      filter:["==", ["get","sel"], true],
+      paint:{ "circle-radius":12, "circle-color":"#5aa9ff",
+              "circle-opacity":0.35, "circle-stroke-width":0 }}, "sats");
+    requestAnimationFrame(pulseSelected);
   // Satellite names on the globe ("Open Sans Semibold" is the one font the
   // demotiles glyph server provides). Elevation-true rendering is a future
   // maplibre-engine work item — for now dots sit on the ground track.
