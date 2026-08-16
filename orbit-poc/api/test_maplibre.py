@@ -23,7 +23,7 @@ def test_retired_umd_bundle_is_gone():
 
 def test_single_pinned_version_everywhere():
     versions = set(re.findall(r"maplibre-gl@([0-9]+\.[0-9]+\.[0-9]+)", INDEX))
-    assert versions == {"6.1.0"}, versions
+    assert versions == {"6.4.0"}, versions
 
 
 def test_library_is_exposed_globally_before_the_app_loads():
