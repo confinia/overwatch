@@ -296,13 +296,10 @@ def compute_passes():
             except Exception as ex:
                 log.debug("passes failed %s/%s: %s", observer, norad, ex)
     with db() as conn, conn.cursor() as cur:
-        cur.execute("DELETE FROM pass WHERE aos < now()")        # drop stale/past
-        if rows:
-            execute_values(cur, """INSERT INTO pass
-                (observer, norad, aos, los, max_el_deg) VALUES %s
-                ON CONFLICT (observer, norad, aos)
-                DO UPDATE SET los = EXCLUDED.los,
-                              max_el_deg = EXCLUDED.max_el_deg""", rows)
+        # Idempotent persist (#232): a plain upsert on the exact AOS duplicated
+        # every pass on each run, because the interpolated rise time drifts by
+        # a fraction of a second between grids. store_passes takes a clean slate.
+        _passes.store_passes(cur, [s[0] for s in stations], rows)
         conn.commit()
     log.info("passes: %d upcoming across %d stations x %d sats",
              len(rows), len(stations), len(sats))

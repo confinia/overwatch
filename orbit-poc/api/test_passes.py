@@ -47,3 +47,72 @@ def test_finds_iss_passes_over_a_mid_latitude_station():
         assert aos >= start                 # in the future
         assert max_el >= 10.0               # actually cleared the horizon threshold
         assert (los - aos).total_seconds() < 30 * 60   # a LEO pass is minutes, not hours
+
+
+# --- persistence: the recompute must be idempotent (#232) ---
+import psycopg2  # noqa: E402
+from datetime import timedelta  # noqa: E402
+
+
+@pytest.fixture(scope="module")
+def conn():
+    c = psycopg2.connect(os.environ["DB_DSN"])
+    with c, c.cursor() as cur:
+        cur.execute("INSERT INTO satellite (norad, name) VALUES (99992, 'PASS-TEST') "
+                    "ON CONFLICT (norad) DO NOTHING")
+        cur.execute("""CREATE TABLE IF NOT EXISTS pass (
+            observer TEXT NOT NULL, norad INTEGER REFERENCES satellite(norad),
+            aos TIMESTAMPTZ NOT NULL, los TIMESTAMPTZ NOT NULL,
+            max_el_deg DOUBLE PRECISION, PRIMARY KEY (observer, norad, aos))""")
+    yield c
+    with c, c.cursor() as cur:
+        cur.execute("DELETE FROM pass WHERE observer = 'TEST-STATION'")
+    c.close()
+
+
+def _near_duplicates(cur):
+    """Rows for the same station+satellite whose AOS are within a minute — i.e.
+    the same physical pass stored more than once."""
+    cur.execute("""
+        SELECT count(*) FROM (
+            SELECT observer, norad, aos,
+                   lag(aos) OVER (PARTITION BY observer, norad ORDER BY aos) AS prev
+            FROM pass WHERE observer = 'TEST-STATION') t
+        WHERE prev IS NOT NULL AND aos - prev < interval '1 minute'""")
+    return cur.fetchone()[0]
+
+
+def test_recompute_is_idempotent_and_does_not_duplicate(conn):
+    """Re-running the compute must not accumulate copies of the same pass. Each
+    run's AOS is jittered by a fraction of a second (as the real forward scan
+    does), which used to defeat the exact-timestamp upsert and duplicate rows."""
+    import sys as _sys
+    _sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "ingest"))
+    import passes as _p
+    base = datetime.now(timezone.utc) + timedelta(hours=2)
+    with conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM pass WHERE observer = 'TEST-STATION'")
+        for jitter in (0.0, 0.4, 0.9):          # three recomputes, drifting AOS
+            rows = [("TEST-STATION", 99992,
+                     base + timedelta(seconds=jitter + 600 * k),
+                     base + timedelta(seconds=jitter + 600 * k + 300), 20.0 + k)
+                    for k in range(3)]          # three distinct passes each run
+            _p.store_passes(cur, ["TEST-STATION"], rows)
+        cur.execute("SELECT count(*) FROM pass WHERE observer = 'TEST-STATION'")
+        assert cur.fetchone()[0] == 3, "recompute duplicated passes"
+        assert _near_duplicates(cur) == 0, "same pass stored more than once"
+
+
+def test_store_passes_prunes_past_passes(conn):
+    import sys as _sys
+    _sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "ingest"))
+    import passes as _p
+    past = datetime.now(timezone.utc) - timedelta(hours=3)
+    with conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM pass WHERE observer = 'TEST-STATION'")
+        cur.execute("INSERT INTO pass (observer, norad, aos, los, max_el_deg) "
+                    "VALUES ('TEST-STATION', 99992, %s, %s, 10)",
+                    (past, past + timedelta(minutes=5)))
+        _p.store_passes(cur, ["TEST-STATION"], [])
+        cur.execute("SELECT count(*) FROM pass WHERE observer = 'TEST-STATION'")
+        assert cur.fetchone()[0] == 0            # past pass pruned
