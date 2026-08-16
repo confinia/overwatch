@@ -86,3 +86,22 @@ def test_sign_out_asks_confirmation():   # #223
     for line in acct.splitlines():
         if "auth/logout" in line and "Sign out" in line:
             assert "confirm(" in line, line
+
+
+def test_selected_satellite_is_highlighted_on_the_globe():
+    """Selecting a satellite must be obvious on the globe: the dot is drawn
+    larger with a bright ring, plus a pulsing halo beneath it — MapLibre paint
+    properties can't be CSS-animated, so it's driven from the frame loop."""
+    app = open(APP, encoding="utf-8").read()
+    assert '"sel": ' in app or "sel: s.norad === activeNorad" in app   # per-feature flag
+    assert 'id:"sat-pulse"' in app                    # the halo layer
+    assert "pulseSelected" in app and "requestAnimationFrame" in app
+    assert "refreshSatHighlight" in app               # follows the selection at once
+    assert '["get","sel"]' in app                     # styling keys off it
+
+
+def test_orbit_altitude_panel_is_grafana_only():
+    """The orbit-altitude chart is not embedded in the app any more — it stays
+    available in Grafana."""
+    app = open(APP, encoding="utf-8").read()
+    assert "{ id: 5, wide: true, show: true }" not in app
