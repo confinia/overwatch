@@ -533,18 +533,17 @@ async function selectStation(observer){
     `Each line points to where a satellite was when this station heard it.</div>`);
   // Next passes over THIS station (#217): which satellites will cover it next.
   // Embedded from the shared next-passes board (panel 1), above the receptions.
-  const coldReload = gfReady ? "" :
-    ` onload="if(!this.dataset.r){this.dataset.r=1;const s=this.src;setTimeout(()=>{this.src=s},700)}"`;
+  const cold = !gfReady; gfReady = true;
   const passesEmbed = `<div class="ggrid">` +
-    `<div class="gcell wide tall"><iframe loading="lazy"${coldReload} ` +
+    `<div class="gcell wide tall"><iframe loading="lazy" ` +
     `src="${GRAFANA}/d-solo/next-passes/next-passes?orgId=1&panelId=4&var-station=${encodeURIComponent(observer)}&theme=dark&kiosk"></iframe></div></div>`;
-  gfReady = true;
   body.innerHTML = passesEmbed +
     `<div class="empty" style="overflow-y:auto">` +
     `<b>${recs.length} receptions · ${sats.length} satellites (last 7 days)</b><br><br>` +
     sats.map(x => `<a href="#${x.norad}" class="stsat">${escapeHTML(x.name)}</a> — ${x.n} frame${x.n>1?"s":""}, last ${age(x.last)}`).join("<br>") +
     `<br><br><span style="opacity:.7">Tracked fleet only (${allSats.length} satellites), ` +
     `7-day window — a station that heard other satellites will not appear.</span></div>`;
+  trackPanelLoading(body, cold);           // count the panel in (#239)
   renderList(allSats);
 }
 
@@ -597,7 +596,7 @@ async function select(s, auto = false){
   // embeds only start once the map goes idle, so earth never competes with
   // dashboard iframes for bandwidth. A loading note holds the bottom panel.
   body.innerHTML = `<div class="empty"><span class="dot"></span>` +
-    `Loading dashboards — letting the globe land first…</div>`;
+    `<span id="panelWait">${globeStatusText()}</span></div>`;
   // The panel content must NEVER wait on the globe indefinitely. "idle" fires
   // only once the map has finished rendering, and a slow connection (or a
   // single stalled tile) can keep it busy for tens of seconds — the panel then
@@ -651,14 +650,78 @@ function passesPanelHTML(ps){
     `<table class="np-tbl"><tbody>${rows}</tbody></table></div>`;
 }
 
+
+
+// --- #239: the panel embeds wait for the globe to settle, so the wait must
+// name itself. MapLibre streams tiles as `dataloading` / `data` events; count
+// the ones in flight and show that, instead of a static "please wait".
+let mapPending = 0;
+let mapSettled = false;
+function globeStatusText(){
+  if (mapSettled) return "Globe ready — starting dashboards…";
+  return mapPending > 0
+    ? `Globe loading — ${mapPending} map tile${mapPending > 1 ? "s" : ""} still arriving…`
+    : "Globe rendering…";
+}
+function paintWaitNote(){
+  const el = document.getElementById("panelWait");
+  if (el) el.textContent = globeStatusText();
+}
+
+// --- #239: panels must never look frozen. Every embedded iframe reports when
+// it has actually painted; a pulsing banner counts them in, each pending cell
+// shimmers until its own panel arrives, and a panel that never answers SAYS SO
+// instead of pulsing forever (which is how an infinite load hid in plain sight).
+function trackPanelLoading(container, cold){
+  const frames = [...container.querySelectorAll("iframe")];
+  if (!frames.length) return;
+  const total = frames.length;
+  let done = 0;
+  const bar = document.createElement("div");
+  bar.className = "gfload";
+  bar.innerHTML = `<span class="dot"></span>Loading dashboards… <b>0/${total}</b>`;
+  container.prepend(bar);
+  const tick = () => {
+    const b = bar.querySelector("b");
+    if (b) b.textContent = `${done}/${total}`;
+    if (done >= total) bar.remove();
+  };
+  for (const f of frames){
+    const cell = f.closest(".gcell");
+    if (cell) cell.classList.add("gfpending");
+    f.addEventListener("load", () => {
+      // #105: the first embed of a session paints Grafana's home page, so it is
+      // reloaded once. That fires `load` TWICE — only the second means painted,
+      // or the counter would reach 100% over blank panels.
+      if (cold && !f.dataset.r){
+        f.dataset.r = "1";
+        const src = f.src;
+        setTimeout(() => { f.src = src; }, 700);
+        return;
+      }
+      if (f.dataset.counted) return;
+      f.dataset.counted = "1";
+      if (cell) cell.classList.remove("gfpending");
+      done++; tick();
+    });
+  }
+  setTimeout(() => {                      // still waiting? say it out loud
+    if (done < total && bar.isConnected){
+      bar.classList.add("gfstuck");
+      bar.innerHTML = `<span class="dot"></span>` +
+        `<b>${done}/${total}</b> panels loaded — the rest are not answering. ` +
+        `<a href="#" onclick="location.reload();return false">reload</a>`;
+    }
+  }, 20000);
+}
+
 async function embedDashboards(s){
   if (s.norad !== activeNorad) return;   // user moved on while the globe settled
   const body = document.getElementById("panelBody");
   const qs = `orgId=1&var-norad=${s.norad}&theme=dark&from=now-${rangeHours}h&to=now`;
   // #105: reload a d-solo iframe once on the first cold embed (what a manual
   // refresh does) so a Grafana-home first paint becomes the real panel.
-  const coldReload = gfReady ? "" :
-    ` onload="if(!this.dataset.r){this.dataset.r=1;const s=this.src;setTimeout(()=>{this.src=s},700)}"`;
+  const cold = !gfReady; gfReady = true;
   // The next-passes coverage timeline is NOT embedded here: it lives as its own
   // Grafana board (uid next-passes) until the visualisation earns a place in
   // the satellite view (#232).
@@ -678,8 +741,8 @@ async function embedDashboards(s){
   if (s.norad !== activeNorad) return;
   if (all === null) {
     body.innerHTML = `<div class="ggrid">` + passesCell +
-      `<div class="gcell wide"><iframe${coldReload} src="${GRAFANA}/d/${DASH_UID}/orbit-telemetry?${qs}&kiosk"></iframe></div></div>`;
-    gfReady = true;
+      `<div class="gcell wide"><iframe src="${GRAFANA}/d/${DASH_UID}/orbit-telemetry?${qs}&kiosk"></iframe></div></div>`;
+    trackPanelLoading(body, cold);
     return;
   }
   // A field only justifies a chart if it can draw a line: >= 3 points in
@@ -714,14 +777,14 @@ async function embedDashboards(s){
     { id: 8, wide: true, show: rich.includes("battery_v") },  // battery vs sunlight fusion
   ];
   const grafanaCells = panels.filter(p => p.show).map(p =>
-    `<div class="gcell${p.wide ? " wide" : ""}"><iframe loading="lazy"${coldReload} ` +
+    `<div class="gcell${p.wide ? " wide" : ""}"><iframe loading="lazy" ` +
     `src="${GRAFANA}/d-solo/${DASH_UID}/orbit-telemetry?${qs}&panelId=${p.id}"></iframe></div>`
   ).join("");
   // The "latest decoded fields" table is no longer shown: the raw field dump was
   // not what the view is for. `all` is still fetched — it decides WHICH charts
   // are worth embedding below.
   body.innerHTML = `<div class="ggrid">` + passesCell + grafanaCells + `</div>`;
-  gfReady = true;                          // one cold reload done; session warm
+  trackPanelLoading(body, cold);           // count the panels in (#239)
   if (all.length) wireFieldRows();
 }
 
@@ -1083,6 +1146,11 @@ async function importOem(file){
     fin.addEventListener("change", () => { if (fin.files[0]) importOem(fin.files[0]); fin.value = ""; });
   }
 }
+
+// Globe traffic feeds the waiting note (#239).
+map.on("dataloading", () => { mapPending++; paintWaitNote(); });
+map.on("data", () => { if (mapPending > 0) mapPending--; paintWaitNote(); });
+map.on("idle", () => { mapSettled = true; paintWaitNote(); });
 
 map.on("load", () => {
   map.addSource("sats", { type:"geojson", data:satsGeojson([]) });

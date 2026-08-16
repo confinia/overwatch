@@ -120,6 +120,21 @@
   .gcell { height:280px; } .gcell.wide { grid-column:1/-1; }
   /* #232: the coverage timeline needs room — one band per ground station. */
   .gcell.tall { height:460px; }
+  /* #239: loading feedback — a pulsing counter, shimmering pending cells, and
+     an explicit "not answering" state so a stalled panel can't look like a slow
+     one. The dot reuses the existing `pulse` keyframes. */
+  .gfload { grid-column:1/-1; display:flex; align-items:center; gap:8px;
+    font-size:12px; color:var(--dim); padding:6px 10px; background:var(--panel);
+    border:1px solid var(--line); border-radius:8px; }
+  .gfload b { color:var(--accent); font-variant-numeric:tabular-nums; }
+  .gfload a { color:var(--accent); }
+  .gfload.gfstuck { border-color:#f5a62366; color:#f5a623; }
+  .gfload.gfstuck b { color:#f5a623; }
+  .gcell.gfpending { position:relative; overflow:hidden; }
+  .gcell.gfpending::after { content:""; position:absolute; inset:0;
+    background:linear-gradient(90deg, transparent, #ffffff0d, transparent);
+    animation:shimmer 1.4s infinite; pointer-events:none; }
+  @keyframes shimmer { 0%{transform:translateX(-100%)} 100%{transform:translateX(100%)} }
   /* #217/#232: native "next contacts" panel — sized to its content, no iframe. */
   .gcell.auto { height:auto; }
   .np { background:var(--panel); border:1px solid var(--line); border-radius:8px;
