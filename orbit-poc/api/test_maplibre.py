@@ -105,3 +105,15 @@ def test_orbit_altitude_panel_is_grafana_only():
     available in Grafana."""
     app = open(APP, encoding="utf-8").read()
     assert "{ id: 5, wide: true, show: true }" not in app
+
+
+def test_panel_never_waits_forever_on_the_globe():
+    """The satellite panel used to be gated purely on the map's "idle" event.
+    On a slow connection the globe streams tiles for tens of seconds (or stalls
+    on one) and never goes idle, so the panel sat on "Loading dashboards…"
+    indefinitely and no data call was ever made. There must be a timer racing
+    the idle event, and the two data sources must load concurrently."""
+    app = open(APP, encoding="utf-8").read()
+    assert 'map.once("idle", embed)' in app and "setTimeout(embed," in app
+    assert "let embedded = false" in app          # whichever fires first wins, once
+    assert "Promise.allSettled" in app            # fields + passes in parallel

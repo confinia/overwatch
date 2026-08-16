@@ -579,9 +579,15 @@ async function select(s, auto = false){
   // dashboard iframes for bandwidth. A loading note holds the bottom panel.
   body.innerHTML = `<div class="empty"><span class="dot"></span>` +
     `Loading dashboards — letting the globe land first…</div>`;
-  const embed = () => embedDashboards(s);
+  // The panel content must NEVER wait on the globe indefinitely. "idle" fires
+  // only once the map has finished rendering, and a slow connection (or a
+  // single stalled tile) can keep it busy for tens of seconds — the panel then
+  // sat on "Loading dashboards…" forever. Race the idle event against a short
+  // timer and take whichever comes first.
+  let embedded = false;
+  const embed = () => { if (embedded) return; embedded = true; embedDashboards(s); };
   if (map.loaded() && !map.isMoving()) embed();
-  else map.once("idle", embed);
+  else { map.once("idle", embed); setTimeout(embed, 2500); }
   renderList(allSats);
 }
 
@@ -639,13 +645,16 @@ async function embedDashboards(s){
   // the satellite view (#232).
   // Ask the product API which telemetry fields exist (same 7-day window as
   // the dashboard) and embed only the panels that will actually show data.
-  let all = null;
-  let nextPasses = [];
-  try {
-    const r = await fetch(`${API_BASE}/api/v1/telemetry/${s.norad}/fields?hours=${rangeHours}`);
-    if (r.ok) all = await r.json();   // [{field, points, last_seen}]
-  } catch (e) { /* /v1 unreachable (local dev): fall back below */ }
-  try { nextPasses = await j(`/api/passes/${s.norad}`); } catch (e) { nextPasses = []; }
+  // Both in flight at once — the fields call used to block the passes call, so
+  // the panel waited for the slower of the two in series.
+  const [fieldsR, passesR] = await Promise.allSettled([
+    fetch(`${API_BASE}/api/v1/telemetry/${s.norad}/fields?hours=${rangeHours}`)
+      .then(r => r.ok ? r.json() : null),   // [{field, points, last_seen}]
+    j(`/api/passes/${s.norad}`),
+  ]);
+  const all = fieldsR.status === "fulfilled" ? fieldsR.value : null;
+  const nextPasses = (passesR.status === "fulfilled" && Array.isArray(passesR.value))
+    ? passesR.value : [];
   const passesCell = `<div class="gcell wide auto">${passesPanelHTML(nextPasses)}</div>`;
   if (s.norad !== activeNorad) return;
   if (all === null) {
