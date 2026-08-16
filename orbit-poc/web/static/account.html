@@ -169,7 +169,7 @@ async function load(){
       `<div class="row"><span class="dim">No organization yet — create yours from the control room.</span></div>`;
     $("actions").innerHTML =
       `<button class="cta" onclick="createOrg()">Create your organization</button>` +
-      `<a class="cta secondary" href="/api/v1/auth/logout">Sign out</a>`;
+      `<a class="cta secondary" href="/api/v1/auth/logout" onclick="return confirm('Sign out of Overwatch?')">Sign out</a>`;
     return;
   }
   let s = null;
@@ -198,7 +198,7 @@ async function load(){
   $("actions").innerHTML =
     (pro ? `<button class="cta" onclick="portal()">Invoices / manage subscription</button>`
          : `<button class="cta" onclick="upgrade()">Upgrade to Pro</button>`) +
-    `<a class="cta secondary" href="/api/v1/auth/logout">Sign out</a>`;
+    `<a class="cta secondary" href="/api/v1/auth/logout" onclick="return confirm('Sign out of Overwatch?')">Sign out</a>`;
 }
 load();
 </script>

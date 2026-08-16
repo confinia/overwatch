@@ -96,3 +96,24 @@ def test_base_of_prefers_the_forwarded_host():
                      "x-forwarded-proto": "https"})
     assert main._base_of(r) == "https://staging.overwatch.confinia.io"
     assert main._base_of(Req()) == main.PUBLIC_BASE          # fallback
+
+
+def test_logout_ends_the_keycloak_session():   # #223
+    """Dropping our cookie is not enough — the SSO session must end too, or the
+    next sign-in silently re-authenticates. /v1/auth/logout redirects to the
+    realm end-session endpoint with post_logout_redirect_uri, passes the stored
+    id token as id_token_hint (so Keycloak skips its own confirm page), and
+    clears both cookies."""
+    import inspect
+    src = inspect.getsource(main.auth_logout)
+    assert "openid-connect/logout" in src
+    assert "post_logout_redirect_uri" in src
+    assert "id_token_hint" in src
+    assert f"delete_cookie" in src and "ID_COOKIE" in src and "COOKIE" in src
+
+
+def test_callback_keeps_the_id_token_for_logout():   # #223
+    import inspect
+    src = inspect.getsource(main.auth_callback)
+    assert "id_token" in src and "ID_COOKIE" in src
+    assert "httponly=True" in src                    # never readable from JS

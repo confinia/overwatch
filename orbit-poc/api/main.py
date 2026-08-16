@@ -641,7 +641,13 @@ KC_CLIENT_ID = os.environ.get("OVERWATCH_CLIENT_ID", "overwatch")
 KC_CLIENT_SECRET = os.environ.get("OVERWATCH_CLIENT_SECRET", "")
 KC_ADMIN_USER = os.environ.get("KC_ADMIN_USERNAME", "")
 KC_ADMIN_PASS = os.environ.get("KC_ADMIN_PASSWORD", "")
+from urllib.parse import urlencode as _urlencode
+
 COOKIE = "ovw_token"
+# The id token, kept only to pass as `id_token_hint` on logout (#223) so
+# Keycloak ends the SSO session without showing its own confirmation page —
+# the app already asks for confirmation. Never used for authorization.
+ID_COOKIE = "ovw_idt"
 _jwks = None
 
 
@@ -1180,7 +1186,9 @@ def auth_callback(request: Request, code: str = "", state: str = ""):
                  timeout=15)
     if r.status_code != 200:
         raise HTTPException(502, "Token exchange failed")
-    tok = r.json()["access_token"]
+    _tokens = r.json()
+    tok = _tokens["access_token"]
+    id_tok = _tokens.get("id_token", "")     # for RP-initiated logout (#223)
     try:                                    # registration registry (#172) —
         key = _jwks_client().get_signing_key_from_jwt(tok)   # best-effort,
         c = _jwt.decode(tok, key.key, algorithms=["RS256"],  # never blocks
@@ -1193,15 +1201,32 @@ def auth_callback(request: Request, code: str = "", state: str = ""):
     resp = RedirectResponse("/")
     resp.set_cookie(COOKIE, tok, max_age=1740,
                     httponly=True, secure=True, samesite="lax", path="/")
+    if id_tok:
+        resp.set_cookie(ID_COOKIE, id_tok, max_age=1740,
+                        httponly=True, secure=True, samesite="lax", path="/")
     resp.delete_cookie("ovw_state")
     return resp
 
 
 @app.get("/v1/auth/logout", include_in_schema=False)
-def auth_logout():
+def auth_logout(request: Request):
+    """RP-initiated OIDC logout (#223). Dropping our own cookie is not enough:
+    the Keycloak SSO session would survive and the next sign-in would silently
+    re-authenticate — so it never felt like logging out. Bounce through the
+    realm's end-session endpoint to actually end the IdP session, then land back
+    on the app. `id_token_hint` (kept from the callback) lets Keycloak skip its
+    own confirmation page — the app already confirms before calling this."""
     from fastapi.responses import RedirectResponse
-    resp = RedirectResponse("/")
+    base = _base_of(request)
+    id_tok = request.cookies.get(ID_COOKIE, "")
+    args = {"post_logout_redirect_uri": f"{base}/", "client_id": KC_CLIENT_ID}
+    if id_tok:
+        args["id_token_hint"] = id_tok
+    url = (f"{KC_ISSUER}/protocol/openid-connect/logout"
+           f"?{_urlencode(args)}")
+    resp = RedirectResponse(url)
     resp.delete_cookie(COOKIE, path="/")
+    resp.delete_cookie(ID_COOKIE, path="/")
     return resp
 
 
