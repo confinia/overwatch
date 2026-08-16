@@ -101,3 +101,26 @@ def find_passes(tle1, tle2, lat_deg, lon_deg, start, hours=168,
                 peak = max(peak, el)
         prev_el, prev_t = el, t
     return out
+
+
+def store_passes(cur, observers, rows):
+    """Persist a recompute idempotently (#232). Caller commits.
+
+    The forward scan starts at "now", so each run samples on a different grid
+    and the interpolated AOS of the SAME physical pass shifts by a fraction of a
+    second. Upserting on the exact `(observer, norad, aos)` key therefore
+    INSERTS a near-duplicate every run instead of updating — three runs, three
+    rows for one pass. A pass's identity is "this station, this satellite, this
+    rise", not a millisecond, so we take a clean slate instead: drop the future
+    rows of the stations we just recomputed, then insert this run's answer.
+    Delete+insert share one transaction, so readers never see an empty table.
+    """
+    from psycopg2.extras import execute_values
+    cur.execute("DELETE FROM pass WHERE aos < now()")          # prune past
+    if observers:
+        cur.execute("DELETE FROM pass WHERE aos >= now() AND observer = ANY(%s)",
+                    (list(observers),))
+    if rows:
+        execute_values(cur, "INSERT INTO pass "
+                            "(observer, norad, aos, los, max_el_deg) VALUES %s "
+                            "ON CONFLICT (observer, norad, aos) DO NOTHING", rows)
