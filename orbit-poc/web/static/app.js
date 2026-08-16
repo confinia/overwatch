@@ -570,13 +570,9 @@ async function embedDashboards(s){
   // refresh does) so a Grafana-home first paint becomes the real panel.
   const coldReload = gfReady ? "" :
     ` onload="if(!this.dataset.r){this.dataset.r=1;const s=this.src;setTimeout(()=>{this.src=s},700)}"`;
-  // Next passes for THIS satellite (#217, inverted view): which ground stations
-  // will cover it next. Embedded from the shared next-passes board (panel 2).
-  // Timeline first (one band per ground station — overlapping coverage reads at
-  // a glance, #232), the sortable table underneath for the exact times.
-  const passesCell =
-    `<div class="gcell wide tall"><iframe loading="lazy"${coldReload} ` +
-    `src="${GRAFANA}/d-solo/next-passes/next-passes?orgId=1&panelId=3&var-norad=${s.norad}&theme=dark&kiosk"></iframe></div>`;
+  // The next-passes coverage timeline is NOT embedded here: it lives as its own
+  // Grafana board (uid next-passes) until the visualisation earns a place in
+  // the satellite view (#232).
   // Ask the product API which telemetry fields exist (same 7-day window as
   // the dashboard) and embed only the panels that will actually show data.
   let all = null;
@@ -586,7 +582,7 @@ async function embedDashboards(s){
   } catch (e) { /* /v1 unreachable (local dev): fall back below */ }
   if (s.norad !== activeNorad) return;
   if (all === null) {
-    body.innerHTML = `<div class="ggrid">` + passesCell +
+    body.innerHTML = `<div class="ggrid">` +
       `<div class="gcell wide"><iframe${coldReload} src="${GRAFANA}/d/${DASH_UID}/orbit-telemetry?${qs}&kiosk"></iframe></div></div>`;
     gfReady = true;
     return;
@@ -628,7 +624,7 @@ async function embedDashboards(s){
   ).join("");
   const fieldsCell = all.length
     ? `<div class="gcell wide fields-cell">${fieldsPanelHTML(all)}</div>` : "";
-  body.innerHTML = `<div class="ggrid">` + passesCell + fieldsCell + grafanaCells + `</div>`;
+  body.innerHTML = `<div class="ggrid">` + fieldsCell + grafanaCells + `</div>`;
   gfReady = true;                          // one cold reload done; session warm
   if (all.length) wireFieldRows();
 }

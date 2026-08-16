@@ -53,15 +53,14 @@ def test_oem_import_and_overlay_wired():   # #208 Phase 1c-2
         assert el in INDEX, el                                    # UI present
 
 
-def test_next_passes_embedded_in_both_views():   # #217 (in-app integration)
-    """The next-passes board is embedded IN the app, both ways: the satellite
-    view shows covering stations (panel 2, var-norad); the station view shows
-    passing satellites (panel 1, var-station)."""
+def test_next_passes_embedding():   # #217/#232 (in-app integration)
+    """Where the next-passes board is (and is not) embedded in the app."""
     app = open(APP, encoding="utf-8").read()
     assert "d-solo/next-passes/next-passes" in app
-    # #232: ONE graphical view per direction — the timelines, no table embeds
-    assert "panelId=3&var-norad=" in app            # satellite view -> stations timeline
-    assert "panelId=4&var-station=" in app          # station view -> satellites timeline
+    # #232: the coverage timeline is NOT embedded in the satellite view — it
+    # lives as its own Grafana board until the visualisation earns a place there.
+    assert "panelId=3&var-norad=" not in app        # satellite view: no passes embed
+    assert "panelId=4&var-station=" in app          # station view keeps its timeline
     assert "panelId=2&var-norad=" not in app        # tables removed
     assert "panelId=1&var-station=" not in app
 

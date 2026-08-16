@@ -10,7 +10,7 @@
   "refresh": "5m",
   "time": {
     "from": "now",
-    "to": "now+2d"
+    "to": "now+24h"
   },
   "templating": {
     "list": [
@@ -56,7 +56,7 @@
       },
       "id": 3,
       "gridPos": {
-        "h": 18,
+        "h": 16,
         "w": 24,
         "x": 0,
         "y": 0
@@ -65,7 +65,7 @@
         {
           "refId": "A",
           "format": "time_series",
-          "rawSql": "SELECT p.aos AS time, p.max_el_deg AS value, p.observer AS metric FROM pass p JOIN satellite s USING (norad) WHERE p.aos > now() AND p.norad = $norad UNION ALL SELECT p.los AS time, NULL AS value, p.observer AS metric FROM pass p JOIN satellite s USING (norad) WHERE p.aos > now() AND p.norad = $norad ORDER BY 1",
+          "rawSql": "SELECT p.aos AS time, p.max_el_deg AS value, p.observer AS metric FROM pass p JOIN satellite s USING (norad) WHERE p.aos > now() AND p.aos < now() + interval '24 hours' AND p.norad = $norad UNION ALL SELECT p.los AS time, NULL AS value, p.observer AS metric FROM pass p JOIN satellite s USING (norad) WHERE p.aos > now() AND p.aos < now() + interval '24 hours' AND p.norad = $norad ORDER BY 1",
           "datasource": {
             "type": "postgres",
             "uid": "orbitcache"
@@ -122,7 +122,7 @@
       },
       "id": 4,
       "gridPos": {
-        "h": 18,
+        "h": 16,
         "w": 24,
         "x": 0,
         "y": 18
@@ -131,7 +131,7 @@
         {
           "refId": "A",
           "format": "time_series",
-          "rawSql": "SELECT p.aos AS time, p.max_el_deg AS value, s.name AS metric FROM pass p JOIN satellite s USING (norad) WHERE p.aos > now() AND p.observer = '$station' UNION ALL SELECT p.los AS time, NULL AS value, s.name AS metric FROM pass p JOIN satellite s USING (norad) WHERE p.aos > now() AND p.observer = '$station' ORDER BY 1",
+          "rawSql": "SELECT p.aos AS time, p.max_el_deg AS value, s.name AS metric FROM pass p JOIN satellite s USING (norad) WHERE p.aos > now() AND p.aos < now() + interval '24 hours' AND p.observer = '$station' UNION ALL SELECT p.los AS time, NULL AS value, s.name AS metric FROM pass p JOIN satellite s USING (norad) WHERE p.aos > now() AND p.aos < now() + interval '24 hours' AND p.observer = '$station' ORDER BY 1",
           "datasource": {
             "type": "postgres",
             "uid": "orbitcache"
