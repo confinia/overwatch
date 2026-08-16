@@ -65,21 +65,23 @@ def test_every_page_links_favicon():            # #59
         assert 'rel="icon"' in t and "favicon.svg" in t, f"{page} missing favicon link"
 
 
-def test_native_fields_panel_replaces_grafana_table(html):   # #42/#46
-    # the decoded-fields panel is now native (clickable), not a Grafana iframe
-    assert "fieldsPanelHTML" in html and "fields-cell" in html
-    assert 'table class="fields"' in html
-    # Grafana panel id 4 (the old fields table) is no longer embedded
+def test_decoded_fields_panel_is_not_rendered(html):   # #42/#46, retired
+    """The "latest decoded fields" table is no longer shown in the satellite
+    view — a raw field dump was not what the view is for. The renderer is kept
+    (it is clickable and colour-coded, #42/#46) but nothing composes it into the
+    panel grid any more; the tests below still cover that retired code."""
+    assert "fieldsCell" not in html, "fields table is being composed into the grid"
+    # the old Grafana panel-4 table stays un-embedded too
     assert "{ id: 4," not in html
 
 
-def test_fields_coloured_by_source(html):        # #46
+def test_fields_coloured_by_source(html):        # #46 (retired panel, kept)
     # each source category has a distinct style hook
     for cat in ("canonical", "telemetry", "transport"):
         assert f"tr.fld.{cat}" in html, f"missing colour rule for {cat}"
 
 
-def test_field_click_flies_to_reception(html):   # #42
+def test_field_click_flies_to_reception(html):   # #42 (retired panel, kept)
     # clicking a field jumps to the nearest reception line and pulses it
     assert "jumpToReception" in html and "wireFieldRows" in html
     assert "pulseLink" in html and "rxLinkFeatures" in html

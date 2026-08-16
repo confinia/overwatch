@@ -698,9 +698,10 @@ async function embedDashboards(s){
     `<div class="gcell${p.wide ? " wide" : ""}"><iframe loading="lazy"${coldReload} ` +
     `src="${GRAFANA}/d-solo/${DASH_UID}/orbit-telemetry?${qs}&panelId=${p.id}"></iframe></div>`
   ).join("");
-  const fieldsCell = all.length
-    ? `<div class="gcell wide fields-cell">${fieldsPanelHTML(all)}</div>` : "";
-  body.innerHTML = `<div class="ggrid">` + passesCell + fieldsCell + grafanaCells + `</div>`;
+  // The "latest decoded fields" table is no longer shown: the raw field dump was
+  // not what the view is for. `all` is still fetched — it decides WHICH charts
+  // are worth embedding below.
+  body.innerHTML = `<div class="ggrid">` + passesCell + grafanaCells + `</div>`;
   gfReady = true;                          // one cold reload done; session warm
   if (all.length) wireFieldRows();
 }
