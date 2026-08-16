@@ -132,7 +132,7 @@ def test_ops_datasource_uid_cannot_clobber_the_public_one():
     # and the refresh path must not overwrite someone else's datasource
     assert 'cur.get("name") == ds["name"]' in src
     # the ops boards/alerts must query through the ops datasource
-    assert main.OPS_DS_UID in inspect.getsource(main._ops_alert_rules)
+    assert "OPS_DS_UID" in inspect.getsource(main._ops_alert_rules)
     ops_dir = os.path.join(os.path.dirname(__file__), "..", "grafana", "ops-dashboards")
     for f in os.listdir(ops_dir):
         if f.endswith(".json"):

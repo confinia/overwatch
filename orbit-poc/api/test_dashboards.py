@@ -38,7 +38,7 @@ def test_accounts_orgs_dashboard_shape():          # #28
     assert "ops" in d.get("tags", []), "ops board (admin-only Grafana org, #168)"
     # every panel targets the provisioned Postgres datasource
     for p in d["panels"]:
-        assert p.get("datasource", {}).get("uid") == "orbitcache", p.get("title")
+        assert p.get("datasource", {}).get("uid") == "orbitcache-ops", p.get("title")
 
 
 def test_accounts_orgs_queries_the_org_model():    # #28
