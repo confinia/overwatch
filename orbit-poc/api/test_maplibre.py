@@ -129,3 +129,21 @@ def test_default_landing_satellite():
     i_def = app.index("else if (dflt) { select(dflt, true); }")
     assert i_fav < i_def, "the user's favourite must take precedence"
     assert "satsByNorad[DEFAULT_NORAD]" in app     # fallback when absent
+
+
+def test_panel_loading_is_visible_and_counted():   # #239
+    """A slow or stalled panel must never look like a frozen app: the wait names
+    what it is waiting for (globe tiles in flight), embedded panels are counted
+    in as they paint, and a panel that never answers says so instead of pulsing
+    forever — which is exactly how an infinite load hid in plain sight."""
+    app = open(APP, encoding="utf-8").read()
+    assert "trackPanelLoading" in app and "gfload" in app
+    assert "gfpending" in app                      # per-cell shimmer
+    assert "gfstuck" in app and "not answering" in app   # explicit stalled state
+    # the wait explains itself with live globe numbers
+    assert "globeStatusText" in app and "map tile" in app
+    assert 'map.on("dataloading"' in app and 'map.on("idle"' in app
+    # the cold-reload double load must not count twice
+    assert "dataset.counted" in app and "dataset.r" in app
+    idx = open(os.path.join(STATIC, "index.html"), encoding="utf-8").read()
+    assert "@keyframes shimmer" in idx and ".gfload" in idx
