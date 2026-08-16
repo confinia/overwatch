@@ -176,12 +176,20 @@ def test_time_range_selector_drives_all_views(html):   # #71/#72
 
 
 def test_grafana_cold_load_reloads_once(html):         # #105
-    # a cold Grafana session paints the home page in the bottom iframes; the
-    # embed reloads each d-solo iframe once (what a manual refresh does) until
-    # the session is warm
-    assert "gfReady" in html
-    assert "coldReload" in html and "this.dataset.r" in html
-    assert "this.src=s" in html or "this.src = s" in html
+    """A cold Grafana session paints the home page in the embedded iframes, so
+    each one is reloaded once (what a manual refresh does) until the session is
+    warm.
+
+    The mechanism moved out of an inline `onload` string into the load tracker
+    (#239) so the reload and the progress counter can agree on what "loaded"
+    means — this asserts the behaviour, not where it lives: a first-load guard,
+    an actual re-assignment of src, and a session-warm flag.
+    """
+    assert "gfReady" in html                       # session-warm flag
+    assert "dataset.r" in html                     # reload only on the cold load
+    assert "f.src = src" in html or "this.src=s" in html or "this.src = s" in html
+    # and the reload must not be counted as a painted panel (#239)
+    assert "dataset.counted" in html
 
 
 def test_reception_click_shows_distance(html):         # #94
