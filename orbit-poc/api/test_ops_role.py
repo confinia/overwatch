@@ -131,7 +131,7 @@ def test_ops_dashboards_use_per_org_datasource_uids():
         for p in _panels(d):
             ds = p.get("datasource") or {}
             if isinstance(ds, dict) and ds.get("uid"):
-                assert ds["uid"] in ("orbitcache", "promops"), f"{f}: {ds}"
+                assert ds["uid"] in ("orbitcache-ops", "promops"), f"{f}: {ds}"
 
 
 def test_ops_dashboards_are_out_of_the_org1_provider_path():
