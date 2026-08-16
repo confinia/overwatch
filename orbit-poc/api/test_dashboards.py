@@ -60,7 +60,9 @@ def test_next_passes_dashboard_both_views_and_colour_bands():   # #217
     assert "FROM pass" in joined and "aos > now()" in joined
     assert any("observer = '$station'" in s for s in sqls)   # station -> satellites
     assert any("norad = $norad" in s for s in sqls)          # satellite -> stations (inverted)
-    for p in d["panels"]:                                    # every view colour-codes AOS-in-h
+    for p in d["panels"]:                        # tables colour-code AOS-in-h
+        if p["type"] != "table":
+            continue
         ov = next(o for o in p["fieldConfig"]["overrides"]
                   if o["matcher"]["options"] == "AOS in (h)")
         steps = next(x["value"]["steps"] for x in ov["properties"]
@@ -69,3 +71,21 @@ def test_next_passes_dashboard_both_views_and_colour_bands():   # #217
             [(None, "red"), (1, "orange"), (24, "yellow"), (168, "transparent")]
     names = {v["name"] for v in d["templating"]["list"]}
     assert {"station", "norad"} <= names
+
+
+def test_next_passes_has_coverage_timelines():   # #232
+    """Passes are shown graphically, not only as a table: a state-timeline per
+    view, one coloured band per ground station (resp. per satellite), so
+    overlapping coverage is visible at a glance."""
+    d = json.load(open(os.path.join(DASH, "public", "next-passes.json"),
+                       encoding="utf-8"))
+    tls = [p for p in d["panels"] if p["type"] == "state-timeline"]
+    assert len(tls) == 2, "expected a timeline for both views"
+    for p in tls:
+        sql = p["targets"][0]["rawSql"]
+        assert p["targets"][0]["format"] == "time_series"
+        assert "AS metric" in sql                  # one band per station/satellite
+        assert "UNION ALL" in sql and "NULL AS value" in sql   # band ends at LOS
+        assert p["fieldConfig"]["defaults"]["color"]["mode"] == "palette-classic"
+    grouped = {("p.observer AS metric" in p["targets"][0]["rawSql"]) for p in tls}
+    assert True in grouped, "no timeline grouped by ground station"

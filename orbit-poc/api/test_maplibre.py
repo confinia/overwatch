@@ -61,6 +61,9 @@ def test_next_passes_embedded_in_both_views():   # #217 (in-app integration)
     assert "d-solo/next-passes/next-passes" in app
     assert "panelId=2&var-norad=" in app            # satellite view -> stations (inverted)
     assert "panelId=1&var-station=" in app          # station view -> satellites
+    # #232: the coverage timeline leads each view, the table stays as detail
+    assert "panelId=3&var-norad=" in app            # satellite view timeline
+    assert "panelId=4&var-station=" in app          # station view timeline
 
 
 def test_favorite_satellites_wired():   # #221

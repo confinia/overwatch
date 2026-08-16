@@ -6,11 +6,11 @@
   ],
   "timezone": "utc",
   "schemaVersion": 39,
-  "version": 2,
+  "version": 3,
   "refresh": "5m",
   "time": {
     "from": "now",
-    "to": "now+7d"
+    "to": "now+2d"
   },
   "templating": {
     "list": [
@@ -48,6 +48,120 @@
   },
   "panels": [
     {
+      "type": "state-timeline",
+      "title": "Coverage timeline \u2014 ground stations seeing this satellite",
+      "datasource": {
+        "type": "postgres",
+        "uid": "orbitcache"
+      },
+      "id": 3,
+      "gridPos": {
+        "h": 11,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT p.aos AS time, p.max_el_deg AS value, p.observer AS metric FROM pass p JOIN satellite s USING (norad) WHERE p.aos > now() AND p.norad = $norad UNION ALL SELECT p.los AS time, NULL AS value, p.observer AS metric FROM pass p JOIN satellite s USING (norad) WHERE p.aos > now() AND p.norad = $norad ORDER BY 1",
+          "datasource": {
+            "type": "postgres",
+            "uid": "orbitcache"
+          }
+        }
+      ],
+      "options": {
+        "showValue": "never",
+        "mergeValues": true,
+        "rowHeight": 0.85,
+        "alignValue": "left",
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 0,
+            "fillOpacity": 80
+          },
+          "unit": "deg",
+          "min": 0,
+          "max": 90,
+          "noValue": "no pass"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "state-timeline",
+      "title": "Coverage timeline \u2014 satellites passing over $station",
+      "datasource": {
+        "type": "postgres",
+        "uid": "orbitcache"
+      },
+      "id": 4,
+      "gridPos": {
+        "h": 11,
+        "w": 24,
+        "x": 0,
+        "y": 11
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT p.aos AS time, p.max_el_deg AS value, s.name AS metric FROM pass p JOIN satellite s USING (norad) WHERE p.aos > now() AND p.observer = '$station' UNION ALL SELECT p.los AS time, NULL AS value, s.name AS metric FROM pass p JOIN satellite s USING (norad) WHERE p.aos > now() AND p.observer = '$station' ORDER BY 1",
+          "datasource": {
+            "type": "postgres",
+            "uid": "orbitcache"
+          }
+        }
+      ],
+      "options": {
+        "showValue": "never",
+        "mergeValues": true,
+        "rowHeight": 0.85,
+        "alignValue": "left",
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 0,
+            "fillOpacity": 80
+          },
+          "unit": "deg",
+          "min": 0,
+          "max": 90,
+          "noValue": "no pass"
+        },
+        "overrides": []
+      }
+    },
+    {
       "type": "table",
       "title": "Next passes over $station (which satellites)",
       "datasource": {
@@ -56,10 +170,10 @@
       },
       "id": 1,
       "gridPos": {
-        "h": 11,
+        "h": 9,
         "w": 24,
         "x": 0,
-        "y": 0
+        "y": 22
       },
       "targets": [
         {
@@ -163,10 +277,10 @@
       },
       "id": 2,
       "gridPos": {
-        "h": 11,
+        "h": 9,
         "w": 24,
         "x": 0,
-        "y": 11
+        "y": 31
       },
       "targets": [
         {
