@@ -176,6 +176,24 @@ def track(norad):
         return jsonify(cur.fetchall())
 
 
+@app.get("/api/passes/<int:norad>")
+def passes(norad):
+    """Upcoming contacts for this satellite over the tracked ground stations
+    (next 24 h), soonest first — the control-room question is "when do I next
+    talk to it, from where, and is the pass any good". Computed by the ingest
+    (forward SGP4 + topocentric elevation) into the `pass` table (#217)."""
+    with db() as conn, conn.cursor() as cur:
+        cur.execute("""
+            SELECT observer, aos, max_el_deg,
+                   extract(epoch FROM (aos - now()))  AS in_s,
+                   extract(epoch FROM (los - aos))    AS dur_s
+            FROM pass
+            WHERE norad = %s AND aos > now()
+              AND aos < now() + interval '24 hours'
+            ORDER BY aos LIMIT 40""", (norad,))
+        return jsonify(cur.fetchall())
+
+
 @app.get("/api/stations")
 def stations():
     """All ground stations heard in the last 7 days, aggregated — feeds the

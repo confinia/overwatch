@@ -562,6 +562,47 @@ async function select(s, auto = false){
   renderList(allSats);
 }
 
+
+// --- Next contacts (#217/#232): a NATIVE panel, not a Grafana embed. The
+// control-room question is "when do I next talk to this satellite, from which
+// station, and is the pass usable" — so: soonest first, the next one called out,
+// imminence colour-coded. Native means it paints immediately (no iframe, no
+// Grafana cold start) and the labels stay readable.
+function fmtIn(sec){
+  if (sec < 60) return "now";
+  const m = Math.round(sec / 60);
+  if (m < 60) return `in ${m} min`;
+  const h = Math.floor(m / 60), r = m % 60;
+  return r ? `in ${h}h ${r}m` : `in ${h}h`;
+}
+function imminence(sec){                    // matches the board's colour bands
+  const h = sec / 3600;
+  return h < 1 ? "im-red" : h < 6 ? "im-orange" : h < 24 ? "im-yellow" : "";
+}
+function elClass(deg){                      // is the pass actually usable?
+  return deg >= 45 ? "el-high" : deg >= 20 ? "el-mid" : "el-low";
+}
+function passesPanelHTML(ps){
+  if (!ps.length){
+    return `<div class="np"><div class="np-head">Next contacts</div>` +
+      `<div class="np-empty">No pass over a tracked ground station in the next 24 h.</div></div>`;
+  }
+  const n = ps[0];
+  const rows = ps.slice(0, 12).map(p => {
+    const call = String(p.observer).split("-")[0];
+    return `<tr><td class="np-when ${imminence(p.in_s)}">${fmtIn(p.in_s)}</td>` +
+      `<td class="np-st" title="${escapeHTML(p.observer)}">${escapeHTML(call)}</td>` +
+      `<td class="np-el ${elClass(p.max_el_deg)}">${Math.round(p.max_el_deg)}°</td>` +
+      `<td class="np-dur">${Math.round(p.dur_s / 60)} min</td></tr>`;
+  }).join("");
+  return `<div class="np">` +
+    `<div class="np-head">Next contact — <b class="${imminence(n.in_s)}">${fmtIn(n.in_s)}</b> ` +
+    `via ${escapeHTML(String(n.observer).split("-")[0])} · ${Math.round(n.max_el_deg)}° max · ` +
+    `${Math.round(n.dur_s / 60)} min` +
+    `<span class="np-sub">${ps.length} pass${ps.length > 1 ? "es" : ""} in the next 24 h</span></div>` +
+    `<table class="np-tbl"><tbody>${rows}</tbody></table></div>`;
+}
+
 async function embedDashboards(s){
   if (s.norad !== activeNorad) return;   // user moved on while the globe settled
   const body = document.getElementById("panelBody");
@@ -576,13 +617,16 @@ async function embedDashboards(s){
   // Ask the product API which telemetry fields exist (same 7-day window as
   // the dashboard) and embed only the panels that will actually show data.
   let all = null;
+  let nextPasses = [];
   try {
     const r = await fetch(`${API_BASE}/api/v1/telemetry/${s.norad}/fields?hours=${rangeHours}`);
     if (r.ok) all = await r.json();   // [{field, points, last_seen}]
   } catch (e) { /* /v1 unreachable (local dev): fall back below */ }
+  try { nextPasses = await j(`/api/passes/${s.norad}`); } catch (e) { nextPasses = []; }
+  const passesCell = `<div class="gcell wide auto">${passesPanelHTML(nextPasses)}</div>`;
   if (s.norad !== activeNorad) return;
   if (all === null) {
-    body.innerHTML = `<div class="ggrid">` +
+    body.innerHTML = `<div class="ggrid">` + passesCell +
       `<div class="gcell wide"><iframe${coldReload} src="${GRAFANA}/d/${DASH_UID}/orbit-telemetry?${qs}&kiosk"></iframe></div></div>`;
     gfReady = true;
     return;
@@ -624,7 +668,7 @@ async function embedDashboards(s){
   ).join("");
   const fieldsCell = all.length
     ? `<div class="gcell wide fields-cell">${fieldsPanelHTML(all)}</div>` : "";
-  body.innerHTML = `<div class="ggrid">` + fieldsCell + grafanaCells + `</div>`;
+  body.innerHTML = `<div class="ggrid">` + passesCell + fieldsCell + grafanaCells + `</div>`;
   gfReady = true;                          // one cold reload done; session warm
   if (all.length) wireFieldRows();
 }
