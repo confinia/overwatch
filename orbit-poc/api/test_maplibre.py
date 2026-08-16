@@ -147,3 +147,18 @@ def test_panel_loading_is_visible_and_counted():   # #239
     assert "dataset.counted" in app and "dataset.r" in app
     idx = open(os.path.join(STATIC, "index.html"), encoding="utf-8").read()
     assert "@keyframes shimmer" in idx and ".gfload" in idx
+
+
+def test_private_satellite_clears_open_data_map_state():
+    """Selecting a PRIVATE org satellite must not inherit the previously
+    selected open-data satellite's map state. Its telemetry is pushed by the
+    org — SatNOGS never heard it — so a leftover "N ground stations heard this
+    satellite" legend, orange reception lines or a blue ground track would be
+    read as belonging to the private satellite. All of it is cleared."""
+    app = open(APP, encoding="utf-8").read()
+    fn = app[app.index("function selectOrgSat"):]
+    fn = fn[:fn.index("\n}")]
+    assert 'setRxLegend("")' in fn, "stale reception legend kept"
+    for src in ("rx-links", "rx-stations", "rx-endpoints", "track", "track-arcs"):
+        assert src in fn, f"{src} not cleared for a private satellite"
+    assert "clearPulse()" in fn

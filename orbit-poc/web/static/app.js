@@ -163,6 +163,20 @@ function selectOrgSat(s){
   activeNorad = null; activeStation = null; activeOrgSat = s.satellite;
   const h = "#org:" + encodeURIComponent(s.satellite);
   if (location.hash !== h) history.replaceState(null, "", h);
+  // A private satellite has no SatNOGS receptions and no cached ground track:
+  // its telemetry is pushed by the org. Whatever the previously selected
+  // open-data satellite left on the globe — the "N ground stations heard this
+  // satellite" legend, the orange reception lines, the blue track — would
+  // otherwise stay on screen and be read as belonging to THIS satellite.
+  setRxLegend("");
+  const empty = { type:"FeatureCollection", features: [] };
+  for (const src of ["track", "track-arcs", "rx-links", "rx-stations",
+                     "rx-endpoints", "rx-hi", "rx-hi-pt"]){
+    const o = map.getSource(src);
+    if (o) { try { o.setData(empty); } catch (e) {} }
+  }
+  rxLinkFeatures = []; clearPulse();
+  refreshSatHighlight();                 // no open-data satellite is selected now
   document.getElementById("panelHead").innerHTML =
     `${escapeHTML(s.satellite)} — <span class="fbadge fbadge-private" ` +
     `title="Your organization's private satellite">private</span> · ${escapeHTML(orgInfo.name)}`;
