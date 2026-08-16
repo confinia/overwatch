@@ -12,7 +12,7 @@
 <meta property="og:url" content="https://overwatch.confinia.io/"/>
 <meta property="og:type" content="website"/>
 <meta name="twitter:card" content="summary_large_image"/>
-<link href="https://unpkg.com/maplibre-gl@6.4.0/dist/maplibre-gl.css" rel="stylesheet"/>
+<link href="/vendor/maplibre/maplibre-gl.css" rel="stylesheet"/>
 <style>
   :root { --bg:#0a0e17; --panel:#121826; --line:#1f2a3d; --text:#dfe7f5;
           --accent:#5aa9ff; --live:#39d98a; --dim:#7c8aa5; }
@@ -278,7 +278,7 @@
   // MapLibre 6 is ESM-only (the UMD dist/maplibre-gl.js is no longer published).
   // Expose it as a global, then load the app as a CLASSIC script so its
   // top-level functions remain reachable from the inline onclick handlers.
-  import * as maplibregl from "https://unpkg.com/maplibre-gl@6.4.0/dist/maplibre-gl.mjs";
+  import * as maplibregl from "/vendor/maplibre/maplibre-gl.mjs";
   window.maplibregl = maplibregl;
   const s = document.createElement("script");
   s.src = "/app.js";
