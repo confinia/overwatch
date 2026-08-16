@@ -97,7 +97,7 @@ def test_recompute_is_idempotent_and_does_not_duplicate(conn):
                      base + timedelta(seconds=jitter + 600 * k),
                      base + timedelta(seconds=jitter + 600 * k + 300), 20.0 + k)
                     for k in range(3)]          # three distinct passes each run
-            _p.store_passes(cur, ["TEST-STATION"], rows)
+            _p.store_passes(cur, rows)
         cur.execute("SELECT count(*) FROM pass WHERE observer = 'TEST-STATION'")
         assert cur.fetchone()[0] == 3, "recompute duplicated passes"
         assert _near_duplicates(cur) == 0, "same pass stored more than once"
@@ -113,6 +113,27 @@ def test_store_passes_prunes_past_passes(conn):
         cur.execute("INSERT INTO pass (observer, norad, aos, los, max_el_deg) "
                     "VALUES ('TEST-STATION', 99992, %s, %s, 10)",
                     (past, past + timedelta(minutes=5)))
-        _p.store_passes(cur, ["TEST-STATION"], [])
+        _p.store_passes(cur, [])
         cur.execute("SELECT count(*) FROM pass WHERE observer = 'TEST-STATION'")
         assert cur.fetchone()[0] == 0            # past pass pruned
+
+
+def test_store_passes_drops_stations_no_longer_tracked(conn):
+    """A station that leaves the tracked set must not keep stale future passes —
+    they used to linger forever and still showed in the dashboards (#232)."""
+    import sys as _sys
+    _sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "ingest"))
+    import passes as _p
+    soon = datetime.now(timezone.utc) + timedelta(hours=1)
+    with conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM pass")
+        cur.execute("INSERT INTO pass (observer, norad, aos, los, max_el_deg) "
+                    "VALUES ('GONE-STATION', 99992, %s, %s, 30)",
+                    (soon, soon + timedelta(minutes=6)))
+        # a recompute that no longer includes GONE-STATION
+        _p.store_passes(cur, [("TEST-STATION", 99992, soon,
+                               soon + timedelta(minutes=5), 20.0)])
+        cur.execute("SELECT count(*) FROM pass WHERE observer = 'GONE-STATION'")
+        assert cur.fetchone()[0] == 0, "stale station kept its passes"
+        cur.execute("SELECT count(*) FROM pass WHERE observer = 'TEST-STATION'")
+        assert cur.fetchone()[0] == 1

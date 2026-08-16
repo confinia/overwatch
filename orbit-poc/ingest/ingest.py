@@ -299,7 +299,7 @@ def compute_passes():
         # Idempotent persist (#232): a plain upsert on the exact AOS duplicated
         # every pass on each run, because the interpolated rise time drifts by
         # a fraction of a second between grids. store_passes takes a clean slate.
-        _passes.store_passes(cur, [s[0] for s in stations], rows)
+        _passes.store_passes(cur, rows)
         conn.commit()
     log.info("passes: %d upcoming across %d stations x %d sats",
              len(rows), len(stations), len(sats))

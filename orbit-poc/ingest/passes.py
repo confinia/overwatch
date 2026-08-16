@@ -103,7 +103,7 @@ def find_passes(tle1, tle2, lat_deg, lon_deg, start, hours=168,
     return out
 
 
-def store_passes(cur, observers, rows):
+def store_passes(cur, rows):
     """Persist a recompute idempotently (#232). Caller commits.
 
     The forward scan starts at "now", so each run samples on a different grid
@@ -116,10 +116,12 @@ def store_passes(cur, observers, rows):
     Delete+insert share one transaction, so readers never see an empty table.
     """
     from psycopg2.extras import execute_values
-    cur.execute("DELETE FROM pass WHERE aos < now()")          # prune past
-    if observers:
-        cur.execute("DELETE FROM pass WHERE aos >= now() AND observer = ANY(%s)",
-                    (list(observers),))
+    # Full clean slate: a run recomputes the complete horizon for every tracked
+    # station, so the fresh rows ARE the whole truth. Scoping the delete to the
+    # recomputed stations instead left passes behind for stations that dropped
+    # out of the tracked set — stale windows that still showed in the dashboards
+    # and its station picker (#232).
+    cur.execute("DELETE FROM pass")
     if rows:
         execute_values(cur, "INSERT INTO pass "
                             "(observer, norad, aos, los, max_el_deg) VALUES %s "
