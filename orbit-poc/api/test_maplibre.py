@@ -117,3 +117,15 @@ def test_panel_never_waits_forever_on_the_globe():
     assert 'map.once("idle", embed)' in app and "setTimeout(embed," in app
     assert "let embedded = false" in app          # whichever fires first wins, once
     assert "Promise.allSettled" in app            # fields + passes in parallel
+
+
+def test_default_landing_satellite():
+    """With no deep link and no favourite, the app opens on the default
+    satellite — but a signed-in user's own favourite still wins (#221), and if
+    the default ever leaves the fleet it falls back to the freshest telemetry."""
+    app = open(APP, encoding="utf-8").read()
+    assert "const DEFAULT_NORAD = 69015" in app
+    i_fav = app.index("if (fav) { select(fav, true); }")
+    i_def = app.index("else if (dflt) { select(dflt, true); }")
+    assert i_fav < i_def, "the user's favourite must take precedence"
+    assert "satsByNorad[DEFAULT_NORAD]" in app     # fallback when absent

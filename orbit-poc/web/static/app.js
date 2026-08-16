@@ -210,6 +210,9 @@ const map = new maplibregl.Map({
 map.on("style.load", () => map.setProjection({ type: "globe" }));
 
 let activeNorad = null;
+// Satellite the app opens on when there is no deep link and no favourite.
+// Falls back to the freshest-telemetry pick if it ever leaves the fleet.
+const DEFAULT_NORAD = 69015;            // FrontierSat
 let activeStation = null;          // observer string when in station mode
 let activeOrgSat = null;           // private org-satellite name when selected (#176)
 let rxLinkFeatures = [];           // current reception lines (for #42 field->line)
@@ -338,10 +341,12 @@ async function refresh(){
     // Default view: land on a satellite with the freshest telemetry —
     // inside the hour when the network heard one, otherwise the most
     // recently heard overall. The page never opens on an empty panel.
-    // #221: a signed-in user with favourites opens on their first favourite;
-    // otherwise the freshest-telemetry default.
+    // Landing order: the user's own choice first (#221), then the default
+    // satellite, then whichever satellite was heard most recently.
     const fav = signedIn ? [...myFavorites].map(n => satsByNorad[n]).find(Boolean) : null;
+    const dflt = satsByNorad[DEFAULT_NORAD];
     if (fav) { select(fav, true); }
+    else if (dflt) { select(dflt, true); }
     else {
       const heard = sats.filter(s => s.last_frame)
         .sort((a, b) => new Date(b.last_frame) - new Date(a.last_frame));
