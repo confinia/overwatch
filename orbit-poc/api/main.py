@@ -872,6 +872,13 @@ def _provision_grafana_role(cur) -> None:
 # their own datasource role: datasources are scoped per Grafana org, and the
 # anonymous public embeds are bound to org 1 — no proxy path reaches this one.
 OPS_ROLE = "ops_ro"
+# The ops datasource MUST NOT share a uid with the public one. Grafana uids are
+# globally unique, so posting the ops datasource with uid "orbitcache" returned
+# 409 and the refresh path below then PUT the OPS config (user ops_ro) onto the
+# PUBLIC datasource — every public dashboard then queried as a role with no
+# SELECT on satellite/telemetry/reception and showed "No data" (seen on sandbox;
+# prod was one api restart away from the same outage).
+OPS_DS_UID = "orbitcache-ops"
 OPS_TABLES = ("organization", "org_user", "org_token", "api_key",
               "api_usage", "visitor_daily", "registered_user")
 OPS_ALERT_EMAIL = os.environ.get("OPS_ALERT_EMAIL", "contact@confinia.io")
@@ -959,7 +966,7 @@ def _provision_ops_org() -> bool:
                 return False
             gorg = r.json().get("orgId")
         for ds in (
-            {"name": "OrbitCache (ops)", "uid": "orbitcache", "type": "postgres",
+            {"name": "OrbitCache (ops)", "uid": OPS_DS_UID, "type": "postgres",
              "access": "proxy", "url": os.environ.get("GF_DS_HOST", "db:5432"),
              "user": OPS_ROLE, "database": "orbit", "isDefault": True,
              "jsonData": {"sslmode": "disable", "postgresVersion": 1600},
@@ -971,8 +978,15 @@ def _provision_ops_org() -> bool:
             if r.status_code == 409:              # exists: refresh (password…)
                 cur_ds = _gf("GET", f"/datasources/uid/{ds['uid']}", gorg=gorg)
                 if cur_ds.status_code == 200:
-                    _gf("PUT", f"/datasources/{cur_ds.json()['id']}", ds,
-                        gorg=gorg)
+                    cur = cur_ds.json()
+                    # Only ever refresh OUR datasource. A uid that resolves to a
+                    # datasource owned by another org means a uid clash, and
+                    # overwriting it would break that org's dashboards.
+                    if cur.get("name") == ds["name"]:
+                        _gf("PUT", f"/datasources/{cur['id']}", ds, gorg=gorg)
+                    else:                     # uid clash: leave it alone
+                        print(f"datasource uid {ds['uid']} already used by "
+                              f"{cur.get('name')!r} — not overwriting", flush=True)
         for f in sorted(os.listdir(OPS_DASHBOARDS_DIR)):
             if not f.endswith(".json"):
                 continue
@@ -1006,7 +1020,7 @@ def _ops_alert_rules() -> list:
             "annotations": {"summary": f"[{env}] " + (summary or title)},
             "data": [
                 {"refId": "A", "relativeTimeRange": {"from": 900, "to": 0},
-                 "datasourceUid": "orbitcache",
+                 "datasourceUid": OPS_DS_UID,
                  "model": {"refId": "A", "format": "table", "rawSql": sql,
                            "intervalMs": 60000, "maxDataPoints": 100}},
                 {"refId": "B", "relativeTimeRange": {"from": 0, "to": 0},

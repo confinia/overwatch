@@ -4,6 +4,7 @@ datasource bound to its **RLS-scoped Postgres role**, and a private dashboard.
 The isolation guarantee is the database role, so the seeded dashboard must carry
 no tenant filter and must never reference a privileged datasource role.
 """
+import inspect
 import json
 import os
 import sys
@@ -117,3 +118,23 @@ def test_membership_resyncs_when_org_already_provisioned(monkeypatch):   # #13
 def test_api_image_ships_the_template():
     df = open(os.path.join(HERE, "Dockerfile"), encoding="utf-8").read()
     assert "COPY tenant_dashboard.json" in df
+
+
+def test_ops_datasource_uid_cannot_clobber_the_public_one():
+    """Grafana datasource uids are GLOBALLY unique. The ops datasource used to
+    reuse the public uid "orbitcache", so its POST 409'd and the refresh path
+    PUT the ops config (user ops_ro) onto the PUBLIC datasource — every public
+    dashboard then queried as a role with no SELECT on satellite/telemetry and
+    rendered "No data". The two must never share a uid."""
+    assert main.OPS_DS_UID != "orbitcache"
+    src = inspect.getsource(main._provision_ops_org)
+    assert "OPS_DS_UID" in src
+    # and the refresh path must not overwrite someone else's datasource
+    assert 'cur.get("name") == ds["name"]' in src
+    # the ops boards/alerts must query through the ops datasource
+    assert main.OPS_DS_UID in inspect.getsource(main._ops_alert_rules)
+    ops_dir = os.path.join(os.path.dirname(__file__), "..", "grafana", "ops-dashboards")
+    for f in os.listdir(ops_dir):
+        if f.endswith(".json"):
+            body = open(os.path.join(ops_dir, f), encoding="utf-8").read()
+            assert '"orbitcache"' not in body, f"{f} still points at the public datasource"
