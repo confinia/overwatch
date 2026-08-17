@@ -978,7 +978,55 @@
           "id": "t-pay-m33",
           "comment": "",
           "command": "echo",
-          "target": ">> step 33: waitForElementPresent css=iframe[name^='__privateStripeFrame']",
+          "target": ">> step 33: pause 8000",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "ck2-diag0",
+          "comment": "",
+          "command": "pause",
+          "target": "8000",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "t-pay-m34",
+          "comment": "",
+          "command": "echo",
+          "target": ">> step 34: executeScript return location.pathname + ' /// iframes=' + Array.from(document.querySelectorAll('iframe')).map(function(f){return (f.name|",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "ck2-diag1",
+          "comment": "diagnose: what did the step-1 submit produce?",
+          "command": "executeScript",
+          "target": "return location.pathname + ' /// iframes=' + Array.from(document.querySelectorAll('iframe')).map(function(f){return (f.name||f.id||f.title||'?').slice(0,40)}).join(',') + ' /// inputs=' + Array.from(document.querySelectorAll('input,select')).map(function(e){return (e.id||e.name||'?')+':'+(e.type||e.tagName)}).join(',').slice(0,300) + ' /// text=' + (document.body ? document.body.innerText.slice(0,200).replace(/\\s+/g,' ') : '')",
+          "targets": [],
+          "value": "CK2"
+        },
+        {
+          "id": "t-pay-m35",
+          "comment": "",
+          "command": "echo",
+          "target": ">> step 35: echo CK2 ${CK2}",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "ck2-diag2",
+          "comment": "",
+          "command": "echo",
+          "target": "CK2 ${CK2}",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "t-pay-m36",
+          "comment": "",
+          "command": "echo",
+          "target": ">> step 36: waitForElementPresent css=iframe[name^='__privateStripeFrame']",
           "targets": [],
           "value": ""
         },
@@ -991,10 +1039,10 @@
           "value": "60000"
         },
         {
-          "id": "t-pay-m34",
+          "id": "t-pay-m37",
           "comment": "",
           "command": "echo",
-          "target": ">> step 34: selectFrame css=iframe[name^='__privateStripeFrame']",
+          "target": ">> step 37: selectFrame css=iframe[name^='__privateStripeFrame']",
           "targets": [],
           "value": ""
         },
@@ -1007,10 +1055,10 @@
           "value": ""
         },
         {
-          "id": "t-pay-m35",
+          "id": "t-pay-m38",
           "comment": "",
           "command": "echo",
-          "target": ">> step 35: type css=input[name='number'], #Field-numberInput",
+          "target": ">> step 38: type css=input[name='number'], #Field-numberInput",
           "targets": [],
           "value": ""
         },
@@ -1023,10 +1071,10 @@
           "value": "${CARD}"
         },
         {
-          "id": "t-pay-m36",
+          "id": "t-pay-m39",
           "comment": "",
           "command": "echo",
-          "target": ">> step 36: type css=input[name='expiry'], #Field-expiryInput",
+          "target": ">> step 39: type css=input[name='expiry'], #Field-expiryInput",
           "targets": [],
           "value": ""
         },
@@ -1039,10 +1087,10 @@
           "value": "${CARD_EXP}"
         },
         {
-          "id": "t-pay-m37",
+          "id": "t-pay-m40",
           "comment": "",
           "command": "echo",
-          "target": ">> step 37: type css=input[name='cvc'], #Field-cvcInput",
+          "target": ">> step 40: type css=input[name='cvc'], #Field-cvcInput",
           "targets": [],
           "value": ""
         },
@@ -1055,10 +1103,10 @@
           "value": "${CARD_CVC}"
         },
         {
-          "id": "t-pay-m38",
+          "id": "t-pay-m41",
           "comment": "",
           "command": "echo",
-          "target": ">> step 38: selectFrame relative=top",
+          "target": ">> step 41: selectFrame relative=top",
           "targets": [],
           "value": ""
         },
@@ -1071,10 +1119,10 @@
           "value": ""
         },
         {
-          "id": "t-pay-m39",
+          "id": "t-pay-m42",
           "comment": "",
           "command": "echo",
-          "target": ">> step 39: click css=button[type='submit']",
+          "target": ">> step 42: click css=button[type='submit']",
           "targets": [],
           "value": ""
         },
@@ -1087,10 +1135,10 @@
           "value": ""
         },
         {
-          "id": "t-pay-m40",
+          "id": "t-pay-m43",
           "comment": "",
           "command": "echo",
-          "target": ">> step 40: waitForElementVisible id=plan",
+          "target": ">> step 43: waitForElementVisible id=plan",
           "targets": [],
           "value": ""
         },
@@ -1103,10 +1151,10 @@
           "value": "120000"
         },
         {
-          "id": "t-pay-m41",
+          "id": "t-pay-m44",
           "comment": "",
           "command": "echo",
-          "target": ">> step 41: assertElementPresent id=banner",
+          "target": ">> step 44: assertElementPresent id=banner",
           "targets": [],
           "value": ""
         },
@@ -1119,10 +1167,10 @@
           "value": ""
         },
         {
-          "id": "t-pay-m42",
+          "id": "t-pay-m45",
           "comment": "",
           "command": "echo",
-          "target": ">> step 42: assertText id=plan",
+          "target": ">> step 45: assertText id=plan",
           "targets": [],
           "value": ""
         },
@@ -1135,10 +1183,10 @@
           "value": "PRO"
         },
         {
-          "id": "t-pay-m43",
+          "id": "t-pay-m46",
           "comment": "",
           "command": "echo",
-          "target": ">> step 43: assertElementPresent id=act-portal",
+          "target": ">> step 46: assertElementPresent id=act-portal",
           "targets": [],
           "value": ""
         },
