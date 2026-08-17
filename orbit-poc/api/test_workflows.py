@@ -82,7 +82,9 @@ def test_deploy_does_not_deadlock_on_a_pending_approval():   # #203
     holding the concurrency group forever, wedging every later deploy (0 jobs,
     pending). Cancelling the stale run instead keeps the pipeline alive."""
     d = _wf("deploy.yml")
-    assert re.search(r"group:\s*deploy-production", d)        # serialized...
+    # the group is now an expression (#263), so assert the intent: real deploys
+    # still serialise on deploy-production
+    assert "deploy-production" in d                            # serialized...
     assert re.search(r"cancel-in-progress:\s*true", d)        # ...but never wedged
 
 
