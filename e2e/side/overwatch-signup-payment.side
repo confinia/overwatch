@@ -103,10 +103,26 @@
       "name": "10 register",
       "commands": [
         {
+          "id": "t10m1",
+          "comment": "",
+          "command": "echo",
+          "target": ">> 10 register step 1: setWindowSize 1280x900",
+          "targets": [],
+          "value": ""
+        },
+        {
           "id": "c013",
           "comment": "",
           "command": "setWindowSize",
           "target": "1280x900",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "t10m2",
+          "comment": "",
+          "command": "echo",
+          "target": ">> 10 register step 2: open ${GATED_BASE}/w/account",
           "targets": [],
           "value": ""
         },
@@ -119,6 +135,14 @@
           "value": ""
         },
         {
+          "id": "t10m3",
+          "comment": "",
+          "command": "echo",
+          "target": ">> 10 register step 3: waitForElementVisible id=act-signin",
+          "targets": [],
+          "value": ""
+        },
+        {
           "id": "c015",
           "comment": "",
           "command": "waitForElementVisible",
@@ -127,10 +151,26 @@
           "value": "30000"
         },
         {
+          "id": "t10m4",
+          "comment": "",
+          "command": "echo",
+          "target": ">> 10 register step 4: click id=act-signin",
+          "targets": [],
+          "value": ""
+        },
+        {
           "id": "c016",
           "comment": "",
           "command": "click",
           "target": "id=act-signin",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "t10m5",
+          "comment": "",
+          "command": "echo",
+          "target": ">> 10 register step 5: waitForElementVisible id=kc-registration",
           "targets": [],
           "value": ""
         },
@@ -143,10 +183,26 @@
           "value": "30000"
         },
         {
+          "id": "t10m6",
+          "comment": "",
+          "command": "echo",
+          "target": ">> 10 register step 6: click css=#kc-registration a",
+          "targets": [],
+          "value": ""
+        },
+        {
           "id": "c018",
           "comment": "",
           "command": "click",
           "target": "css=#kc-registration a",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "t10m7",
+          "comment": "",
+          "command": "echo",
+          "target": ">> 10 register step 7: waitForElementVisible id=firstName",
           "targets": [],
           "value": ""
         },
@@ -159,12 +215,28 @@
           "value": "30000"
         },
         {
+          "id": "t10m8",
+          "comment": "",
+          "command": "echo",
+          "target": ">> 10 register step 8: type id=firstName",
+          "targets": [],
+          "value": ""
+        },
+        {
           "id": "c020",
           "comment": "",
           "command": "type",
           "target": "id=firstName",
           "targets": [],
           "value": "E2E"
+        },
+        {
+          "id": "t10m9",
+          "comment": "",
+          "command": "echo",
+          "target": ">> 10 register step 9: type id=lastName",
+          "targets": [],
+          "value": ""
         },
         {
           "id": "c021",
@@ -175,12 +247,28 @@
           "value": "Bot"
         },
         {
+          "id": "t10m10",
+          "comment": "",
+          "command": "echo",
+          "target": ">> 10 register step 10: type id=email",
+          "targets": [],
+          "value": ""
+        },
+        {
           "id": "c022",
           "comment": "registrationEmailAsUsername is on, so the address IS the username — no username field.",
           "command": "type",
           "target": "id=email",
           "targets": [],
           "value": "${EMAIL}"
+        },
+        {
+          "id": "t10m11",
+          "comment": "",
+          "command": "echo",
+          "target": ">> 10 register step 11: type id=password",
+          "targets": [],
+          "value": ""
         },
         {
           "id": "c023",
@@ -191,6 +279,14 @@
           "value": "${PASS}"
         },
         {
+          "id": "t10m12",
+          "comment": "",
+          "command": "echo",
+          "target": ">> 10 register step 12: type id=password-confirm",
+          "targets": [],
+          "value": ""
+        },
+        {
           "id": "c024",
           "comment": "",
           "command": "type",
@@ -199,10 +295,26 @@
           "value": "${PASS}"
         },
         {
+          "id": "t10m13",
+          "comment": "",
+          "command": "echo",
+          "target": ">> 10 register step 13: click css=input[type=submit]",
+          "targets": [],
+          "value": ""
+        },
+        {
           "id": "c025",
           "comment": "",
           "command": "click",
           "target": "css=input[type=submit]",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "t10m14",
+          "comment": "",
+          "command": "echo",
+          "target": ">> 10 register step 14: waitForElementNotPresent id=password-confirm",
           "targets": [],
           "value": ""
         },
@@ -221,10 +333,26 @@
       "name": "20 sign in",
       "commands": [
         {
+          "id": "t20m1",
+          "comment": "",
+          "command": "echo",
+          "target": ">> 20 sign in step 1: open ${GATED_BASE}/api/v1/auth/login",
+          "targets": [],
+          "value": ""
+        },
+        {
           "id": "c901",
           "comment": "Fresh browser: the previous test ended on Keycloak's verify-email notice.",
           "command": "open",
           "target": "${GATED_BASE}/api/v1/auth/login",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "t20m2",
+          "comment": "",
+          "command": "echo",
+          "target": ">> 20 sign in step 2: waitForElementVisible id=username",
           "targets": [],
           "value": ""
         },
@@ -237,6 +365,14 @@
           "value": "30000"
         },
         {
+          "id": "t20m3",
+          "comment": "",
+          "command": "echo",
+          "target": ">> 20 sign in step 3: type id=username",
+          "targets": [],
+          "value": ""
+        },
+        {
           "id": "c903",
           "comment": "registrationEmailAsUsername is on, so the address is the username.",
           "command": "type",
@@ -245,10 +381,26 @@
           "value": "${EMAIL}"
         },
         {
+          "id": "t20m4",
+          "comment": "",
+          "command": "echo",
+          "target": ">> 20 sign in step 4: click id=kc-login",
+          "targets": [],
+          "value": ""
+        },
+        {
           "id": "c904",
           "comment": "",
           "command": "click",
           "target": "id=kc-login",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "t20m5",
+          "comment": "",
+          "command": "echo",
+          "target": ">> 20 sign in step 5: waitForElementVisible id=password",
           "targets": [],
           "value": ""
         },
@@ -261,6 +413,14 @@
           "value": "30000"
         },
         {
+          "id": "t20m6",
+          "comment": "",
+          "command": "echo",
+          "target": ">> 20 sign in step 6: type id=password",
+          "targets": [],
+          "value": ""
+        },
+        {
           "id": "c906",
           "comment": "",
           "command": "type",
@@ -269,10 +429,26 @@
           "value": "${PASS}"
         },
         {
+          "id": "t20m7",
+          "comment": "",
+          "command": "echo",
+          "target": ">> 20 sign in step 7: click id=kc-login",
+          "targets": [],
+          "value": ""
+        },
+        {
           "id": "c907",
           "comment": "",
           "command": "click",
           "target": "id=kc-login",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "t20m8",
+          "comment": "",
+          "command": "echo",
+          "target": ">> 20 sign in step 8: waitForElementVisible id=act-create-org",
           "targets": [],
           "value": ""
         },
@@ -291,10 +467,26 @@
       "name": "30 create org",
       "commands": [
         {
+          "id": "t30m1",
+          "comment": "",
+          "command": "echo",
+          "target": ">> 30 create org step 1: answerOnNextPrompt ${ORG}",
+          "targets": [],
+          "value": ""
+        },
+        {
           "id": "c033",
           "comment": "createOrg() asks for the name with prompt().",
           "command": "answerOnNextPrompt",
           "target": "${ORG}",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "t30m2",
+          "comment": "",
+          "command": "echo",
+          "target": ">> 30 create org step 2: click id=act-create-org",
           "targets": [],
           "value": ""
         },
@@ -307,10 +499,26 @@
           "value": ""
         },
         {
+          "id": "t30m3",
+          "comment": "",
+          "command": "echo",
+          "target": ">> 30 create org step 3: assertAlert Organization created — signing you in again to activate it.",
+          "targets": [],
+          "value": ""
+        },
+        {
           "id": "c035",
           "comment": "Keycloak only puts the organization in the token at login, so the app signs in again (#157).",
           "command": "assertAlert",
           "target": "Organization created — signing you in again to activate it.",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "t30m4",
+          "comment": "",
+          "command": "echo",
+          "target": ">> 30 create org step 4: waitForElementVisible id=act-upgrade",
           "targets": [],
           "value": ""
         },
@@ -321,6 +529,14 @@
           "target": "id=act-upgrade",
           "targets": [],
           "value": "60000"
+        },
+        {
+          "id": "t30m5",
+          "comment": "",
+          "command": "echo",
+          "target": ">> 30 create org step 5: assertText id=plan",
+          "targets": [],
+          "value": ""
         },
         {
           "id": "c037",
@@ -337,10 +553,26 @@
       "name": "40 checkout",
       "commands": [
         {
+          "id": "t40m1",
+          "comment": "",
+          "command": "echo",
+          "target": ">> 40 checkout step 1: click id=act-upgrade",
+          "targets": [],
+          "value": ""
+        },
+        {
           "id": "c038",
           "comment": "POST /v1/billing/checkout mints a real Polar sandbox checkout and navigates to it.",
           "command": "click",
           "target": "id=act-upgrade",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "t40m2",
+          "comment": "",
+          "command": "echo",
+          "target": ">> 40 checkout step 2: waitForElementVisible css=input[type='email'], input[name='email']",
           "targets": [],
           "value": ""
         },
@@ -353,12 +585,28 @@
           "value": "60000"
         },
         {
+          "id": "t40m3",
+          "comment": "",
+          "command": "echo",
+          "target": ">> 40 checkout step 3: executeScript return location.host",
+          "targets": [],
+          "value": ""
+        },
+        {
           "id": "c401",
           "comment": "Guard rail: the walk must be on Polar SANDBOX, never the production host.",
           "command": "executeScript",
           "target": "return location.host",
           "targets": [],
           "value": "CHECKOUT_HOST"
+        },
+        {
+          "id": "t40m4",
+          "comment": "",
+          "command": "echo",
+          "target": ">> 40 checkout step 4: assert CHECKOUT_HOST",
+          "targets": [],
+          "value": ""
         },
         {
           "id": "c402",
@@ -369,12 +617,28 @@
           "value": "sandbox.polar.sh"
         },
         {
+          "id": "t40m5",
+          "comment": "",
+          "command": "echo",
+          "target": ">> 40 checkout step 5: executeScript return location.pathname.split('/').pop()",
+          "targets": [],
+          "value": ""
+        },
+        {
           "id": "c041",
           "comment": "",
           "command": "executeScript",
           "target": "return location.pathname.split('/').pop()",
           "targets": [],
           "value": "CHECKOUT_ID"
+        },
+        {
+          "id": "t40m6",
+          "comment": "",
+          "command": "echo",
+          "target": ">> 40 checkout step 6: echo Polar sandbox checkout ${CHECKOUT_ID}",
+          "targets": [],
+          "value": ""
         },
         {
           "id": "c042",
@@ -391,12 +655,28 @@
       "name": "50 pay",
       "commands": [
         {
+          "id": "t50m1",
+          "comment": "",
+          "command": "echo",
+          "target": ">> 50 pay step 1: type css=input[name='customerEmail'], input[type='email']",
+          "targets": [],
+          "value": ""
+        },
+        {
           "id": "c043",
           "comment": "",
           "command": "type",
           "target": "css=input[name='customerEmail'], input[type='email']",
           "targets": [],
           "value": "${EMAIL}"
+        },
+        {
+          "id": "t50m2",
+          "comment": "",
+          "command": "echo",
+          "target": ">> 50 pay step 2: type css=input[name='customerName']",
+          "targets": [],
+          "value": ""
         },
         {
           "id": "c044",
@@ -407,6 +687,14 @@
           "value": "${CARD_NAME}"
         },
         {
+          "id": "t50m3",
+          "comment": "",
+          "command": "echo",
+          "target": ">> 50 pay step 3: waitForElementPresent css=iframe[title*='payment'], iframe[name^='__privateStripeFrame']",
+          "targets": [],
+          "value": ""
+        },
+        {
           "id": "c045",
           "comment": "",
           "command": "waitForElementPresent",
@@ -415,10 +703,26 @@
           "value": "60000"
         },
         {
+          "id": "t50m4",
+          "comment": "",
+          "command": "echo",
+          "target": ">> 50 pay step 4: selectFrame css=iframe[title*='payment'], iframe[name^='__privateStripeFrame']",
+          "targets": [],
+          "value": ""
+        },
+        {
           "id": "c046",
           "comment": "",
           "command": "selectFrame",
           "target": "css=iframe[title*='payment'], iframe[name^='__privateStripeFrame']",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "t50m5",
+          "comment": "",
+          "command": "echo",
+          "target": ">> 50 pay step 5: type css=input[name='number'], #Field-numberInput",
           "targets": [],
           "value": ""
         },
@@ -431,12 +735,28 @@
           "value": "${CARD}"
         },
         {
+          "id": "t50m6",
+          "comment": "",
+          "command": "echo",
+          "target": ">> 50 pay step 6: type css=input[name='expiry'], #Field-expiryInput",
+          "targets": [],
+          "value": ""
+        },
+        {
           "id": "c048",
           "comment": "",
           "command": "type",
           "target": "css=input[name='expiry'], #Field-expiryInput",
           "targets": [],
           "value": "${CARD_EXP}"
+        },
+        {
+          "id": "t50m7",
+          "comment": "",
+          "command": "echo",
+          "target": ">> 50 pay step 7: type css=input[name='cvc'], #Field-cvcInput",
+          "targets": [],
+          "value": ""
         },
         {
           "id": "c049",
@@ -447,6 +767,14 @@
           "value": "${CARD_CVC}"
         },
         {
+          "id": "t50m8",
+          "comment": "",
+          "command": "echo",
+          "target": ">> 50 pay step 8: selectFrame relative=top",
+          "targets": [],
+          "value": ""
+        },
+        {
           "id": "c050",
           "comment": "",
           "command": "selectFrame",
@@ -455,10 +783,26 @@
           "value": ""
         },
         {
+          "id": "t50m9",
+          "comment": "",
+          "command": "echo",
+          "target": ">> 50 pay step 9: click css=button[type='submit']",
+          "targets": [],
+          "value": ""
+        },
+        {
           "id": "c051",
           "comment": "",
           "command": "click",
           "target": "css=button[type='submit']",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "t50m10",
+          "comment": "",
+          "command": "echo",
+          "target": ">> 50 pay step 10: waitForElementVisible id=plan",
           "targets": [],
           "value": ""
         },
@@ -477,10 +821,26 @@
       "name": "60 entitlement",
       "commands": [
         {
+          "id": "t60m1",
+          "comment": "",
+          "command": "echo",
+          "target": ">> 60 entitlement step 1: assertElementPresent id=banner",
+          "targets": [],
+          "value": ""
+        },
+        {
           "id": "c053",
           "comment": "",
           "command": "assertElementPresent",
           "target": "id=banner",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "t60m2",
+          "comment": "",
+          "command": "echo",
+          "target": ">> 60 entitlement step 2: assertText id=plan",
           "targets": [],
           "value": ""
         },
@@ -491,6 +851,14 @@
           "target": "id=plan",
           "targets": [],
           "value": "PRO"
+        },
+        {
+          "id": "t60m3",
+          "comment": "",
+          "command": "echo",
+          "target": ">> 60 entitlement step 3: assertElementPresent id=act-portal",
+          "targets": [],
+          "value": ""
         },
         {
           "id": "c055",
