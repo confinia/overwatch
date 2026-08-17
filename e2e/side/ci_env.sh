@@ -36,7 +36,10 @@ EOF
 # a space when a form posts it, and one containing '#' comments out the rest of
 # the line when the file is sourced — both produce a login failure that looks
 # like a broken test rather than a broken password.
-for v in GATE_PASS SIGNUP_PASS KC_ADMIN_PASSWORD CREEM_API_KEY; do
+# CREEM_API_KEY becomes mandatory once the founder registers the Creem test
+# account (rule 27); until then the walk runs and fails only at the checkout.
+grep -qE "^CREEM_API_KEY=.+" "$DEST" || echo "warning: CREEM_API_KEY is empty — the payment leg will fail" >&2
+for v in GATE_PASS SIGNUP_PASS KC_ADMIN_PASSWORD; do
   grep -qE "^$v=.+" "$DEST" || { echo "$v came out empty" >&2; exit 1; }
 done
 echo "configuration written: $(wc -l < "$DEST") lines, no value echoed"

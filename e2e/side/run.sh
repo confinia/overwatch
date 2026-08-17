@@ -33,7 +33,7 @@ case "${TARGET_ENV:-}" in
   sandbox|staging) ;;
   *) die "TARGET_ENV must be 'sandbox' or 'staging' (got '${TARGET_ENV:-}')" ;;
 esac
-for v in GATE_PASS SIGNUP_PASS KC_ADMIN_PASSWORD CREEM_API_KEY; do
+for v in GATE_PASS SIGNUP_PASS KC_ADMIN_PASSWORD; do
   [ -n "${!v:-}" ] || die "$v is empty in .env"
 done
 
