@@ -73,8 +73,7 @@ side_runner() {
   podman run --rm --network=host --shm-size=1g \
     -v "$HERE:/work:z" -w /work "$IMAGE" \
     selenium-side-runner \
-      --headless \
-      -c "browserName=chrome goog:chromeOptions.args=[no-sandbox,disable-dev-shm-usage,window-size=1280,900] goog:chromeOptions.binary=/usr/bin/chromium" \
+      -c "browserName=chrome goog:chromeOptions.args=[headless=new,no-sandbox,disable-dev-shm-usage] goog:chromeOptions.binary=/usr/bin/chromium" \
       --timeout 60000 \
       --filter "$1" \
       rendered/run.side
@@ -96,13 +95,13 @@ teardown() {
 trap teardown EXIT
 
 say "1/4  register through the signup form"
-side_runner '^(00 config|10 register)$' || die "registration walk failed"
+side_runner '^register$' || die "registration walk failed"
 
 say "2/4  mark the e-mail verified (realm has verifyEmail=true)"
 kc verify
 
 say "3/4  sign in, create the organization, pay on Polar sandbox"
-side_runner '^(00 config|[23456]0 .*)$' || die "payment walk failed"
+side_runner '^pay$' || die "payment walk failed"
 
 say "4/4  what does Polar sandbox actually say?"
 podman run --rm --network=host \

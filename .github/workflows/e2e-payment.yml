@@ -1,0 +1,81 @@
+name: e2e payment (Selenium, sandbox)
+
+# The browser walk of the paying path (#267): register through the real signup
+# form, create an organization, pay on Polar SANDBOX with the test card, then
+# ask sandbox.polar.sh whether the subscription actually exists.
+#
+# Dispatch only, never on push. It drives a real checkout against Polar's
+# sandbox and creates a real (disposable) user each time — cheap, but not
+# something to fire on every commit. The HTTP walk in e2e.yml stays the
+# per-push gate; this one is the deeper, slower proof.
+#
+# Runs ON the VM as the product user, like e2e.yml: Keycloak's admin API is
+# bound to loopback there (the walk needs it to mark the disposable user's
+# e-mail verified), and podman is on the VM, not on the runner.
+on:
+  workflow_dispatch:
+    inputs:
+      target_env:
+        description: "Which environment to walk"
+        type: choice
+        options: [sandbox]
+        default: sandbox
+      keep_user:
+        description: "Keep the disposable user and organization after the run"
+        type: boolean
+        default: false
+
+concurrency:
+  group: e2e-payment          # one at a time: it creates a real user, org and checkout
+  cancel-in-progress: false
+
+jobs:
+  walk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authorize the SSH session
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "${{ secrets.VM_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "${{ secrets.VM_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Ship the walk to the VM
+        env:
+          TARGET: ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}
+        run: |
+          # Scratch path, not the deployment checkout: deploy.yml owns that and
+          # sharing it makes the two race on .git/index.lock (#147).
+          ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes "$TARGET" 'mkdir -p ~/e2e-side'
+          rsync -e "ssh -i $HOME/.ssh/id_ed25519 -o BatchMode=yes" -a --delete \
+            --exclude .env --exclude rendered --exclude results \
+            e2e/side/ "$TARGET:~/e2e-side/"
+
+      - name: Compose the run configuration
+        env:
+          TARGET: ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}
+          BASIC_PASS: ${{ secrets.SANDBOX_BASIC_PASS }}
+          TARGET_ENV: ${{ inputs.target_env }}
+          KEEP_USER: ${{ inputs.keep_user && '1' || '0' }}
+        run: |
+          ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes "$TARGET" \
+            "TARGET_ENV='$TARGET_ENV' KEEP_USER='$KEEP_USER' GATE_USER=clement \
+             BASIC_PASS='$BASIC_PASS' bash ~/e2e-side/ci_env.sh"
+
+      - name: Walk registration and payment
+        env:
+          TARGET: ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}
+        run: |
+          ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes "$TARGET" \
+            'cd ~/e2e-side && ./run.sh'
+
+      - name: Forget the run configuration
+        if: always()
+        env:
+          TARGET: ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}
+        run: |
+          ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes "$TARGET" \
+            'rm -f ~/e2e-side/.env ~/e2e-side/rendered/run.side' || true

@@ -229,15 +229,15 @@
       "name": "20 sign in",
       "commands": [
         {
-          "id": "c027",
-          "comment": "Fresh browser: the previous test ended on the verify-email notice.",
+          "id": "c901",
+          "comment": "Fresh browser: the previous test ended on Keycloak's verify-email notice.",
           "command": "open",
           "target": "${GATED_BASE}/api/v1/auth/login",
           "targets": [],
           "value": ""
         },
         {
-          "id": "c028",
+          "id": "c902",
           "comment": "",
           "command": "waitForElementVisible",
           "target": "id=username",
@@ -245,23 +245,15 @@
           "value": "30000"
         },
         {
-          "id": "c029",
-          "comment": "",
+          "id": "c903",
+          "comment": "registrationEmailAsUsername is on, so the address is the username.",
           "command": "type",
           "target": "id=username",
           "targets": [],
           "value": "${EMAIL}"
         },
         {
-          "id": "c030",
-          "comment": "",
-          "command": "type",
-          "target": "id=password",
-          "targets": [],
-          "value": "${PASS}"
-        },
-        {
-          "id": "c031",
+          "id": "c904",
           "comment": "",
           "command": "click",
           "target": "id=kc-login",
@@ -269,12 +261,36 @@
           "value": ""
         },
         {
-          "id": "c032",
+          "id": "c905",
+          "comment": "Second screen of the identity-first flow.",
+          "command": "waitForElementVisible",
+          "target": "id=password",
+          "targets": [],
+          "value": "30000"
+        },
+        {
+          "id": "c906",
+          "comment": "",
+          "command": "type",
+          "target": "id=password",
+          "targets": [],
+          "value": "${PASS}"
+        },
+        {
+          "id": "c907",
+          "comment": "",
+          "command": "click",
+          "target": "id=kc-login",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "c908",
           "comment": "Signed in, no organization yet — so the account page offers to create one.",
           "command": "waitForElementVisible",
           "target": "id=act-create-org",
           "targets": [],
-          "value": "30000"
+          "value": "60000"
         }
       ]
     },
@@ -345,12 +361,20 @@
           "value": "60000"
         },
         {
-          "id": "c040",
-          "comment": "Guard rail: the walk must be on Polar SANDBOX. Never sandbox.polar.sh's production twin.",
-          "command": "assertLocation",
-          "target": "regexp:https://sandbox\\.polar\\.sh/checkout/.*",
+          "id": "c401",
+          "comment": "Guard rail: the walk must be on Polar SANDBOX, never the production host.",
+          "command": "executeScript",
+          "target": "return location.host",
           "targets": [],
-          "value": ""
+          "value": "CHECKOUT_HOST"
+        },
+        {
+          "id": "c402",
+          "comment": "",
+          "command": "assert",
+          "target": "CHECKOUT_HOST",
+          "targets": [],
+          "value": "sandbox.polar.sh"
         },
         {
           "id": "c041",

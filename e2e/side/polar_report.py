@@ -3,13 +3,16 @@
 A green browser walk proves the *screens* work. It does not prove money moved:
 the redirect to success_url fires on Polar's side, and the entitlement flip
 depends on a webhook that can be misconfigured, unsigned, or silently dropped.
-So the walk is only believed once sandbox.polar.sh agrees there is an order for
-this run's customer.
+So the walk is only believed once sandbox.polar.sh agrees.
 
-No order for a walk that reached the success page is a FAILURE, not a warning —
-that gap is exactly the checkout/webhook bug this step exists to catch.
+The verdict hangs on the **subscription**, because that is the object the
+entitlement is derived from: a confirmed checkout with no subscription is a
+half-finished purchase, and the customer would see PRO in the app and nothing
+in Polar. Orders are reported too when the token is allowed to read them —
+`orders:read` is a separate scope and the stack's own token does not carry it,
+so its absence is noted rather than treated as a failure.
 
-Usage:  polar_report.py <customer-email> [checkout-id]
+Usage:  polar_report.py <customer-email> [checkout-client-secret]
 """
 import json
 import os
@@ -44,49 +47,83 @@ def money(cents, currency):
 
 def main():
     email = sys.argv[1]
-    checkout_id = sys.argv[2] if len(sys.argv) > 2 else None
+    client_secret = sys.argv[2] if len(sys.argv) > 2 else None
     if not TOKEN:
         sys.exit("POLAR_ORG_TOKEN is not set — cannot verify the payment in Polar")
 
     print(f"\n=== Polar sandbox report — {BASE} ===")
+    print(f"  customer   {email}")
+    problems = []
 
-    if checkout_id:
-        st, ck = get(f"/v1/checkouts/{urllib.parse.quote(checkout_id)}")
+    # --- the checkout the browser was sent to --------------------------------
+    if client_secret:
+        # The last path segment of the checkout URL is the CLIENT SECRET
+        # (polar_c_…), not the checkout's UUID — /v1/checkouts/{id} answers 422
+        # for it. The client endpoint is the one that takes this form.
+        st, ck = get(f"/v1/checkouts/client/{urllib.parse.quote(client_secret)}")
         if st == 200:
-            print(f"  checkout   {ck.get('id')}")
-            print(f"             status={ck.get('status')} "
-                  f"amount={money(ck.get('total_amount'), ck.get('currency'))} "
+            print(f"  checkout   {ck.get('id')}  status={ck.get('status')}  "
+                  f"{money(ck.get('total_amount'), ck.get('currency'))}  "
                   f"product={(ck.get('product') or {}).get('name')}")
+            if ck.get("status") not in ("confirmed", "succeeded"):
+                problems.append(f"checkout status is {ck.get('status')}, not confirmed")
         else:
-            print(f"  checkout   lookup failed ({st})")
+            # Printed, not just collected: an early exit further down must never
+            # swallow the first diagnostic of the run.
+            print(f"  checkout   {client_secret} could not be read ({st}: {ck})")
+            problems.append(f"checkout {client_secret} could not be read ({st})")
 
-    st, orders = get(f"/v1/orders/?limit=10")
+    # --- the customer Polar created for this run -----------------------------
+    st, cust = get("/v1/customers/?" + urllib.parse.urlencode({"email": email, "limit": 5}))
     if st != 200:
-        sys.exit(f"  orders     Polar refused the query ({st}: {orders})")
-
-    mine = [o for o in orders.get("items", [])
-            if (o.get("customer") or {}).get("email", "").lower() == email.lower()]
+        sys.exit(f"  customers  Polar refused the query ({st}: {cust})")
+    mine = [c for c in cust.get("items", [])
+            if (c.get("email") or "").lower() == email.lower()]
     if not mine:
-        print(f"  orders     NONE for {email}")
-        sys.exit("\nFAIL: the walk reached the success page but Polar sandbox has no "
-                 "order for this customer — the checkout did not complete, or the "
-                 "webhook never told us about it.")
+        print("  customer   NONE")
+        sys.exit("\nFAIL: Polar sandbox has no customer for this run — the checkout "
+                 "never completed.")
+    cid = mine[0]["id"]
+    print(f"  customer   {cid}")
 
-    for o in mine:
-        print(f"  order      {o.get('id')}")
-        print(f"             status={o.get('status')} paid={o.get('paid')} "
-              f"total={money(o.get('total_amount'), o.get('currency'))}")
-        print(f"             product={(o.get('product') or {}).get('name')} "
-              f"subscription={o.get('subscription_id') or '—'}")
-
-    st, subs = get("/v1/subscriptions/?limit=10")
+    # --- the subscription: what the entitlement is actually made of ----------
+    st, subs = get("/v1/subscriptions/?" + urllib.parse.urlencode(
+        {"customer_id": cid, "limit": 10}))
+    active = []
     if st == 200:
         for s in subs.get("items", []):
-            if (s.get("customer") or {}).get("email", "").lower() == email.lower():
-                print(f"  subscript. {s.get('id')} status={s.get('status')} "
-                      f"period_end={s.get('current_period_end')}")
+            print(f"  subscript. {s.get('id')}  status={s.get('status')}  "
+                  f"product={(s.get('product') or {}).get('name')}  "
+                  f"period_end={s.get('current_period_end')}")
+            if s.get("status") in ("active", "trialing"):
+                active.append(s)
+    else:
+        problems.append(f"subscriptions could not be read ({st})")
 
-    print(f"\nOK: Polar sandbox confirms {len(mine)} paid order(s) for {email}.")
+    # --- orders: nice to have, needs its own scope ---------------------------
+    st, orders = get("/v1/orders/?" + urllib.parse.urlencode({"customer_id": cid, "limit": 10}))
+    if st == 200:
+        for o in orders.get("items", []):
+            print(f"  order      {o.get('id')}  status={o.get('status')}  "
+                  f"{money(o.get('total_amount'), o.get('currency'))}")
+    elif st == 403:
+        print("  orders     not readable — this token has no orders:read scope "
+              "(add it to see amounts; not required for the verdict)")
+    else:
+        problems.append(f"orders could not be read ({st})")
+
+    if not active:
+        problems.append("no active subscription for this customer")
+
+    if problems:
+        print()
+        for p in problems:
+            print(f"  ! {p}")
+        sys.exit("\nFAIL: the walk reached the success page, but Polar sandbox does not "
+                 "confirm a live subscription — the checkout did not complete, or the "
+                 "webhook never told us about it.")
+
+    print(f"\nOK: Polar sandbox confirms an active subscription for {email}.")
 
 
 if __name__ == "__main__":
