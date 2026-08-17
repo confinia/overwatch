@@ -14,8 +14,11 @@ for _ in $(seq 1 60); do
 done
 
 KC="podman exec ovw2_keycloak_1 /opt/keycloak/bin/kcadm.sh"
+# Authenticate as the NAMED admin, not the bootstrap account (#36). The
+# bootstrap credentials remain in v2/.env solely so Keycloak can create a first
+# admin when it initialises an EMPTY database; the account itself is disabled.
 $KC config credentials --server http://127.0.0.1:8080/auth \
-  --realm master --user "$KC_BOOTSTRAP_ADMIN_USERNAME" --password "$KC_BOOTSTRAP_ADMIN_PASSWORD" >/dev/null
+  --realm master --user "$KC_ADMIN_USERNAME" --password "$KC_ADMIN_PASSWORD" >/dev/null
 
 CID=$($KC get clients -r overwatch -q clientId=overwatch --fields id --format csv --noquotes | head -1)
 $KC update "clients/$CID" -r overwatch -s "secret=$OVERWATCH_CLIENT_SECRET"

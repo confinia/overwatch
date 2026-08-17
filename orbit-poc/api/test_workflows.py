@@ -176,3 +176,15 @@ def test_deploy_applies_grafana_dashboards_and_ingest():
     d = _wf("deploy.yml")
     assert "provisioning/dashboards/reload" in d     # boards re-read, no restart
     assert "--build ingest" in d                     # ingest follows main
+
+
+def test_keycloak_tooling_uses_the_named_admin_not_bootstrap():   # #36
+    """The bootstrap `admin` account is disabled, so nothing operational may
+    authenticate as it. KC_BOOTSTRAP_ADMIN_* may still be referenced for the
+    empty-database case (Keycloak needs to create a first admin), but the
+    login must use the named account."""
+    s = open(os.path.join(ROOT, "deploy", "v2-init.sh"), encoding="utf-8").read()
+    login = [l for l in s.splitlines() if "config credentials" in l or "--user" in l]
+    joined = "\n".join(login)
+    assert "$KC_ADMIN_USERNAME" in joined and "$KC_ADMIN_PASSWORD" in joined
+    assert "KC_BOOTSTRAP_ADMIN_USERNAME" not in joined, "still logging in as bootstrap"
