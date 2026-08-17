@@ -134,12 +134,21 @@ async function revokeKey(prefix){
 }
 
 async function createOrg(){
+  // A double-fired click sends two concurrent creates; the second races the
+  // first inside Keycloak and surfaces a scary failure for an org that
+  // exists. One in-flight create at a time.
+  const btn = document.getElementById("act-create-org");
+  if (btn){ if (btn.disabled) return; btn.disabled = true; }
   const name = prompt("Name your organization:");
-  if (!name) return;
+  if (!name){ if (btn) btn.disabled = false; return; }
   try {
     await post("/api/v1/orgs", { name });
   } catch (e) {
-    if (!/already belong/i.test(e.message)) { alert(e.message); return; }
+    if (!/already belong/i.test(e.message)) {
+      alert(e.message);
+      if (btn) btn.disabled = false;
+      return;
+    }
   }
   // Keycloak puts the organization in the token at login, so sign in again for
   // the new membership to take effect (#157).
