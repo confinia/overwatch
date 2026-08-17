@@ -137,6 +137,22 @@
           "value": ""
         },
         {
+          "id": "np1",
+          "comment": "diagnose: can the plain-URL page reach the API and the auth chain at all?",
+          "command": "executeAsyncScript",
+          "target": "var done = arguments[arguments.length-1];Promise.all([fetch('/api/v1/me').then(function(r){return 'me='+r.status}).catch(function(e){return 'me=ERR:'+e}),fetch('/api/v1/auth/login').then(function(r){return 'login='+r.status+'@'+r.url}).catch(function(e){return 'login=ERR:'+e}),fetch('/auth/realms/overwatch-sandbox/.well-known/openid-configuration').then(function(r){return 'kc='+r.status}).catch(function(e){return 'kc=ERR:'+e})]).then(function(a){done(a.join(' || '))});",
+          "targets": [],
+          "value": "NET"
+        },
+        {
+          "id": "np2",
+          "comment": "",
+          "command": "echo",
+          "target": "NET ${NET}",
+          "targets": [],
+          "value": ""
+        },
+        {
           "id": "c012",
           "comment": "",
           "command": "click",
