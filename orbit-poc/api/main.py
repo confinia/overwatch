@@ -1484,10 +1484,14 @@ def create_org(request: Request, body: OrgCreate):
     r = _rq.post(f"{base}/organizations", json={
         "name": name, "alias": alias,
         "domains": [{"name": f"{alias}.invalid", "verified": False}]}, headers=h, timeout=15)
-    if r.status_code not in (201, 409):
-        raise HTTPException(502, f"Organization creation failed ({r.status_code})")
+    # Keycloak answers 400 (not 409) when the alias already exists, so a
+    # replayed create — a double click, a browser retry — must fall through to
+    # the lookup: if the organization is there, creating it was a success.
     r2 = _rq.get(f"{base}/organizations?search={alias}", headers=h, timeout=15)
-    org_id = r2.json()[0]["id"]
+    found = r2.json() if r2.status_code == 200 else []
+    if r.status_code not in (201, 409) and not found:
+        raise HTTPException(502, f"Organization creation failed ({r.status_code})")
+    org_id = found[0]["id"]
     _rq.post(f"{base}/organizations/{org_id}/members",
              json=c["sub"], headers={**h, "Content-Type": "application/json"}, timeout=15)
     with cursor() as cur:
