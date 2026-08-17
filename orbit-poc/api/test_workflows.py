@@ -60,6 +60,19 @@ def test_e2e_walker_follows_grafana_form_and_survives_redeploys():   # #151
     assert "MIN_INTERVAL" in w                           # throttled under the api's 5/s
 
 
+def test_a_skipped_chained_deploy_cannot_cancel_a_real_one():   # #263
+    """Concurrency is evaluated BEFORE the job `if`, so a chained run whose
+    sandbox rebuild failed would join deploy-production, cancel the deploy in
+    flight, and only then skip — promotion silently no-ops. A doomed run must
+    get its own throwaway group instead."""
+    d = _wf("deploy.yml")
+    grp = re.search(r"group:\s*(.+)", d).group(1)
+    assert "${{" in grp, "concurrency group is a constant — a skipped run will cancel a real one"
+    assert "deploy-skip-" in grp and "github.run_id" in grp   # unique, throwaway
+    assert "deploy-production" in grp                          # real deploys still serialise
+    assert "workflow_run.conclusion != 'success'" in grp
+
+
 def test_deploy_does_not_deadlock_on_a_pending_approval():   # #203
     """The promote job waits on the production reviewer. With
     cancel-in-progress:false a single un-actioned approval sits in `waiting`
