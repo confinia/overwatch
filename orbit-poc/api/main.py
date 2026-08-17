@@ -21,6 +21,7 @@ import time
 from contextlib import asynccontextmanager, contextmanager
 
 import metering
+import billing
 import oem as _oem
 import polar
 
@@ -1750,9 +1751,11 @@ def _apply_billing_event(cur, ev):
     if active:
         cur.execute(
             "UPDATE organization SET plan='pro', sub_status='active', subscription_id=%s, "
-            "entitled_until = COALESCE(%s::timestamptz, now() + interval '32 days') "
+            "entitled_until = COALESCE(%s::timestamptz, now() + interval '32 days'), "
+            "polar_customer_id = COALESCE(%s, polar_customer_id) "
             "WHERE id=%s::uuid",
-            (ev.get("subscription_id"), ev.get("until"), org_id))
+            (ev.get("subscription_id"), ev.get("until"),
+             ev.get("customer_id"), org_id))
         _provision_org_db(cur, org_id)                 # ensure RLS role (idempotent)
     elif typ == "subscription.canceled":
         cur.execute("UPDATE organization SET sub_status='canceled' WHERE id=%s::uuid",
@@ -1769,43 +1772,52 @@ def billing_mode():
     The UI badge MUST come from here, not from a POLAR_ENV copied into the web
     container: two sources drift, and a payment-safety badge that can say
     "sandbox" while the API charges real cards is worse than no badge (#256).
-    Exposes only the mode, never a token or product id.
+    Exposes only the mode, never a token or product id. `polar_env` is the
+    legacy field name the badge used before the provider seam (#269) — kept so
+    a cached web bundle keeps rendering the right badge.
     """
-    return {"polar_env": polar.POLAR_ENV}
+    return {"provider": billing.PROVIDER, "env": billing.ENV,
+            "polar_env": billing.ENV}
 
 
 @app.post("/v1/billing/checkout")
 def billing_checkout(request: Request):
     """Mint an embedded checkout for the caller's org — they never leave Overwatch."""
     c, org = _require_org(request)
-    if not (polar.configured() or polar.stub_allowed()):
+    if not (billing.configured() or billing.stub_allowed()):
         raise HTTPException(503, "Billing is not open yet — contact contact@confinia.io.")
-    ck = polar.create_checkout(org[0], c.get("email", ""),
+    ck = billing.create_checkout(org[0], c.get("email", ""),
                                f"{_base_of(request)}/w/account?upgraded=1")
     return {"checkout_url": ck["url"], "checkout_id": ck["id"], "stub": ck["stub"]}
 
 
 @app.post("/v1/billing/portal")
 def billing_portal(request: Request):
-    """Link the caller's org to its Polar customer portal — where the end-user
-    downloads invoices/receipts and manages the subscription. Polar (Merchant of
-    Record) owns invoicing; we only mint the session and return its URL."""
+    """Link the caller's org to the merchant of record's customer portal —
+    where the end-user downloads invoices/receipts and manages the
+    subscription. The MoR owns invoicing; we only mint the session and return
+    its URL."""
     c, org = _require_org(request)
-    if not (polar.configured() or polar.stub_allowed()):
+    if not (billing.configured() or billing.stub_allowed()):
         raise HTTPException(503, "Billing is not open yet — contact contact@confinia.io.")
-    ps = polar.create_customer_session(org[0], f"{_base_of(request)}/w/account")
+    with cursor() as cur:
+        cur.execute("SELECT polar_customer_id FROM organization WHERE id=%s::uuid",
+                    (org[0],))
+        row = cur.fetchone()
+    ps = billing.create_customer_session(org[0], f"{_base_of(request)}/w/account",
+                                         customer_id=(row and row[0]) or "")
     return {"portal_url": ps["url"], "stub": ps["stub"]}
 
 
 @app.post("/v1/billing/webhook")
 async def billing_webhook(request: Request):
-    """Polar -> us: signature-verified, idempotent; the entitlement source of truth."""
+    """MoR -> us: signature-verified, idempotent; the entitlement source of truth."""
     raw = await request.body()
     hdrs = {k.lower(): v for k, v in request.headers.items()}
-    if not polar.verify_webhook(raw, hdrs):
+    if not billing.verify_webhook(raw, hdrs):
         raise HTTPException(401, "bad webhook signature")
     payload = _json.loads(raw or b"{}")
-    ev = polar.parse_event(payload)
+    ev = billing.parse_event(payload)
     delivery = hdrs.get("webhook-id") or hashlib.sha256(raw).hexdigest()
     with cursor() as cur:
         cur.execute("INSERT INTO billing_event (delivery_id, type, payload) "
@@ -1843,7 +1855,7 @@ def billing_simulate_paid(request: Request):
     """DEV/sandbox only: simulate a completed payment for the caller's org so the
     checkout -> webhook -> entitlement flow is provable in-app without Polar.
     Only where the stub is explicitly allowed (POLAR_ALLOW_STUB, never prod)."""
-    if not polar.stub_allowed():
+    if not billing.stub_allowed():
         raise HTTPException(403, "stub billing not enabled here")
     c, org = _require_org(request)
     with cursor() as cur:

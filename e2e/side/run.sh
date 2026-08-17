@@ -33,7 +33,7 @@ case "${TARGET_ENV:-}" in
   sandbox|staging) ;;
   *) die "TARGET_ENV must be 'sandbox' or 'staging' (got '${TARGET_ENV:-}')" ;;
 esac
-for v in GATE_PASS SIGNUP_PASS KC_ADMIN_PASSWORD POLAR_ORG_TOKEN; do
+for v in GATE_PASS SIGNUP_PASS KC_ADMIN_PASSWORD CREEM_API_KEY; do
   [ -n "${!v:-}" ] || die "$v is empty in .env"
 done
 
@@ -135,12 +135,12 @@ side_runner '^register$' || die "registration walk failed"
 say "2/4  mark the e-mail verified (realm has verifyEmail=true)"
 kc verify
 
-say "3/4  sign in, create the organization, pay on Polar sandbox"
+say "3/4  sign in, create the organization, pay on Creem test mode"
 side_runner '^pay$' || die "payment walk failed"
 
-say "4/4  what does Polar sandbox actually say?"
+say "4/4  what does Creem test mode actually say?"
 podman run --rm --network=host \
-  -e POLAR_API_BASE -e POLAR_ORG_TOKEN \
-  -v "$HERE:/work:z" -w /work "$IMAGE" python3 polar_report.py "$EMAIL"
+  -e CREEM_API_BASE -e CREEM_API_KEY \
+  -v "$HERE:/work:z" -w /work "$IMAGE" python3 creem_report.py "$EMAIL"
 
 printf '\n\033[32mPASS\033[0m  %s: registration and payment walked end to end.\n' "$TARGET_ENV"

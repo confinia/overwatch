@@ -56,8 +56,14 @@ services:
     environment:
       REQUIRE_API_KEY: "false"
       PUBLIC_BASE: "https://sandbox.overwatch.confinia.io"
-      # Polar SANDBOX. Keep POLAR_ALLOW_STUB=1 to validate before real creds;
-      # once .env has real sandbox creds + a webhook secret it talks to Polar.
+      # Creem TEST MODE (rule 27: Creem.io is the merchant of record — EU).
+      # The env is derived from the key itself: a creem_test_ key in .env
+      # routes to test-api.creem.io. CREEM_ALLOW_STUB=1 keeps the in-app stub
+      # flow working before/without real test credentials.
+      BILLING_PROVIDER: "creem"
+      CREEM_ALLOW_STUB: "1"
+      # Legacy Polar sandbox knobs — BILLING_PROVIDER=polar flips back to them
+      # in one variable while the Creem path is being verified (#269).
       POLAR_ENV: "sandbox"
       POLAR_ALLOW_STUB: "1"
       # Identity: ONE shared Keycloak, dedicated realm overwatch-sandbox
@@ -66,7 +72,7 @@ services:
       KC_ISSUER: "https://sandbox.overwatch.confinia.io/auth/realms/overwatch-sandbox"
       KC_INTERNAL: "http://ovw2_keycloak_1:8080/auth/realms/overwatch-sandbox"
     env_file:
-      - .env            # POLAR_* / ORG_DB_SECRET / OVERWATCH_CLIENT_SECRET / KC_ADMIN_*
+      - .env            # CREEM_* / POLAR_* / ORG_DB_SECRET / OVERWATCH_CLIENT_SECRET / KC_ADMIN_*
     networks:
       - default
       - v2net           # server-to-server path to the shared Keycloak

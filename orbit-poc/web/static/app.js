@@ -239,15 +239,17 @@ fetch(`${API_BASE}/api/version`).then(r => r.json()).then(v => {
 fetch(`${API_BASE}/api/v1/billing/mode`).then(r => r.json()).then(m => {
   const el = document.getElementById("paymode");
   if (!el) return;
-  if (m.polar_env === "sandbox"){
+  const env = m.env || m.polar_env;             // polar_env: pre-#269 field name
+  if (env === "sandbox"){
     el.className = "paymode sandbox";
     el.textContent = "sandbox payments";
-    el.title = "Checkout runs against Polar SANDBOX \u2014 test cards only, no real money.";
-  } else if (m.polar_env === "off"){
+    el.title = "This environment charges TEST cards only (" +
+      (m.provider || "billing") + " test mode) — no real money moves.";
+  } else if (env === "off"){
     el.className = "paymode off";
     el.textContent = "billing off";
-    el.title = "Billing is disabled in this environment.";
-  }                                  // production: no tag, nothing to warn about
+    el.title = "Billing is not connected in this environment.";
+  }
 }).catch(() => {});
 
 // Basemap: Sentinel-2 cloudless by EOX — real Copernicus imagery, processed

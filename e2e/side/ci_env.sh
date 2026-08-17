@@ -27,8 +27,8 @@ KC_ADMIN_BASE=http://127.0.0.1:12070
 KC_REALM=overwatch-sandbox
 KC_ADMIN_USERNAME=$(val KC_ADMIN_USERNAME)
 KC_ADMIN_PASSWORD=$(val KC_ADMIN_PASSWORD)
-POLAR_API_BASE=$(val POLAR_API_BASE)
-POLAR_ORG_TOKEN=$(val POLAR_ORG_TOKEN)
+CREEM_API_BASE=$(val CREEM_API_BASE)
+CREEM_API_KEY=$(val CREEM_API_KEY)
 KEEP_USER=${KEEP_USER:-0}
 EOF
 
@@ -36,7 +36,7 @@ EOF
 # a space when a form posts it, and one containing '#' comments out the rest of
 # the line when the file is sourced — both produce a login failure that looks
 # like a broken test rather than a broken password.
-for v in GATE_PASS SIGNUP_PASS KC_ADMIN_PASSWORD POLAR_ORG_TOKEN; do
+for v in GATE_PASS SIGNUP_PASS KC_ADMIN_PASSWORD CREEM_API_KEY; do
   grep -qE "^$v=.+" "$DEST" || { echo "$v came out empty" >&2; exit 1; }
 done
 echo "configuration written: $(wc -l < "$DEST") lines, no value echoed"
