@@ -53,12 +53,17 @@ podman image exists "$IMAGE" || { say "building $IMAGE"; podman build -q -t "$IM
 # --- render: .env values into the `00 config` store commands -----------------
 mkdir -p rendered results
 python3 - "$EMAIL" "$ORG" "$BASE" <<'PY'
-import json, os, sys
+import json, os, sys, urllib.parse
 email, org, base = sys.argv[1], sys.argv[2], sys.argv[3]
 side = json.load(open("overwatch-signup-payment.side"))
+gate = urllib.parse.quote(os.environ["GATE_USER"], safe="")
+gpw = urllib.parse.quote(os.environ["GATE_PASS"], safe="")
 values = {"BASE": base, "GATE_USER": os.environ["GATE_USER"],
           "GATE_PASS": os.environ["GATE_PASS"], "EMAIL": email,
-          "PASS": os.environ["SIGNUP_PASS"], "ORG": org}
+          "PASS": os.environ["SIGNUP_PASS"], "ORG": org,
+          # A gate password containing ':' '@' or '/' would otherwise cut the
+          # URL in half, and the walk would 401 with no clue why.
+          "GATED_BASE": base.replace("https://", f"https://{gate}:{gpw}@")}
 cfg = next(t for t in side["tests"] if t["name"] == "00 config")
 for cmd in cfg["commands"]:
     if cmd["command"] == "store" and cmd["value"] in values:
@@ -75,6 +80,7 @@ side_runner() {
     selenium-side-runner \
       -c "browserName=chrome goog:chromeOptions.args=[headless=new,no-sandbox,disable-dev-shm-usage] goog:chromeOptions.binary=/usr/bin/chromium" \
       --timeout 60000 \
+      --jest-timeout 900000 \
       --filter "$1" \
       rendered/run.side
 }

@@ -89,18 +89,10 @@
           "value": "CARD_NAME"
         },
         {
-          "id": "c011",
-          "comment": "Prefix that gets past the basic-auth gate.",
-          "command": "store",
-          "target": "https://${GATE_USER}:${GATE_PASS}@",
-          "targets": [],
-          "value": "GATED"
-        },
-        {
           "id": "c012",
-          "comment": "",
-          "command": "executeScript",
-          "target": "return '${BASE}'.replace('https://', '${GATED}')",
+          "comment": "Basic-auth credentials in the URL: Chrome still honours them on a top-level navigation, and Selenium has no other way past the gate. run.sh renders this from .env.",
+          "command": "store",
+          "target": "__GATED_BASE__",
           "targets": [],
           "value": "GATED_BASE"
         }

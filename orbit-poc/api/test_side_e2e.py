@@ -54,7 +54,8 @@ def test_no_secret_is_committed_in_the_project():
 def test_every_rendered_variable_is_actually_rendered():
     """A store the runner does not fill would ship its `__PLACEHOLDER__` into a
     live form — the walk would fail late and confusingly."""
-    rendered = {"BASE", "GATE_USER", "GATE_PASS", "EMAIL", "PASS", "ORG"}
+    rendered = {"BASE", "GATE_USER", "GATE_PASS", "EMAIL", "PASS", "ORG",
+                "GATED_BASE"}
     placeholders = {c["value"] for c in _commands("00 config")
                     if c["command"] == "store" and c["target"].startswith("__")}
     assert placeholders <= rendered, f"never rendered: {placeholders - rendered}"
@@ -87,6 +88,21 @@ def test_capability_args_carry_no_comma():
         assert "=" not in a or a.count("=") == 1, a
         assert not a.strip().endswith("="), a
     assert "headless" in args, "the CI run must be headless"
+
+
+def test_the_walk_is_given_time_to_finish():
+    """Registration, two redirects, a checkout and a card form take minutes.
+    jest's 60s per-test default killed the walk mid-flight."""
+    s = _run_sh()
+    jt = int(next(l for l in s.splitlines() if "--jest-timeout" in l).split()[1])
+    assert jt >= 600000, f"jest timeout {jt}ms is too short for the walk"
+
+
+def test_config_needs_no_loaded_page():
+    """`00 config` runs before anything is opened. An executeScript there waits
+    on a page that does not exist yet and hangs until jest kills the test."""
+    cfg = _commands("00 config")
+    assert not [c for c in cfg if c["command"] == "executeScript"]
 
 
 def test_sign_in_follows_the_identity_first_flow():
