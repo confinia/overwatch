@@ -190,3 +190,14 @@ def test_the_image_ships_every_local_module_main_imports():
                     imported.add(sub)
     missing = [m for m in sorted(imported) if f"COPY {m}.py" not in df]
     assert not missing, f"Dockerfile does not ship: {missing}"
+
+
+def test_org_create_survives_a_replay(monkeypatch):
+    """Keycloak rejects a duplicate alias with 400, not 409. A double click or
+    browser retry replays the POST; if the organization exists, the replay is a
+    success — the walk saw 'Organization creation failed (400)' with the org
+    sitting right there (#267)."""
+    import main
+    src = __import__("inspect").getsource(main.create_org)
+    assert "not found" in src, "the duplicate-alias fallthrough is gone"
+    assert 'r.status_code not in (201, 409) and not found' in src
