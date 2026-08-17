@@ -1487,8 +1487,15 @@ def create_org(request: Request, body: OrgCreate):
     # Keycloak answers 400 (not 409) when the alias already exists, so a
     # replayed create — a double click, a browser retry — must fall through to
     # the lookup: if the organization is there, creating it was a success.
-    r2 = _rq.get(f"{base}/organizations?search={alias}", headers=h, timeout=15)
-    found = r2.json() if r2.status_code == 200 else []
+    found = []
+    for attempt in (0, 1):
+        r2 = _rq.get(f"{base}/organizations?search={alias}", headers=h, timeout=15)
+        found = r2.json() if r2.status_code == 200 else []
+        if found or r.status_code in (201, 409):
+            break
+        # a concurrent create of the same alias can 400 on the uniqueness
+        # check before the winning transaction commits — look again once
+        time.sleep(0.5)
     if r.status_code not in (201, 409) and not found:
         raise HTTPException(502, f"Organization creation failed ({r.status_code})")
     org_id = found[0]["id"]
