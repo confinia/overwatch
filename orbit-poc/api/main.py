@@ -1497,7 +1497,11 @@ def create_org(request: Request, body: OrgCreate):
         # check before the winning transaction commits — look again once
         time.sleep(0.5)
     if r.status_code not in (201, 409) and not found:
-        raise HTTPException(502, f"Organization creation failed ({r.status_code})")
+        # surface what Keycloak actually said — "(400)" alone cost a day (#267)
+        print(f"org create failed: kc={r.status_code} body={r.text[:300]!r} "
+              f"realm={KC_REALM} alias={alias}", flush=True)
+        raise HTTPException(502, f"Organization creation failed "
+                                 f"({r.status_code}: {r.text[:120]})")
     org_id = found[0]["id"]
     _rq.post(f"{base}/organizations/{org_id}/members",
              json=c["sub"], headers={**h, "Content-Type": "application/json"}, timeout=15)
