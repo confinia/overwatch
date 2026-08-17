@@ -60,13 +60,31 @@ def test_e2e_walker_follows_grafana_form_and_survives_redeploys():   # #151
     assert "MIN_INTERVAL" in w                           # throttled under the api's 5/s
 
 
+def test_a_skipped_chained_deploy_cannot_cancel_a_real_one():   # #263
+    """Concurrency is evaluated BEFORE the job `if`, so a chained run whose
+    sandbox rebuild failed would join deploy-production, cancel the deploy in
+    flight, and only then skip — promotion silently no-ops. A doomed run must
+    get its own throwaway group instead."""
+    d = _wf("deploy.yml")
+    # the expression spans several lines for readability — read the whole
+    # concurrency block, not just the first line after `group:`
+    blk = re.search(r"^concurrency:\n(?:[ \t].*\n)+", d, re.M).group(0)
+    grp = blk[blk.index("group:"):]
+    assert "${{" in grp, "concurrency group is a constant — a skipped run will cancel a real one"
+    assert "deploy-skip-" in grp and "github.run_id" in grp   # unique, throwaway
+    assert "deploy-production" in grp                          # real deploys still serialise
+    assert "workflow_run.conclusion != 'success'" in grp
+
+
 def test_deploy_does_not_deadlock_on_a_pending_approval():   # #203
     """The promote job waits on the production reviewer. With
     cancel-in-progress:false a single un-actioned approval sits in `waiting`
     holding the concurrency group forever, wedging every later deploy (0 jobs,
     pending). Cancelling the stale run instead keeps the pipeline alive."""
     d = _wf("deploy.yml")
-    assert re.search(r"group:\s*deploy-production", d)        # serialized...
+    # the group is now an expression (#263), so assert the intent: real deploys
+    # still serialise on deploy-production
+    assert "deploy-production" in d                            # serialized...
     assert re.search(r"cancel-in-progress:\s*true", d)        # ...but never wedged
 
 

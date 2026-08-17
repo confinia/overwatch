@@ -20,7 +20,14 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: deploy-production
+  # A chained run whose sandbox rebuild did NOT succeed will skip (see the job
+  # `if` below) — but concurrency is evaluated BEFORE that `if`, so it would
+  # still join this group, cancel the deploy actually in flight, and only then
+  # skip. Net effect: nothing reaches production and nothing reports a failure
+  # (#263). Give a doomed run its own throwaway group so it cancels nothing;
+  # real deploys still serialise on deploy-production.
+  group: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion != 'success')
+             && format('deploy-skip-{0}', github.run_id) || 'deploy-production' }}
   # Never two deploys at once — a newer push supersedes the older run (latest
   # main wins). cancel-in-progress MUST be true: `promote` waits on the
   # `production` environment reviewer, and with `false` a single un-actioned
