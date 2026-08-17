@@ -482,7 +482,23 @@
           "id": "t-pay-m8",
           "comment": "",
           "command": "echo",
-          "target": ">> step 8: open ${GATED_BASE}/w/account",
+          "target": ">> step 8: waitForElementPresent id=map",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "cy1",
+          "comment": "The callback sets the session cookie and redirects to the globe; #map is its stable landmark. Only then is the session real.",
+          "command": "waitForElementPresent",
+          "target": "id=map",
+          "targets": [],
+          "value": "60000"
+        },
+        {
+          "id": "t-pay-m9",
+          "comment": "",
+          "command": "echo",
+          "target": ">> step 9: open ${GATED_BASE}/w/account",
           "targets": [],
           "value": ""
         },
@@ -495,10 +511,10 @@
           "value": ""
         },
         {
-          "id": "t-pay-m9",
+          "id": "t-pay-m10",
           "comment": "",
           "command": "echo",
-          "target": ">> step 9: waitForElementVisible id=act-create-org",
+          "target": ">> step 10: waitForElementVisible id=act-create-org",
           "targets": [],
           "value": ""
         },
@@ -511,10 +527,10 @@
           "value": "60000"
         },
         {
-          "id": "t-pay-m10",
+          "id": "t-pay-m11",
           "comment": "",
           "command": "echo",
-          "target": ">> step 10: answerOnNextPrompt ${ORG}",
+          "target": ">> step 11: answerOnNextPrompt ${ORG}",
           "targets": [],
           "value": ""
         },
@@ -527,10 +543,10 @@
           "value": ""
         },
         {
-          "id": "t-pay-m11",
+          "id": "t-pay-m12",
           "comment": "",
           "command": "echo",
-          "target": ">> step 11: click id=act-create-org",
+          "target": ">> step 12: click id=act-create-org",
           "targets": [],
           "value": ""
         },
@@ -543,10 +559,10 @@
           "value": ""
         },
         {
-          "id": "t-pay-m12",
+          "id": "t-pay-m13",
           "comment": "",
           "command": "echo",
-          "target": ">> step 12: assertAlert Organization created — signing you in again to activate it.",
+          "target": ">> step 13: assertAlert Organization created — signing you in again to activate it.",
           "targets": [],
           "value": ""
         },
@@ -559,10 +575,10 @@
           "value": ""
         },
         {
-          "id": "t-pay-m13",
+          "id": "t-pay-m14",
           "comment": "",
           "command": "echo",
-          "target": ">> step 13: pause 8000",
+          "target": ">> step 14: pause 8000",
           "targets": [],
           "value": ""
         },
@@ -575,10 +591,10 @@
           "value": ""
         },
         {
-          "id": "t-pay-m14",
+          "id": "t-pay-m15",
           "comment": "",
           "command": "echo",
-          "target": ">> step 14: open ${GATED_BASE}/w/account",
+          "target": ">> step 15: open ${GATED_BASE}/w/account",
           "targets": [],
           "value": ""
         },
@@ -591,10 +607,10 @@
           "value": ""
         },
         {
-          "id": "t-pay-m15",
+          "id": "t-pay-m16",
           "comment": "",
           "command": "echo",
-          "target": ">> step 15: waitForElementVisible id=act-upgrade",
+          "target": ">> step 16: waitForElementVisible id=act-upgrade",
           "targets": [],
           "value": ""
         },
@@ -607,10 +623,10 @@
           "value": "60000"
         },
         {
-          "id": "t-pay-m16",
+          "id": "t-pay-m17",
           "comment": "",
           "command": "echo",
-          "target": ">> step 16: assertText id=plan",
+          "target": ">> step 17: assertText id=plan",
           "targets": [],
           "value": ""
         },
@@ -623,10 +639,10 @@
           "value": "FREE"
         },
         {
-          "id": "t-pay-m17",
+          "id": "t-pay-m18",
           "comment": "",
           "command": "echo",
-          "target": ">> step 17: click id=act-upgrade",
+          "target": ">> step 18: click id=act-upgrade",
           "targets": [],
           "value": ""
         },
@@ -639,10 +655,10 @@
           "value": ""
         },
         {
-          "id": "t-pay-m18",
+          "id": "t-pay-m19",
           "comment": "",
           "command": "echo",
-          "target": ">> step 18: waitForElementVisible css=input[type='email'], input[name='email']",
+          "target": ">> step 19: waitForElementVisible css=input[type='email'], input[name='email']",
           "targets": [],
           "value": ""
         },
@@ -655,10 +671,10 @@
           "value": "60000"
         },
         {
-          "id": "t-pay-m19",
+          "id": "t-pay-m20",
           "comment": "",
           "command": "echo",
-          "target": ">> step 19: executeScript return location.host",
+          "target": ">> step 20: executeScript return location.host",
           "targets": [],
           "value": ""
         },
@@ -671,10 +687,10 @@
           "value": "CHECKOUT_HOST"
         },
         {
-          "id": "t-pay-m20",
+          "id": "t-pay-m21",
           "comment": "",
           "command": "echo",
-          "target": ">> step 20: assert CHECKOUT_HOST",
+          "target": ">> step 21: assert CHECKOUT_HOST",
           "targets": [],
           "value": ""
         },
@@ -687,10 +703,10 @@
           "value": "sandbox.polar.sh"
         },
         {
-          "id": "t-pay-m21",
+          "id": "t-pay-m22",
           "comment": "",
           "command": "echo",
-          "target": ">> step 21: executeScript return location.pathname.split('/').pop()",
+          "target": ">> step 22: executeScript return location.pathname.split('/').pop()",
           "targets": [],
           "value": ""
         },
@@ -703,10 +719,10 @@
           "value": "CHECKOUT_ID"
         },
         {
-          "id": "t-pay-m22",
+          "id": "t-pay-m23",
           "comment": "",
           "command": "echo",
-          "target": ">> step 22: echo Polar sandbox checkout ${CHECKOUT_ID}",
+          "target": ">> step 23: echo Polar sandbox checkout ${CHECKOUT_ID}",
           "targets": [],
           "value": ""
         },
@@ -719,10 +735,10 @@
           "value": ""
         },
         {
-          "id": "t-pay-m23",
+          "id": "t-pay-m24",
           "comment": "",
           "command": "echo",
-          "target": ">> step 23: type css=input[name='customerEmail'], input[type='email']",
+          "target": ">> step 24: type css=input[name='customerEmail'], input[type='email']",
           "targets": [],
           "value": ""
         },
@@ -735,10 +751,10 @@
           "value": "${EMAIL}"
         },
         {
-          "id": "t-pay-m24",
+          "id": "t-pay-m25",
           "comment": "",
           "command": "echo",
-          "target": ">> step 24: type css=input[name='customerName']",
+          "target": ">> step 25: type css=input[name='customerName']",
           "targets": [],
           "value": ""
         },
@@ -751,10 +767,10 @@
           "value": "${CARD_NAME}"
         },
         {
-          "id": "t-pay-m25",
+          "id": "t-pay-m26",
           "comment": "",
           "command": "echo",
-          "target": ">> step 25: waitForElementPresent css=iframe[title*='payment'], iframe[name^='__privateStripeFrame']",
+          "target": ">> step 26: waitForElementPresent css=iframe[title*='payment'], iframe[name^='__privateStripeFrame']",
           "targets": [],
           "value": ""
         },
@@ -767,10 +783,10 @@
           "value": "60000"
         },
         {
-          "id": "t-pay-m26",
+          "id": "t-pay-m27",
           "comment": "",
           "command": "echo",
-          "target": ">> step 26: selectFrame css=iframe[title*='payment'], iframe[name^='__privateStripeFrame']",
+          "target": ">> step 27: selectFrame css=iframe[title*='payment'], iframe[name^='__privateStripeFrame']",
           "targets": [],
           "value": ""
         },
@@ -783,10 +799,10 @@
           "value": ""
         },
         {
-          "id": "t-pay-m27",
+          "id": "t-pay-m28",
           "comment": "",
           "command": "echo",
-          "target": ">> step 27: type css=input[name='number'], #Field-numberInput",
+          "target": ">> step 28: type css=input[name='number'], #Field-numberInput",
           "targets": [],
           "value": ""
         },
@@ -799,10 +815,10 @@
           "value": "${CARD}"
         },
         {
-          "id": "t-pay-m28",
+          "id": "t-pay-m29",
           "comment": "",
           "command": "echo",
-          "target": ">> step 28: type css=input[name='expiry'], #Field-expiryInput",
+          "target": ">> step 29: type css=input[name='expiry'], #Field-expiryInput",
           "targets": [],
           "value": ""
         },
@@ -815,10 +831,10 @@
           "value": "${CARD_EXP}"
         },
         {
-          "id": "t-pay-m29",
+          "id": "t-pay-m30",
           "comment": "",
           "command": "echo",
-          "target": ">> step 29: type css=input[name='cvc'], #Field-cvcInput",
+          "target": ">> step 30: type css=input[name='cvc'], #Field-cvcInput",
           "targets": [],
           "value": ""
         },
@@ -831,10 +847,10 @@
           "value": "${CARD_CVC}"
         },
         {
-          "id": "t-pay-m30",
+          "id": "t-pay-m31",
           "comment": "",
           "command": "echo",
-          "target": ">> step 30: selectFrame relative=top",
+          "target": ">> step 31: selectFrame relative=top",
           "targets": [],
           "value": ""
         },
@@ -847,10 +863,10 @@
           "value": ""
         },
         {
-          "id": "t-pay-m31",
+          "id": "t-pay-m32",
           "comment": "",
           "command": "echo",
-          "target": ">> step 31: click css=button[type='submit']",
+          "target": ">> step 32: click css=button[type='submit']",
           "targets": [],
           "value": ""
         },
@@ -863,10 +879,10 @@
           "value": ""
         },
         {
-          "id": "t-pay-m32",
+          "id": "t-pay-m33",
           "comment": "",
           "command": "echo",
-          "target": ">> step 32: waitForElementVisible id=plan",
+          "target": ">> step 33: waitForElementVisible id=plan",
           "targets": [],
           "value": ""
         },
@@ -879,10 +895,10 @@
           "value": "120000"
         },
         {
-          "id": "t-pay-m33",
+          "id": "t-pay-m34",
           "comment": "",
           "command": "echo",
-          "target": ">> step 33: assertElementPresent id=banner",
+          "target": ">> step 34: assertElementPresent id=banner",
           "targets": [],
           "value": ""
         },
@@ -895,10 +911,10 @@
           "value": ""
         },
         {
-          "id": "t-pay-m34",
+          "id": "t-pay-m35",
           "comment": "",
           "command": "echo",
-          "target": ">> step 34: assertText id=plan",
+          "target": ">> step 35: assertText id=plan",
           "targets": [],
           "value": ""
         },
@@ -911,10 +927,10 @@
           "value": "PRO"
         },
         {
-          "id": "t-pay-m35",
+          "id": "t-pay-m36",
           "comment": "",
           "command": "echo",
-          "target": ">> step 35: assertElementPresent id=act-portal",
+          "target": ">> step 36: assertElementPresent id=act-portal",
           "targets": [],
           "value": ""
         },
