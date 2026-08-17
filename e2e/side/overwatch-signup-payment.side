@@ -50,9 +50,9 @@
         },
         {
           "id": "c006",
-          "comment": "Polar/Stripe sandbox test card. Never a real number: run.sh forbids production.",
+          "comment": "Creem test-mode card (docs.creem.io): any future expiry, any CVC. Never a real number: run.sh forbids production.",
           "command": "store",
-          "target": "4242424242424242",
+          "target": "4111111111111111",
           "targets": [],
           "value": "CARD"
         },
@@ -336,9 +336,9 @@
         },
         {
           "id": "c041",
-          "comment": "Polar/Stripe sandbox test card. Never a real number: run.sh forbids production.",
+          "comment": "Creem test-mode card (docs.creem.io): any future expiry, any CVC. Never a real number: run.sh forbids production.",
           "command": "store",
-          "target": "4242424242424242",
+          "target": "4111111111111111",
           "targets": [],
           "value": "CARD"
         },
@@ -696,11 +696,19 @@
         },
         {
           "id": "c061",
+          "comment": "Guard rail: the walk must land on Creem (Test Mode); any other host is a mis-wired checkout.",
+          "command": "executeScript",
+          "target": "return /(^|\\.)creem\\.io$/.test(location.hostname) || location.hostname",
+          "targets": [],
+          "value": "ON_CREEM"
+        },
+        {
+          "id": "cz1",
           "comment": "",
           "command": "assert",
-          "target": "CHECKOUT_HOST",
+          "target": "ON_CREEM",
           "targets": [],
-          "value": "sandbox.polar.sh"
+          "value": "true"
         },
         {
           "id": "t-pay-m22",

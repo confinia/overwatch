@@ -68,18 +68,21 @@ def test_every_rendered_variable_is_actually_rendered():
         assert f'"{var}"' in s, f"run.sh does not render {var}"
 
 
-def test_payment_is_asserted_against_polar_sandbox():
-    """The checkout must land on sandbox.polar.sh. assertLocation compares
+def test_payment_is_asserted_against_creem_test_mode():
+    """The checkout must land on Creem (rule 27). assertLocation compares
     literally in selenium-side-runner — a `regexp:` target is taken as a literal
-    string and passes nothing — so the host is read and asserted explicitly."""
+    string and passes nothing — so the hostname is tested in the page and the
+    boolean asserted explicitly."""
     cmds = _commands("pay")
     assert not any(c["command"] == "assertLocation" for c in cmds)
-    host = next(c for c in cmds
-                if c["command"] == "executeScript" and "location.host" in c["target"])
+    guard = next(c for c in cmds
+                 if c["command"] == "executeScript" and "creem" in c["target"])
     check = next(c for c in cmds
-                 if c["command"] == "assert" and c["target"] == host["value"])
-    assert check["value"] == "sandbox.polar.sh"
-    assert "4242424242424242" in json.dumps(_side()), "not using the sandbox test card"
+                 if c["command"] == "assert" and c["target"] == guard["value"])
+    assert check["value"] == "true"
+    raw = json.dumps(_side())
+    assert "4111111111111111" in raw, "not using Creem's test card"
+    assert "4242424242424242" not in raw, "Polar/Stripe card left behind"
 
 
 def test_capability_args_carry_no_comma():
@@ -165,6 +168,8 @@ def test_the_run_is_verified_against_polar_itself():
     """A green browser walk with no order in Polar is the bug this exists to
     catch, so the report must fail the run rather than warn."""
     s = _run_sh()
-    assert "polar_report.py" in s
-    report = open(os.path.join(SIDE_DIR, "polar_report.py"), encoding="utf-8").read()
+    assert "creem_report.py" in s
+    report = open(os.path.join(SIDE_DIR, "creem_report.py"), encoding="utf-8").read()
     assert "sys.exit" in report and "FAIL" in report
+    # rule 27: test mode only — a production key must be refused outright
+    assert 'startswith("creem_test_")' in report
