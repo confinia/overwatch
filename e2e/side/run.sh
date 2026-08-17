@@ -70,18 +70,48 @@ for t in side["tests"]:
 json.dump(side, open("rendered/run.side", "w"), indent=2, ensure_ascii=False)
 PY
 
+# --- readiness ---------------------------------------------------------------
+# A push to main recreates the sandbox stack, and a dispatch right after one
+# races the redeploy: the walk 502s, or the VM is pegged building images and
+# the browser misses its startup window. Wait for the target to answer first.
+say "waiting for ${BASE} to answer"
+for i in $(seq 1 30); do
+  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
+         -u "${GATE_USER}:${GATE_PASS}" "${BASE}/w/account" || true)
+  [ "$code" = "200" ] && break
+  [ "$i" = "30" ] && die "target still answers $code after 5 minutes"
+  sleep 10
+done
+echo "  ready (HTTP $code)"
+
 # --- run ---------------------------------------------------------------------
 # --network=host: Keycloak's admin API is bound to VM loopback, and the app is
 # reached over the public URL either way.
 side_runner() {
-  podman run --rm --network=host --shm-size=1g \
-    -v "$HERE:/work:z" -w /work "$IMAGE" \
-    selenium-side-runner \
-      -c "browserName=chrome goog:chromeOptions.args=[headless=new,no-sandbox,disable-dev-shm-usage] goog:chromeOptions.binary=/usr/bin/chromium" \
-      --timeout 60000 \
-      --jest-timeout 900000 \
-      --filter "$1" \
-      rendered/run.side
+  # A loaded VM (a deploy building images next door) can make the browser miss
+  # its startup window — that exact failure reads "Driver took too long to
+  # build" and deserves a retry, unlike a real test failure which does not.
+  local attempt out
+  for attempt in 1 2 3; do
+    out="results/${1//[^a-z]/}-${attempt}.log"
+    if podman run --rm --network=host --shm-size=1g \
+      -v "$HERE:/work:z" -w /work "$IMAGE" \
+      selenium-side-runner \
+        -c "browserName=chrome goog:chromeOptions.args=[headless=new,no-sandbox,disable-dev-shm-usage] goog:chromeOptions.binary=/usr/bin/chromium" \
+        --timeout 60000 \
+        --jest-timeout 900000 \
+        --filter "$1" \
+        rendered/run.side 2>&1 | tee "$out"; then
+      return 0
+    fi
+    if grep -q "took too long to build" "$out" && [ "$attempt" -lt 3 ]; then
+      say "browser failed to start (busy VM) — retrying in 45s ($attempt/3)"
+      sleep 45
+    else
+      return 1
+    fi
+  done
+  return 1
 }
 
 kc() {
