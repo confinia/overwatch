@@ -936,9 +936,9 @@
         },
         {
           "id": "ck-fill",
-          "comment": "Fill identity only where Creem left it empty; the e-mail is usually prefilled from the checkout session (unquoted ${...} = script args).",
+          "comment": "Fill identity where empty and pick France in the billing-address country select — step 1 refuses to advance without it. Unquoted ${...} = script arguments; prototype setters keep React-controlled fields honest.",
           "command": "executeScript",
-          "target": "var em = ${EMAIL}; var nm = ${CARD_NAME}; var set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set; ['email','name'].forEach(function(id, ix){ var el = document.getElementById(id); if (el && !el.value && !el.disabled && !el.readOnly){ set.call(el, ix ? nm : em); el.dispatchEvent(new Event('input', {bubbles: true})); } }); return ['email','name'].map(function(id){ var el = document.getElementById(id); return id + '=' + (el ? (el.value || '(empty)') + (el.disabled || el.readOnly ? '/locked' : '') : '(absent)') }).join(' ')",
+          "target": "var em = ${EMAIL}; var nm = ${CARD_NAME}; var set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set; ['email','name'].forEach(function(id, ix){ var el = document.getElementById(id); if (el && !el.value && !el.disabled && !el.readOnly){ set.call(el, ix ? nm : em); el.dispatchEvent(new Event('input', {bubbles: true})); } }); var sset = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype,'value').set; Array.from(document.querySelectorAll('select')).forEach(function(sel){ var opt = Array.from(sel.options).find(function(o){ return o.value === 'FR' || /france/i.test(o.text) }); if (opt){ sset.call(sel, opt.value); sel.dispatchEvent(new Event('change', {bubbles: true})); } }); return Array.from(document.querySelectorAll('input,select')).map(function(e){ return (e.id || e.name || e.tagName) + '=' + (e.value || '(empty)') }).join(' | ').slice(0, 250)",
           "targets": [],
           "value": "CKFIELDS"
         },
