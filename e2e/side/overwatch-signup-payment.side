@@ -84,15 +84,15 @@
           "id": "t-register-m1",
           "comment": "",
           "command": "echo",
-          "target": ">> step 1: open ${GATED_BASE}/w/health-check-not-found",
+          "target": ">> step 1: open ${GATED_BASE}/ (prime gate at root)",
           "targets": [],
           "value": ""
         },
         {
           "id": "t-register-prime",
-          "comment": "Prime the basic-auth gate: Chrome consumes the embedded credentials on this one top-level navigation and caches them for the origin. Every later URL must be the PLAIN one — a document whose URL still carries user:pass@ has fetch() blocked by Chrome (embedded credentials in subresource requests), so the app can never call its own API.",
+          "comment": "Prime the basic-auth gate AT THE ROOT: Chrome's preemptive basic-auth is directory-scoped (RFC 7617 §2.2), so credentials cached at / cover every path — priming under /w/ left /api/… unauthenticated and the sign-in redirect died on a naked 401. Every later URL stays PLAIN: a document URL carrying user:pass@ has fetch() blocked by Chrome.",
           "command": "open",
-          "target": "${GATED_BASE}/w/health-check-not-found",
+          "target": "${GATED_BASE}/",
           "targets": [],
           "value": ""
         },
@@ -426,15 +426,15 @@
           "id": "t-pay-m1",
           "comment": "",
           "command": "echo",
-          "target": ">> step 1: open ${GATED_BASE}/w/health-check-not-found",
+          "target": ">> step 1: open ${GATED_BASE}/ (prime gate at root)",
           "targets": [],
           "value": ""
         },
         {
           "id": "t-pay-prime",
-          "comment": "Prime the basic-auth gate: Chrome consumes the embedded credentials on this one top-level navigation and caches them for the origin. Every later URL must be the PLAIN one — a document whose URL still carries user:pass@ has fetch() blocked by Chrome (embedded credentials in subresource requests), so the app can never call its own API.",
+          "comment": "Prime the basic-auth gate AT THE ROOT: Chrome's preemptive basic-auth is directory-scoped (RFC 7617 §2.2), so credentials cached at / cover every path — priming under /w/ left /api/… unauthenticated and the sign-in redirect died on a naked 401. Every later URL stays PLAIN: a document URL carrying user:pass@ has fetch() blocked by Chrome.",
           "command": "open",
-          "target": "${GATED_BASE}/w/health-check-not-found",
+          "target": "${GATED_BASE}/",
           "targets": [],
           "value": ""
         },
