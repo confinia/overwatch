@@ -626,15 +626,15 @@
           "id": "t-pay-m11",
           "comment": "",
           "command": "echo",
-          "target": ">> step 11: executeScript window.prompt = function(){ return '${ORG}' }; window.alert = function(){}; window.confirm = function(){ return true }",
+          "target": ">> step: executeScript (stub createOrg dialogs)",
           "targets": [],
           "value": ""
         },
         {
           "id": "stub-dialogs",
-          "comment": "side-runner 4 does not implement answerOnNextPrompt; stub the dialogs createOrg() opens. The alert stub RECORDS its message in document.title so a swallowed error stays visible.",
+          "comment": "side-runner has no answerOnNextPrompt; stub the dialogs. ${ORG} must be UNQUOTED: the runtime rewrites it to arguments[0] and passes the value as a script argument.",
           "command": "executeScript",
-          "target": "window.prompt = function(){ return '${ORG}' }; window.alert = function(m){ document.title = 'ALERT: ' + m }; window.confirm = function(){ return true }",
+          "target": "var orgName = ${ORG}; window.prompt = function(){ return orgName }; window.alert = function(m){ document.title = 'ALERT: ' + m }; window.confirm = function(){ return true }",
           "targets": [],
           "value": ""
         },
