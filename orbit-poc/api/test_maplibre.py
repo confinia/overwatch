@@ -180,3 +180,20 @@ def test_private_satellite_clears_open_data_map_state():
     for src in ("rx-links", "rx-stations", "rx-endpoints", "track", "track-arcs"):
         assert src in fn, f"{src} not cleared for a private satellite"
     assert "clearPulse()" in fn
+
+
+def test_favourites_survive_hiding_the_open_data_fleet():   # #255
+    """"Hide open-data fleet" must mean "show only what I follow", not "show
+    nothing": starred satellites stay in the list and on the globe. And hiding
+    must clear a NON-favourite selection — it used to leave the satellite's whole
+    panel, legend and track on screen while it vanished from the list."""
+    app = open(APP, encoding="utf-8").read()
+    assert "function favouriteOpenSats" in app
+    # the globe filters to the favourites instead of hiding the layers outright
+    assert '["in", ["get","norad"], ["literal", favs]]' in app
+    fn = app[app.index("function toggleOpen"):]
+    fn = fn[:fn.index("\n}")]
+    assert "myFavorites.has(activeNorad)" in fn, "selection kept regardless of favourites"
+    assert 'setRxLegend("")' in fn, "stale reception legend left behind"
+    # with nothing starred, behaviour is unchanged (org fleet only)
+    assert "favSet.size === 0" in app
