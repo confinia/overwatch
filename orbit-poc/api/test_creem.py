@@ -162,3 +162,31 @@ def test_badge_reads_the_provider_neutral_field():
     app = open(os.path.join(os.path.dirname(__file__), "..", "web", "static",
                             "app.js"), encoding="utf-8").read()
     assert "m.env || m.polar_env" in app
+
+
+def test_the_image_ships_every_local_module_main_imports():
+    """The api Dockerfile copies modules BY NAME; a new local import that is
+    not added there passes every unit test and then crash-loops the staged
+    container at boot (`import billing` — how #269 broke the deploy)."""
+    here = os.path.dirname(__file__)
+    df = open(os.path.join(here, "Dockerfile"), encoding="utf-8").read()
+    src = open(os.path.join(here, "main.py"), encoding="utf-8").read()
+    local = {f[:-3] for f in os.listdir(here)
+             if f.endswith(".py") and not f.startswith("test_")}
+    imported = set()
+    for line in src.splitlines():
+        line = line.strip()
+        if line.startswith("import ") or line.startswith("from "):
+            mod = line.split()[1].split(".")[0]
+            if mod in local:
+                imported.add(mod)
+    # follow one level: modules imported by those modules (billing -> creem)
+    for mod in list(imported):
+        for line in open(os.path.join(here, mod + ".py"), encoding="utf-8"):
+            line = line.strip()
+            if line.startswith("import ") or line.startswith("from "):
+                sub = line.split()[1].split(".")[0]
+                if sub in local:
+                    imported.add(sub)
+    missing = [m for m in sorted(imported) if f"COPY {m}.py" not in df]
+    assert not missing, f"Dockerfile does not ship: {missing}"

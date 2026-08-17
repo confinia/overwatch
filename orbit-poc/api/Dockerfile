@@ -8,6 +8,8 @@ COPY main.py .
 COPY oem.py .
 COPY metering.py .
 COPY polar.py .
+COPY billing.py .
+COPY creem.py .
 COPY tenant_dashboard.json .
 
 EXPOSE 8000
