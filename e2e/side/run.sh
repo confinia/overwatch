@@ -58,16 +58,15 @@ email, org, base = sys.argv[1], sys.argv[2], sys.argv[3]
 side = json.load(open("overwatch-signup-payment.side"))
 gate = urllib.parse.quote(os.environ["GATE_USER"], safe="")
 gpw = urllib.parse.quote(os.environ["GATE_PASS"], safe="")
-values = {"BASE": base, "GATE_USER": os.environ["GATE_USER"],
-          "GATE_PASS": os.environ["GATE_PASS"], "EMAIL": email,
+values = {"BASE": base, "EMAIL": email,
           "PASS": os.environ["SIGNUP_PASS"], "ORG": org,
           # A gate password containing ':' '@' or '/' would otherwise cut the
           # URL in half, and the walk would 401 with no clue why.
           "GATED_BASE": base.replace("https://", f"https://{gate}:{gpw}@")}
-cfg = next(t for t in side["tests"] if t["name"] == "00 config")
-for cmd in cfg["commands"]:
-    if cmd["command"] == "store" and cmd["value"] in values:
-        cmd["target"] = values[cmd["value"]]
+for t in side["tests"]:
+    for cmd in t["commands"]:
+        if cmd["command"] == "store" and cmd["value"] in values:
+            cmd["target"] = values[cmd["value"]]
 json.dump(side, open("rendered/run.side", "w"), indent=2, ensure_ascii=False)
 PY
 

@@ -28,6 +28,11 @@ def _commands(test_name):
     return next(t for t in _side()["tests"] if t["name"] == test_name)["commands"]
 
 
+def _stores(test_name):
+    return {c["value"]: c["target"] for c in _commands(test_name)
+            if c["command"] == "store"}
+
+
 def test_the_walk_can_never_target_production():
     """It types a card number. Production runs POLAR_ENV=off and real money is
     one misconfigured variable away, so the runner must refuse anything but the
@@ -41,11 +46,11 @@ def test_no_secret_is_committed_in_the_project():
     """The .side is public. Credentials arrive from the gitignored .env at render
     time; the committed file must hold placeholders only."""
     raw = open(PROJECT, encoding="utf-8").read()
-    cfg = {c["value"]: c["target"] for c in _commands("00 config")
-           if c["command"] == "store"}
-    for var in ("GATE_USER", "GATE_PASS", "EMAIL", "PASS", "ORG"):
-        assert cfg[var].startswith("__") and cfg[var].endswith("__"), \
-            f"{var} is not a placeholder — a credential may have been committed"
+    for test in ("register", "pay"):
+        cfg = _stores(test)
+        for var in ("GATED_BASE", "EMAIL", "PASS", "ORG"):
+            assert cfg[var].startswith("__") and cfg[var].endswith("__"), \
+                f"{test}/{var} is not a placeholder — a credential may have been committed"
     assert "polar_oat_" not in raw and "polar_" not in raw.lower().replace("polar.sh", "")
     ignored = open(os.path.join(SIDE_DIR, ".gitignore"), encoding="utf-8").read()
     assert ".env" in ignored.split()
@@ -54,11 +59,10 @@ def test_no_secret_is_committed_in_the_project():
 def test_every_rendered_variable_is_actually_rendered():
     """A store the runner does not fill would ship its `__PLACEHOLDER__` into a
     live form — the walk would fail late and confusingly."""
-    rendered = {"BASE", "GATE_USER", "GATE_PASS", "EMAIL", "PASS", "ORG",
-                "GATED_BASE"}
-    placeholders = {c["value"] for c in _commands("00 config")
-                    if c["command"] == "store" and c["target"].startswith("__")}
-    assert placeholders <= rendered, f"never rendered: {placeholders - rendered}"
+    rendered = {"BASE", "GATED_BASE", "EMAIL", "PASS", "ORG"}
+    for test in ("register", "pay"):
+        placeholders = {v for v, t in _stores(test).items() if t.startswith("__")}
+        assert placeholders <= rendered, f"never rendered: {placeholders - rendered}"
     s = _run_sh()
     for var in rendered:
         assert f'"{var}"' in s, f"run.sh does not render {var}"
@@ -68,7 +72,7 @@ def test_payment_is_asserted_against_polar_sandbox():
     """The checkout must land on sandbox.polar.sh. assertLocation compares
     literally in selenium-side-runner — a `regexp:` target is taken as a literal
     string and passes nothing — so the host is read and asserted explicitly."""
-    cmds = _commands("40 checkout")
+    cmds = _commands("pay")
     assert not any(c["command"] == "assertLocation" for c in cmds)
     host = next(c for c in cmds
                 if c["command"] == "executeScript" and "location.host" in c["target"])
@@ -98,18 +102,35 @@ def test_the_walk_is_given_time_to_finish():
     assert jt >= 600000, f"jest timeout {jt}ms is too short for the walk"
 
 
-def test_config_needs_no_loaded_page():
-    """`00 config` runs before anything is opened. An executeScript there waits
-    on a page that does not exist yet and hangs until jest kills the test."""
-    cfg = _commands("00 config")
-    assert not [c for c in cfg if c["command"] == "executeScript"]
+def test_no_script_runs_before_the_first_page_is_opened():
+    """An executeScript before the first `open` waits on a page that does not
+    exist yet and hangs until jest kills the test."""
+    for t in _side()["tests"]:
+        for c in t["commands"]:
+            if c["command"] == "open":
+                break
+            assert c["command"] != "executeScript", t["name"]
+
+
+def test_each_suite_is_a_single_self_contained_test():
+    """The runner persists neither variables nor the browser session across the
+    tests of a suite — the second test hangs on a dead session id at its first
+    browser command (learned live, 15 silent minutes each time). So every suite
+    holds exactly one test carrying its own config stores."""
+    side = _side()
+    for suite in side["suites"]:
+        assert len(suite["tests"]) == 1, f"suite {suite['name']} chains tests"
+        assert not suite.get("persistSession"), suite["name"]
+    for t in side["tests"]:
+        assert {"EMAIL", "PASS"} <= set(_stores(t["name"])), \
+            f"test {t['name']} does not carry its own config"
 
 
 def test_sign_in_follows_the_identity_first_flow():
     """The realms ask for the username on one screen and the password on the
     next. Typing both on the first screen silently fails: only #username exists
     there."""
-    cmds = _commands("20 sign in")
+    cmds = _commands("pay")
     order = [(c["command"], c["target"]) for c in cmds]
     u = order.index(("type", "id=username"))
     submit1 = next(i for i, (cmd, t) in enumerate(order)
@@ -134,9 +155,10 @@ def test_entitlement_is_asserted_not_just_the_redirect():
     """Polar redirects to success_url on its own. The proof that the money
     landed is the PRO badge, which the app renders from the webhook-driven
     billing status."""
-    cmds = _commands("60 entitlement")
-    pro = next(c for c in cmds if c["command"] == "assertText" and c["target"] == "id=plan")
-    assert pro["value"] == "PRO"
+    cmds = _commands("pay")
+    plans = [c for c in cmds
+             if c["command"] == "assertText" and c["target"] == "id=plan"]
+    assert plans[-1]["value"] == "PRO"
 
 
 def test_the_run_is_verified_against_polar_itself():
