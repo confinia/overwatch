@@ -17,14 +17,6 @@
           "value": "BASE"
         },
         {
-          "id": "c002",
-          "comment": "BASE with the basic-auth gate credentials embedded: Chrome honours user:pass@ on a top-level navigation, and Selenium has no other way past the gate.",
-          "command": "store",
-          "target": "__GATED_BASE__",
-          "targets": [],
-          "value": "GATED_BASE"
-        },
-        {
           "id": "c003",
           "comment": "Disposable per-run address. A fixed one re-links to a soft-deleted org tombstone.",
           "command": "store",
@@ -84,23 +76,7 @@
           "id": "t-register-m1",
           "comment": "",
           "command": "echo",
-          "target": ">> step 1: open ${GATED_BASE}/ (prime gate at root)",
-          "targets": [],
-          "value": ""
-        },
-        {
-          "id": "t-register-prime",
-          "comment": "Prime the basic-auth gate AT THE ROOT: Chrome's preemptive basic-auth is directory-scoped (RFC 7617 §2.2), so credentials cached at / cover every path — priming under /w/ left /api/… unauthenticated and the sign-in redirect died on a naked 401. Every later URL stays PLAIN: a document URL carrying user:pass@ has fetch() blocked by Chrome.",
-          "command": "open",
-          "target": "${GATED_BASE}/",
-          "targets": [],
-          "value": ""
-        },
-        {
-          "id": "t-register-m2",
-          "comment": "",
-          "command": "echo",
-          "target": ">> step 2: open ${BASE}/w/account",
+          "target": ">> step 1: open ${BASE}/w/account",
           "targets": [],
           "value": ""
         },
@@ -113,10 +89,10 @@
           "value": ""
         },
         {
-          "id": "t-register-m3",
+          "id": "t-register-m2",
           "comment": "",
           "command": "echo",
-          "target": ">> step 3: waitForElementVisible id=act-signin",
+          "target": ">> step 2: waitForElementVisible id=act-signin",
           "targets": [],
           "value": ""
         },
@@ -129,10 +105,10 @@
           "value": "60000"
         },
         {
-          "id": "t-register-m4",
+          "id": "t-register-m3",
           "comment": "",
           "command": "echo",
-          "target": ">> step 4: click id=act-signin",
+          "target": ">> step 3: executeAsyncScript Promise.all([fetch('/api/v1/me').then(function(r){return 'me='+r.status}).catch(function(e){return 'me=ERR:'+e}),fetch('/api/v1/auth/login').then(func",
           "targets": [],
           "value": ""
         },
@@ -145,10 +121,26 @@
           "value": "NET"
         },
         {
+          "id": "t-register-m4",
+          "comment": "",
+          "command": "echo",
+          "target": ">> step 4: echo NET ${NET}",
+          "targets": [],
+          "value": ""
+        },
+        {
           "id": "np2",
           "comment": "",
           "command": "echo",
           "target": "NET ${NET}",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "t-register-m5",
+          "comment": "",
+          "command": "echo",
+          "target": ">> step 5: click id=act-signin",
           "targets": [],
           "value": ""
         },
@@ -161,10 +153,26 @@
           "value": ""
         },
         {
+          "id": "t-register-m6",
+          "comment": "",
+          "command": "echo",
+          "target": ">> step 6: pause 6000",
+          "targets": [],
+          "value": ""
+        },
+        {
           "id": "dg1",
           "comment": "",
           "command": "pause",
           "target": "6000",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "t-register-m7",
+          "comment": "",
+          "command": "echo",
+          "target": ">> step 7: executeScript return location.href + ' || ' + document.title",
           "targets": [],
           "value": ""
         },
@@ -177,10 +185,26 @@
           "value": "WHERE"
         },
         {
+          "id": "t-register-m8",
+          "comment": "",
+          "command": "echo",
+          "target": ">> step 8: echo LANDED ${WHERE}",
+          "targets": [],
+          "value": ""
+        },
+        {
           "id": "dg3",
           "comment": "",
           "command": "echo",
           "target": "LANDED ${WHERE}",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "t-register-m9",
+          "comment": "",
+          "command": "echo",
+          "target": ">> step 9: executeScript return (document.body ? document.body.innerText : '(no body)').slice(0, 300).replace(/\\s+/g, ' ')",
           "targets": [],
           "value": ""
         },
@@ -193,6 +217,14 @@
           "value": "SNIP"
         },
         {
+          "id": "t-register-m10",
+          "comment": "",
+          "command": "echo",
+          "target": ">> step 10: echo PAGE ${SNIP}",
+          "targets": [],
+          "value": ""
+        },
+        {
           "id": "dg5",
           "comment": "",
           "command": "echo",
@@ -201,10 +233,10 @@
           "value": ""
         },
         {
-          "id": "t-register-m5",
+          "id": "t-register-m11",
           "comment": "",
           "command": "echo",
-          "target": ">> step 5: waitForElementVisible id=kc-registration",
+          "target": ">> step 11: waitForElementVisible id=kc-registration",
           "targets": [],
           "value": ""
         },
@@ -217,10 +249,10 @@
           "value": "60000"
         },
         {
-          "id": "t-register-m6",
+          "id": "t-register-m12",
           "comment": "",
           "command": "echo",
-          "target": ">> step 6: click css=#kc-registration a",
+          "target": ">> step 12: click css=#kc-registration a",
           "targets": [],
           "value": ""
         },
@@ -233,10 +265,10 @@
           "value": ""
         },
         {
-          "id": "t-register-m7",
+          "id": "t-register-m13",
           "comment": "",
           "command": "echo",
-          "target": ">> step 7: waitForElementVisible id=firstName",
+          "target": ">> step 13: waitForElementVisible id=firstName",
           "targets": [],
           "value": ""
         },
@@ -249,10 +281,10 @@
           "value": "60000"
         },
         {
-          "id": "t-register-m8",
+          "id": "t-register-m14",
           "comment": "",
           "command": "echo",
-          "target": ">> step 8: type id=firstName",
+          "target": ">> step 14: type id=firstName",
           "targets": [],
           "value": ""
         },
@@ -265,10 +297,10 @@
           "value": "E2E"
         },
         {
-          "id": "t-register-m9",
+          "id": "t-register-m15",
           "comment": "",
           "command": "echo",
-          "target": ">> step 9: type id=lastName",
+          "target": ">> step 15: type id=lastName",
           "targets": [],
           "value": ""
         },
@@ -281,10 +313,10 @@
           "value": "Bot"
         },
         {
-          "id": "t-register-m10",
+          "id": "t-register-m16",
           "comment": "",
           "command": "echo",
-          "target": ">> step 10: type id=email",
+          "target": ">> step 16: type id=email",
           "targets": [],
           "value": ""
         },
@@ -297,10 +329,10 @@
           "value": "${EMAIL}"
         },
         {
-          "id": "t-register-m11",
+          "id": "t-register-m17",
           "comment": "",
           "command": "echo",
-          "target": ">> step 11: type id=password",
+          "target": ">> step 17: type id=password",
           "targets": [],
           "value": ""
         },
@@ -313,10 +345,10 @@
           "value": "${PASS}"
         },
         {
-          "id": "t-register-m12",
+          "id": "t-register-m18",
           "comment": "",
           "command": "echo",
-          "target": ">> step 12: type id=password-confirm",
+          "target": ">> step 18: type id=password-confirm",
           "targets": [],
           "value": ""
         },
@@ -329,10 +361,10 @@
           "value": "${PASS}"
         },
         {
-          "id": "t-register-m13",
+          "id": "t-register-m19",
           "comment": "",
           "command": "echo",
-          "target": ">> step 13: click css=input[type=submit]",
+          "target": ">> step 19: click css=input[type=submit]",
           "targets": [],
           "value": ""
         },
@@ -345,10 +377,10 @@
           "value": ""
         },
         {
-          "id": "t-register-m14",
+          "id": "t-register-m20",
           "comment": "",
           "command": "echo",
-          "target": ">> step 14: waitForElementNotPresent id=password-confirm",
+          "target": ">> step 20: waitForElementNotPresent id=password-confirm",
           "targets": [],
           "value": ""
         },
@@ -373,14 +405,6 @@
           "target": "__BASE__",
           "targets": [],
           "value": "BASE"
-        },
-        {
-          "id": "c037",
-          "comment": "BASE with the basic-auth gate credentials embedded: Chrome honours user:pass@ on a top-level navigation, and Selenium has no other way past the gate.",
-          "command": "store",
-          "target": "__GATED_BASE__",
-          "targets": [],
-          "value": "GATED_BASE"
         },
         {
           "id": "c038",
@@ -442,23 +466,7 @@
           "id": "t-pay-m1",
           "comment": "",
           "command": "echo",
-          "target": ">> step 1: open ${GATED_BASE}/ (prime gate at root)",
-          "targets": [],
-          "value": ""
-        },
-        {
-          "id": "t-pay-prime",
-          "comment": "Prime the basic-auth gate AT THE ROOT: Chrome's preemptive basic-auth is directory-scoped (RFC 7617 §2.2), so credentials cached at / cover every path — priming under /w/ left /api/… unauthenticated and the sign-in redirect died on a naked 401. Every later URL stays PLAIN: a document URL carrying user:pass@ has fetch() blocked by Chrome.",
-          "command": "open",
-          "target": "${GATED_BASE}/",
-          "targets": [],
-          "value": ""
-        },
-        {
-          "id": "t-pay-m2",
-          "comment": "",
-          "command": "echo",
-          "target": ">> step 2: open ${BASE}/api/v1/auth/login",
+          "target": ">> step 1: open ${BASE}/api/v1/auth/login",
           "targets": [],
           "value": ""
         },
@@ -471,10 +479,10 @@
           "value": ""
         },
         {
-          "id": "t-pay-m3",
+          "id": "t-pay-m2",
           "comment": "",
           "command": "echo",
-          "target": ">> step 3: waitForElementVisible id=username",
+          "target": ">> step 2: waitForElementVisible id=username",
           "targets": [],
           "value": ""
         },
@@ -487,10 +495,10 @@
           "value": "60000"
         },
         {
-          "id": "t-pay-m4",
+          "id": "t-pay-m3",
           "comment": "",
           "command": "echo",
-          "target": ">> step 4: type id=username",
+          "target": ">> step 3: type id=username",
           "targets": [],
           "value": ""
         },
@@ -503,10 +511,10 @@
           "value": "${EMAIL}"
         },
         {
-          "id": "t-pay-m5",
+          "id": "t-pay-m4",
           "comment": "",
           "command": "echo",
-          "target": ">> step 5: click id=kc-login",
+          "target": ">> step 4: click id=kc-login",
           "targets": [],
           "value": ""
         },
@@ -519,10 +527,10 @@
           "value": ""
         },
         {
-          "id": "t-pay-m6",
+          "id": "t-pay-m5",
           "comment": "",
           "command": "echo",
-          "target": ">> step 6: waitForElementVisible id=password",
+          "target": ">> step 5: waitForElementVisible id=password",
           "targets": [],
           "value": ""
         },
@@ -535,10 +543,10 @@
           "value": "60000"
         },
         {
-          "id": "t-pay-m7",
+          "id": "t-pay-m6",
           "comment": "",
           "command": "echo",
-          "target": ">> step 7: type id=password",
+          "target": ">> step 6: type id=password",
           "targets": [],
           "value": ""
         },
@@ -551,10 +559,10 @@
           "value": "${PASS}"
         },
         {
-          "id": "t-pay-m8",
+          "id": "t-pay-m7",
           "comment": "",
           "command": "echo",
-          "target": ">> step 8: click id=kc-login",
+          "target": ">> step 7: click id=kc-login",
           "targets": [],
           "value": ""
         },
@@ -567,10 +575,10 @@
           "value": ""
         },
         {
-          "id": "t-pay-m9",
+          "id": "t-pay-m8",
           "comment": "",
           "command": "echo",
-          "target": ">> step 9: waitForElementPresent id=map",
+          "target": ">> step 8: waitForElementPresent id=map",
           "targets": [],
           "value": ""
         },
@@ -583,10 +591,10 @@
           "value": "60000"
         },
         {
-          "id": "t-pay-m10",
+          "id": "t-pay-m9",
           "comment": "",
           "command": "echo",
-          "target": ">> step 10: open ${BASE}/w/account",
+          "target": ">> step 9: open ${BASE}/w/account",
           "targets": [],
           "value": ""
         },
@@ -599,10 +607,10 @@
           "value": ""
         },
         {
-          "id": "t-pay-m11",
+          "id": "t-pay-m10",
           "comment": "",
           "command": "echo",
-          "target": ">> step 11: waitForElementVisible id=act-create-org",
+          "target": ">> step 10: waitForElementVisible id=act-create-org",
           "targets": [],
           "value": ""
         },
@@ -615,10 +623,10 @@
           "value": "60000"
         },
         {
-          "id": "t-pay-m12",
+          "id": "t-pay-m11",
           "comment": "",
           "command": "echo",
-          "target": ">> step 12: answerOnNextPrompt ${ORG}",
+          "target": ">> step 11: answerOnNextPrompt ${ORG}",
           "targets": [],
           "value": ""
         },
@@ -631,10 +639,10 @@
           "value": ""
         },
         {
-          "id": "t-pay-m13",
+          "id": "t-pay-m12",
           "comment": "",
           "command": "echo",
-          "target": ">> step 13: click id=act-create-org",
+          "target": ">> step 12: click id=act-create-org",
           "targets": [],
           "value": ""
         },
@@ -647,10 +655,10 @@
           "value": ""
         },
         {
-          "id": "t-pay-m14",
+          "id": "t-pay-m13",
           "comment": "",
           "command": "echo",
-          "target": ">> step 14: assertAlert Organization created — signing you in again to activate it.",
+          "target": ">> step 13: assertAlert Organization created — signing you in again to activate it.",
           "targets": [],
           "value": ""
         },
@@ -663,10 +671,10 @@
           "value": ""
         },
         {
-          "id": "t-pay-m15",
+          "id": "t-pay-m14",
           "comment": "",
           "command": "echo",
-          "target": ">> step 15: pause 8000",
+          "target": ">> step 14: pause 8000",
           "targets": [],
           "value": ""
         },
@@ -679,10 +687,10 @@
           "value": ""
         },
         {
-          "id": "t-pay-m16",
+          "id": "t-pay-m15",
           "comment": "",
           "command": "echo",
-          "target": ">> step 16: open ${BASE}/w/account",
+          "target": ">> step 15: open ${BASE}/w/account",
           "targets": [],
           "value": ""
         },
@@ -695,10 +703,10 @@
           "value": ""
         },
         {
-          "id": "t-pay-m17",
+          "id": "t-pay-m16",
           "comment": "",
           "command": "echo",
-          "target": ">> step 17: waitForElementVisible id=act-upgrade",
+          "target": ">> step 16: waitForElementVisible id=act-upgrade",
           "targets": [],
           "value": ""
         },
@@ -711,10 +719,10 @@
           "value": "60000"
         },
         {
-          "id": "t-pay-m18",
+          "id": "t-pay-m17",
           "comment": "",
           "command": "echo",
-          "target": ">> step 18: assertText id=plan",
+          "target": ">> step 17: assertText id=plan",
           "targets": [],
           "value": ""
         },
@@ -727,10 +735,10 @@
           "value": "FREE"
         },
         {
-          "id": "t-pay-m19",
+          "id": "t-pay-m18",
           "comment": "",
           "command": "echo",
-          "target": ">> step 19: click id=act-upgrade",
+          "target": ">> step 18: click id=act-upgrade",
           "targets": [],
           "value": ""
         },
@@ -743,10 +751,10 @@
           "value": ""
         },
         {
-          "id": "t-pay-m20",
+          "id": "t-pay-m19",
           "comment": "",
           "command": "echo",
-          "target": ">> step 20: waitForElementVisible css=input[type='email'], input[name='email']",
+          "target": ">> step 19: waitForElementVisible css=input[type='email'], input[name='email']",
           "targets": [],
           "value": ""
         },
@@ -759,10 +767,10 @@
           "value": "60000"
         },
         {
-          "id": "t-pay-m21",
+          "id": "t-pay-m20",
           "comment": "",
           "command": "echo",
-          "target": ">> step 21: executeScript return location.host",
+          "target": ">> step 20: executeScript return location.host",
           "targets": [],
           "value": ""
         },
@@ -775,10 +783,10 @@
           "value": "CHECKOUT_HOST"
         },
         {
-          "id": "t-pay-m22",
+          "id": "t-pay-m21",
           "comment": "",
           "command": "echo",
-          "target": ">> step 22: executeScript return /(^|\\.)creem\\.io$/.test(location.hostname) || location.hostname",
+          "target": ">> step 21: executeScript return /(^|\\.)creem\\.io$/.test(location.hostname) || location.hostname",
           "targets": [],
           "value": ""
         },
@@ -791,10 +799,10 @@
           "value": "ON_CREEM"
         },
         {
-          "id": "t-pay-m23",
+          "id": "t-pay-m22",
           "comment": "",
           "command": "echo",
-          "target": ">> step 23: assert ON_CREEM",
+          "target": ">> step 22: assert ON_CREEM",
           "targets": [],
           "value": ""
         },
@@ -807,10 +815,10 @@
           "value": "true"
         },
         {
-          "id": "t-pay-m24",
+          "id": "t-pay-m23",
           "comment": "",
           "command": "echo",
-          "target": ">> step 24: executeScript return location.pathname.split('/').pop()",
+          "target": ">> step 23: executeScript return location.pathname.split('/').pop()",
           "targets": [],
           "value": ""
         },
@@ -823,10 +831,10 @@
           "value": "CHECKOUT_ID"
         },
         {
-          "id": "t-pay-m25",
+          "id": "t-pay-m24",
           "comment": "",
           "command": "echo",
-          "target": ">> step 25: echo Polar sandbox checkout ${CHECKOUT_ID}",
+          "target": ">> step 24: echo Polar sandbox checkout ${CHECKOUT_ID}",
           "targets": [],
           "value": ""
         },
@@ -839,10 +847,10 @@
           "value": ""
         },
         {
-          "id": "t-pay-m26",
+          "id": "t-pay-m25",
           "comment": "",
           "command": "echo",
-          "target": ">> step 26: type css=input[name='customerEmail'], input[type='email']",
+          "target": ">> step 25: type css=input[name='customerEmail'], input[type='email']",
           "targets": [],
           "value": ""
         },
@@ -855,10 +863,10 @@
           "value": "${EMAIL}"
         },
         {
-          "id": "t-pay-m27",
+          "id": "t-pay-m26",
           "comment": "",
           "command": "echo",
-          "target": ">> step 27: type css=input[name='customerName']",
+          "target": ">> step 26: type css=input[name='customerName']",
           "targets": [],
           "value": ""
         },
@@ -871,10 +879,10 @@
           "value": "${CARD_NAME}"
         },
         {
-          "id": "t-pay-m28",
+          "id": "t-pay-m27",
           "comment": "",
           "command": "echo",
-          "target": ">> step 28: waitForElementPresent css=iframe[title*='payment'], iframe[name^='__privateStripeFrame']",
+          "target": ">> step 27: waitForElementPresent css=iframe[title*='payment'], iframe[name^='__privateStripeFrame']",
           "targets": [],
           "value": ""
         },
@@ -887,10 +895,10 @@
           "value": "60000"
         },
         {
-          "id": "t-pay-m29",
+          "id": "t-pay-m28",
           "comment": "",
           "command": "echo",
-          "target": ">> step 29: selectFrame css=iframe[title*='payment'], iframe[name^='__privateStripeFrame']",
+          "target": ">> step 28: selectFrame css=iframe[title*='payment'], iframe[name^='__privateStripeFrame']",
           "targets": [],
           "value": ""
         },
@@ -903,10 +911,10 @@
           "value": ""
         },
         {
-          "id": "t-pay-m30",
+          "id": "t-pay-m29",
           "comment": "",
           "command": "echo",
-          "target": ">> step 30: type css=input[name='number'], #Field-numberInput",
+          "target": ">> step 29: type css=input[name='number'], #Field-numberInput",
           "targets": [],
           "value": ""
         },
@@ -919,10 +927,10 @@
           "value": "${CARD}"
         },
         {
-          "id": "t-pay-m31",
+          "id": "t-pay-m30",
           "comment": "",
           "command": "echo",
-          "target": ">> step 31: type css=input[name='expiry'], #Field-expiryInput",
+          "target": ">> step 30: type css=input[name='expiry'], #Field-expiryInput",
           "targets": [],
           "value": ""
         },
@@ -935,10 +943,10 @@
           "value": "${CARD_EXP}"
         },
         {
-          "id": "t-pay-m32",
+          "id": "t-pay-m31",
           "comment": "",
           "command": "echo",
-          "target": ">> step 32: type css=input[name='cvc'], #Field-cvcInput",
+          "target": ">> step 31: type css=input[name='cvc'], #Field-cvcInput",
           "targets": [],
           "value": ""
         },
@@ -951,10 +959,10 @@
           "value": "${CARD_CVC}"
         },
         {
-          "id": "t-pay-m33",
+          "id": "t-pay-m32",
           "comment": "",
           "command": "echo",
-          "target": ">> step 33: selectFrame relative=top",
+          "target": ">> step 32: selectFrame relative=top",
           "targets": [],
           "value": ""
         },
@@ -967,10 +975,10 @@
           "value": ""
         },
         {
-          "id": "t-pay-m34",
+          "id": "t-pay-m33",
           "comment": "",
           "command": "echo",
-          "target": ">> step 34: click css=button[type='submit']",
+          "target": ">> step 33: click css=button[type='submit']",
           "targets": [],
           "value": ""
         },
@@ -983,10 +991,10 @@
           "value": ""
         },
         {
-          "id": "t-pay-m35",
+          "id": "t-pay-m34",
           "comment": "",
           "command": "echo",
-          "target": ">> step 35: waitForElementVisible id=plan",
+          "target": ">> step 34: waitForElementVisible id=plan",
           "targets": [],
           "value": ""
         },
@@ -999,10 +1007,10 @@
           "value": "120000"
         },
         {
-          "id": "t-pay-m36",
+          "id": "t-pay-m35",
           "comment": "",
           "command": "echo",
-          "target": ">> step 36: assertElementPresent id=banner",
+          "target": ">> step 35: assertElementPresent id=banner",
           "targets": [],
           "value": ""
         },
@@ -1015,10 +1023,10 @@
           "value": ""
         },
         {
-          "id": "t-pay-m37",
+          "id": "t-pay-m36",
           "comment": "",
           "command": "echo",
-          "target": ">> step 37: assertText id=plan",
+          "target": ">> step 36: assertText id=plan",
           "targets": [],
           "value": ""
         },
@@ -1031,10 +1039,10 @@
           "value": "PRO"
         },
         {
-          "id": "t-pay-m38",
+          "id": "t-pay-m37",
           "comment": "",
           "command": "echo",
-          "target": ">> step 38: assertElementPresent id=act-portal",
+          "target": ">> step 37: assertElementPresent id=act-portal",
           "targets": [],
           "value": ""
         },

@@ -48,9 +48,12 @@ def test_no_secret_is_committed_in_the_project():
     raw = open(PROJECT, encoding="utf-8").read()
     for test in ("register", "pay"):
         cfg = _stores(test)
-        for var in ("GATED_BASE", "EMAIL", "PASS", "ORG"):
+        for var in ("EMAIL", "PASS", "ORG"):
             assert cfg[var].startswith("__") and cfg[var].endswith("__"), \
                 f"{test}/{var} is not a placeholder — a credential may have been committed"
+    assert "GATED_BASE" not in raw and "@" not in json.dumps(
+        [c["target"] for t in _side()["tests"] for c in t["commands"]
+         if c["command"] == "open"]), "credentials leaked into a URL"
     assert "polar_oat_" not in raw and "polar_" not in raw.lower().replace("polar.sh", "")
     ignored = open(os.path.join(SIDE_DIR, ".gitignore"), encoding="utf-8").read()
     assert ".env" in ignored.split()
@@ -59,7 +62,7 @@ def test_no_secret_is_committed_in_the_project():
 def test_every_rendered_variable_is_actually_rendered():
     """A store the runner does not fill would ship its `__PLACEHOLDER__` into a
     live form — the walk would fail late and confusingly."""
-    rendered = {"BASE", "GATED_BASE", "EMAIL", "PASS", "ORG"}
+    rendered = {"BASE", "EMAIL", "PASS", "ORG"}
     for test in ("register", "pay"):
         placeholders = {v for v, t in _stores(test).items() if t.startswith("__")}
         assert placeholders <= rendered, f"never rendered: {placeholders - rendered}"
@@ -95,6 +98,8 @@ def test_capability_args_carry_no_comma():
         assert "=" not in a or a.count("=") == 1, a
         assert not a.strip().endswith("="), a
     assert "headless" in args, "the CI run must be headless"
+    assert "load-extension=/work/rendered/ext" in args, \
+        "the gate header extension is not loaded — the walk cannot pass basic auth"
 
 
 def test_the_walk_is_given_time_to_finish():

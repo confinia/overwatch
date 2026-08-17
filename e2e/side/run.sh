@@ -52,17 +52,43 @@ podman image exists "$IMAGE" || { say "building $IMAGE"; podman build -q -t "$IM
 
 # --- render: .env values into the `00 config` store commands -----------------
 mkdir -p rendered results
+
+# The basic-auth gate is answered by a tiny MV3 extension that sets the
+# Authorization header on EVERY request to the target host. The alternatives
+# both fail in headless Chrome: URL-embedded credentials get fetch() blocked
+# (subresource requests with embedded credentials), and the credential cache
+# behind plain URLs answers 401 challenges nondeterministically run to run.
+# The API tolerates the replayed Basic header by design (#139).
+python3 - "$BASE" <<'PYEXT'
+import base64, json, os, sys
+host = sys.argv[1].replace("https://", "")
+b64 = base64.b64encode(
+    f"{os.environ['GATE_USER']}:{os.environ['GATE_PASS']}".encode()).decode()
+os.makedirs("rendered/ext", exist_ok=True)
+json.dump({"manifest_version": 3, "name": "gate-auth", "version": "1.0",
+           "permissions": ["declarativeNetRequest"],
+           "host_permissions": [f"https://{host}/*"],
+           "declarative_net_request": {"rule_resources": [
+               {"id": "gate", "enabled": True, "path": "rules.json"}]}},
+          open("rendered/ext/manifest.json", "w"))
+json.dump([{"id": 1, "priority": 1,
+            "action": {"type": "modifyHeaders", "requestHeaders": [
+                {"header": "Authorization", "operation": "set",
+                 "value": f"Basic {b64}"}]},
+            "condition": {"urlFilter": f"||{host}/",
+                          "resourceTypes": ["main_frame", "sub_frame",
+                                            "xmlhttprequest", "script",
+                                            "stylesheet", "image", "font",
+                                            "other"]}}],
+          open("rendered/ext/rules.json", "w"))
+PYEXT
 python3 - "$EMAIL" "$ORG" "$BASE" <<'PY'
 import json, os, sys, urllib.parse
 email, org, base = sys.argv[1], sys.argv[2], sys.argv[3]
 side = json.load(open("overwatch-signup-payment.side"))
-gate = urllib.parse.quote(os.environ["GATE_USER"], safe="")
-gpw = urllib.parse.quote(os.environ["GATE_PASS"], safe="")
 values = {"BASE": base, "EMAIL": email,
           "PASS": os.environ["SIGNUP_PASS"], "ORG": org,
-          # A gate password containing ':' '@' or '/' would otherwise cut the
-          # URL in half, and the walk would 401 with no clue why.
-          "GATED_BASE": base.replace("https://", f"https://{gate}:{gpw}@")}
+          }
 for t in side["tests"]:
     for cmd in t["commands"]:
         if cmd["command"] == "store" and cmd["value"] in values:
@@ -106,7 +132,7 @@ side_runner() {
     if podman run --rm --network=host --shm-size=1g \
       -v "$HERE:/work:z" -w /work "$IMAGE" \
       selenium-side-runner \
-        -c "browserName=chrome goog:chromeOptions.args=[headless=new,no-sandbox,disable-dev-shm-usage] goog:chromeOptions.binary=/usr/bin/chromium" \
+        -c "browserName=chrome goog:chromeOptions.args=[headless=new,no-sandbox,disable-dev-shm-usage,load-extension=/work/rendered/ext] goog:chromeOptions.binary=/usr/bin/chromium" \
         --timeout 60000 \
         --jest-timeout 900000 \
         --filter "$1" \
