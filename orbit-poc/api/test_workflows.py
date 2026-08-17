@@ -66,7 +66,10 @@ def test_a_skipped_chained_deploy_cannot_cancel_a_real_one():   # #263
     flight, and only then skip — promotion silently no-ops. A doomed run must
     get its own throwaway group instead."""
     d = _wf("deploy.yml")
-    grp = re.search(r"group:\s*(.+)", d).group(1)
+    # the expression spans several lines for readability — read the whole
+    # concurrency block, not just the first line after `group:`
+    blk = re.search(r"^concurrency:\n(?:[ \t].*\n)+", d, re.M).group(0)
+    grp = blk[blk.index("group:"):]
     assert "${{" in grp, "concurrency group is a constant — a skipped run will cancel a real one"
     assert "deploy-skip-" in grp and "github.run_id" in grp   # unique, throwaway
     assert "deploy-production" in grp                          # real deploys still serialise
