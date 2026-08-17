@@ -632,9 +632,9 @@
         },
         {
           "id": "stub-dialogs",
-          "comment": "side-runner 4 does not implement answerOnNextPrompt; stub the dialogs createOrg() opens.",
+          "comment": "side-runner 4 does not implement answerOnNextPrompt; stub the dialogs createOrg() opens. The alert stub RECORDS its message in document.title so a swallowed error stays visible.",
           "command": "executeScript",
-          "target": "window.prompt = function(){ return '${ORG}' }; window.alert = function(){}; window.confirm = function(){ return true }",
+          "target": "window.prompt = function(){ return '${ORG}' }; window.alert = function(m){ document.title = 'ALERT: ' + m }; window.confirm = function(){ return true }",
           "targets": [],
           "value": ""
         },
@@ -682,7 +682,7 @@
           "id": "rl-diag2",
           "comment": "diagnose: where did createOrg leave us?",
           "command": "executeScript",
-          "target": "return location.href + ' /// ' + (document.body ? document.body.innerText.slice(0,250).replace(/\\s+/g,' ') : '')",
+          "target": "return location.href + ' /// title=' + document.title + ' /// ' + (document.body ? document.body.innerText.slice(0,200).replace(/\\s+/g,' ') : '')",
           "targets": [],
           "value": "AFTERORG"
         },
