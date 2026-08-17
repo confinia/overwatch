@@ -1,0 +1,523 @@
+{
+  "id": "9f5a1c30-6d2e-4b7a-9c31-0e1f2a3b4c5d",
+  "version": "2.0",
+  "name": "Overwatch — registration and payment",
+  "url": "https://sandbox.overwatch.confinia.io",
+  "tests": [
+    {
+      "id": "t00",
+      "name": "00 config",
+      "commands": [
+        {
+          "id": "c001",
+          "comment": "Target environment. run.sh derives this from TARGET_ENV in .env.",
+          "command": "store",
+          "target": "https://sandbox.overwatch.confinia.io",
+          "targets": [],
+          "value": "BASE"
+        },
+        {
+          "id": "c002",
+          "comment": "basic-auth gate on sandbox/staging",
+          "command": "store",
+          "target": "__GATE_USER__",
+          "targets": [],
+          "value": "GATE_USER"
+        },
+        {
+          "id": "c003",
+          "comment": "",
+          "command": "store",
+          "target": "__GATE_PASS__",
+          "targets": [],
+          "value": "GATE_PASS"
+        },
+        {
+          "id": "c004",
+          "comment": "Disposable per-run address. A fixed one re-links to a soft-deleted org tombstone.",
+          "command": "store",
+          "target": "__SIGNUP_EMAIL__",
+          "targets": [],
+          "value": "EMAIL"
+        },
+        {
+          "id": "c005",
+          "comment": "",
+          "command": "store",
+          "target": "__SIGNUP_PASS__",
+          "targets": [],
+          "value": "PASS"
+        },
+        {
+          "id": "c006",
+          "comment": "",
+          "command": "store",
+          "target": "__ORG_NAME__",
+          "targets": [],
+          "value": "ORG"
+        },
+        {
+          "id": "c007",
+          "comment": "Polar/Stripe sandbox test card. Never a real number: TARGET_ENV forbids production.",
+          "command": "store",
+          "target": "4242424242424242",
+          "targets": [],
+          "value": "CARD"
+        },
+        {
+          "id": "c008",
+          "comment": "",
+          "command": "store",
+          "target": "12 / 34",
+          "targets": [],
+          "value": "CARD_EXP"
+        },
+        {
+          "id": "c009",
+          "comment": "",
+          "command": "store",
+          "target": "123",
+          "targets": [],
+          "value": "CARD_CVC"
+        },
+        {
+          "id": "c010",
+          "comment": "",
+          "command": "store",
+          "target": "E2E Bot",
+          "targets": [],
+          "value": "CARD_NAME"
+        },
+        {
+          "id": "c011",
+          "comment": "Prefix that gets past the basic-auth gate.",
+          "command": "store",
+          "target": "https://${GATE_USER}:${GATE_PASS}@",
+          "targets": [],
+          "value": "GATED"
+        },
+        {
+          "id": "c012",
+          "comment": "",
+          "command": "executeScript",
+          "target": "return '${BASE}'.replace('https://', '${GATED}')",
+          "targets": [],
+          "value": "GATED_BASE"
+        }
+      ]
+    },
+    {
+      "id": "t10",
+      "name": "10 register",
+      "commands": [
+        {
+          "id": "c013",
+          "comment": "",
+          "command": "setWindowSize",
+          "target": "1280x900",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "c014",
+          "comment": "The account page is the entry point: it is where signup, org creation and payment all start.",
+          "command": "open",
+          "target": "${GATED_BASE}/w/account",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "c015",
+          "comment": "",
+          "command": "waitForElementVisible",
+          "target": "id=act-signin",
+          "targets": [],
+          "value": "30000"
+        },
+        {
+          "id": "c016",
+          "comment": "",
+          "command": "click",
+          "target": "id=act-signin",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "c017",
+          "comment": "Keycloak login screen. Self-registration is on, so it offers a Register link.",
+          "command": "waitForElementVisible",
+          "target": "id=kc-registration",
+          "targets": [],
+          "value": "30000"
+        },
+        {
+          "id": "c018",
+          "comment": "",
+          "command": "click",
+          "target": "css=#kc-registration a",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "c019",
+          "comment": "",
+          "command": "waitForElementVisible",
+          "target": "id=firstName",
+          "targets": [],
+          "value": "30000"
+        },
+        {
+          "id": "c020",
+          "comment": "",
+          "command": "type",
+          "target": "id=firstName",
+          "targets": [],
+          "value": "E2E"
+        },
+        {
+          "id": "c021",
+          "comment": "",
+          "command": "type",
+          "target": "id=lastName",
+          "targets": [],
+          "value": "Bot"
+        },
+        {
+          "id": "c022",
+          "comment": "registrationEmailAsUsername is on, so the address IS the username — no username field.",
+          "command": "type",
+          "target": "id=email",
+          "targets": [],
+          "value": "${EMAIL}"
+        },
+        {
+          "id": "c023",
+          "comment": "",
+          "command": "type",
+          "target": "id=password",
+          "targets": [],
+          "value": "${PASS}"
+        },
+        {
+          "id": "c024",
+          "comment": "",
+          "command": "type",
+          "target": "id=password-confirm",
+          "targets": [],
+          "value": "${PASS}"
+        },
+        {
+          "id": "c025",
+          "comment": "",
+          "command": "click",
+          "target": "css=input[type=submit]",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "c026",
+          "comment": "The form is gone: the account exists. The realm has verifyEmail=true, so Keycloak now parks the session on the 'verify your email' notice. run.sh marks the disposable user verified through the Keycloak admin API before the next test.",
+          "command": "waitForElementNotPresent",
+          "target": "id=password-confirm",
+          "targets": [],
+          "value": "30000"
+        }
+      ]
+    },
+    {
+      "id": "t20",
+      "name": "20 sign in",
+      "commands": [
+        {
+          "id": "c027",
+          "comment": "Fresh browser: the previous test ended on the verify-email notice.",
+          "command": "open",
+          "target": "${GATED_BASE}/api/v1/auth/login",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "c028",
+          "comment": "",
+          "command": "waitForElementVisible",
+          "target": "id=username",
+          "targets": [],
+          "value": "30000"
+        },
+        {
+          "id": "c029",
+          "comment": "",
+          "command": "type",
+          "target": "id=username",
+          "targets": [],
+          "value": "${EMAIL}"
+        },
+        {
+          "id": "c030",
+          "comment": "",
+          "command": "type",
+          "target": "id=password",
+          "targets": [],
+          "value": "${PASS}"
+        },
+        {
+          "id": "c031",
+          "comment": "",
+          "command": "click",
+          "target": "id=kc-login",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "c032",
+          "comment": "Signed in, no organization yet — so the account page offers to create one.",
+          "command": "waitForElementVisible",
+          "target": "id=act-create-org",
+          "targets": [],
+          "value": "30000"
+        }
+      ]
+    },
+    {
+      "id": "t30",
+      "name": "30 create org",
+      "commands": [
+        {
+          "id": "c033",
+          "comment": "createOrg() asks for the name with prompt().",
+          "command": "answerOnNextPrompt",
+          "target": "${ORG}",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "c034",
+          "comment": "",
+          "command": "click",
+          "target": "id=act-create-org",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "c035",
+          "comment": "Keycloak only puts the organization in the token at login, so the app signs in again (#157).",
+          "command": "assertAlert",
+          "target": "Organization created — signing you in again to activate it.",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "c036",
+          "comment": "Back on the account page WITH an organization, on the free plan.",
+          "command": "waitForElementVisible",
+          "target": "id=act-upgrade",
+          "targets": [],
+          "value": "60000"
+        },
+        {
+          "id": "c037",
+          "comment": "",
+          "command": "assertText",
+          "target": "id=plan",
+          "targets": [],
+          "value": "FREE"
+        }
+      ]
+    },
+    {
+      "id": "t40",
+      "name": "40 checkout",
+      "commands": [
+        {
+          "id": "c038",
+          "comment": "POST /v1/billing/checkout mints a real Polar sandbox checkout and navigates to it.",
+          "command": "click",
+          "target": "id=act-upgrade",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "c039",
+          "comment": "",
+          "command": "waitForElementVisible",
+          "target": "css=input[type='email'], input[name='email']",
+          "targets": [],
+          "value": "60000"
+        },
+        {
+          "id": "c040",
+          "comment": "Guard rail: the walk must be on Polar SANDBOX. Never sandbox.polar.sh's production twin.",
+          "command": "assertLocation",
+          "target": "regexp:https://sandbox\\.polar\\.sh/checkout/.*",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "c041",
+          "comment": "",
+          "command": "executeScript",
+          "target": "return location.pathname.split('/').pop()",
+          "targets": [],
+          "value": "CHECKOUT_ID"
+        },
+        {
+          "id": "c042",
+          "comment": "",
+          "command": "echo",
+          "target": "Polar sandbox checkout ${CHECKOUT_ID}",
+          "targets": [],
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": "t50",
+      "name": "50 pay",
+      "commands": [
+        {
+          "id": "c043",
+          "comment": "",
+          "command": "type",
+          "target": "css=input[name='customerEmail'], input[type='email']",
+          "targets": [],
+          "value": "${EMAIL}"
+        },
+        {
+          "id": "c044",
+          "comment": "",
+          "command": "type",
+          "target": "css=input[name='customerName']",
+          "targets": [],
+          "value": "${CARD_NAME}"
+        },
+        {
+          "id": "c045",
+          "comment": "",
+          "command": "waitForElementPresent",
+          "target": "css=iframe[title*='payment'], iframe[name^='__privateStripeFrame']",
+          "targets": [],
+          "value": "60000"
+        },
+        {
+          "id": "c046",
+          "comment": "",
+          "command": "selectFrame",
+          "target": "css=iframe[title*='payment'], iframe[name^='__privateStripeFrame']",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "c047",
+          "comment": "",
+          "command": "type",
+          "target": "css=input[name='number'], #Field-numberInput",
+          "targets": [],
+          "value": "${CARD}"
+        },
+        {
+          "id": "c048",
+          "comment": "",
+          "command": "type",
+          "target": "css=input[name='expiry'], #Field-expiryInput",
+          "targets": [],
+          "value": "${CARD_EXP}"
+        },
+        {
+          "id": "c049",
+          "comment": "",
+          "command": "type",
+          "target": "css=input[name='cvc'], #Field-cvcInput",
+          "targets": [],
+          "value": "${CARD_CVC}"
+        },
+        {
+          "id": "c050",
+          "comment": "",
+          "command": "selectFrame",
+          "target": "relative=top",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "c051",
+          "comment": "",
+          "command": "click",
+          "target": "css=button[type='submit']",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "c052",
+          "comment": "Polar redirects to success_url = /w/account?upgraded=1 once the payment clears.",
+          "command": "waitForElementVisible",
+          "target": "id=plan",
+          "targets": [],
+          "value": "120000"
+        }
+      ]
+    },
+    {
+      "id": "t60",
+      "name": "60 entitlement",
+      "commands": [
+        {
+          "id": "c053",
+          "comment": "",
+          "command": "assertElementPresent",
+          "target": "id=banner",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "c054",
+          "comment": "The badge reads billing status from the API, which the Polar WEBHOOK flipped — this asserts the whole checkout -> webhook -> entitlement chain, not just the redirect.",
+          "command": "assertText",
+          "target": "id=plan",
+          "targets": [],
+          "value": "PRO"
+        },
+        {
+          "id": "c055",
+          "comment": "A Pro org is offered the customer portal instead of Upgrade.",
+          "command": "assertElementPresent",
+          "target": "id=act-portal",
+          "targets": [],
+          "value": ""
+        }
+      ]
+    }
+  ],
+  "suites": [
+    {
+      "id": "s-register",
+      "name": "register",
+      "persistSession": true,
+      "parallel": false,
+      "timeout": 600,
+      "tests": [
+        "t00",
+        "t10"
+      ]
+    },
+    {
+      "id": "s-pay",
+      "name": "pay",
+      "persistSession": true,
+      "parallel": false,
+      "timeout": 900,
+      "tests": [
+        "t00",
+        "t20",
+        "t30",
+        "t40",
+        "t50",
+        "t60"
+      ]
+    }
+  ],
+  "urls": [
+    "https://sandbox.overwatch.confinia.io",
+    "https://staging.overwatch.confinia.io"
+  ],
+  "plugins": []
+}

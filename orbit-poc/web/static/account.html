@@ -160,7 +160,7 @@ async function load(){
   } catch (e) {
     $("content").innerHTML = `<span class="dim">You are not signed in.</span>`;
     $("actions").innerHTML =
-      `<a class="cta" href="/api/v1/auth/login">Sign in / Register</a>`;
+      `<a class="cta" id="act-signin" href="/api/v1/auth/login">Sign in / Register</a>`;
     return;
   }
   if (!me.organization){
@@ -168,7 +168,7 @@ async function load(){
       `<div class="row"><span>Signed in as</span><b>${esc(me.email || me.name || me.sub)}</b></div>` +
       `<div class="row"><span class="dim">No organization yet — create yours from the control room.</span></div>`;
     $("actions").innerHTML =
-      `<button class="cta" onclick="createOrg()">Create your organization</button>` +
+      `<button class="cta" id="act-create-org" onclick="createOrg()">Create your organization</button>` +
       `<a class="cta secondary" href="/api/v1/auth/logout" onclick="return confirm('Sign out of Overwatch?')">Sign out</a>`;
     return;
   }
@@ -180,7 +180,7 @@ async function load(){
   const rows = [
     `<div class="row"><span>Signed in as</span><b>${esc(me.email || me.name || me.sub)}</b></div>`,
     `<div class="row"><span>Organization</span><b>${esc(me.organization.name)}</b></div>`,
-    `<div class="row"><span>Plan</span><span>${badge}</span></div>`,
+    `<div class="row"><span>Plan</span><span id="plan">${badge}</span></div>`,
   ];
   if (s){
     if (s.sub_status) rows.push(
@@ -196,8 +196,8 @@ async function load(){
   $("content").innerHTML = rows.join("");
   renderKeys();
   $("actions").innerHTML =
-    (pro ? `<button class="cta" onclick="portal()">Invoices / manage subscription</button>`
-         : `<button class="cta" onclick="upgrade()">Upgrade to Pro</button>`) +
+    (pro ? `<button class="cta" id="act-portal" onclick="portal()">Invoices / manage subscription</button>`
+         : `<button class="cta" id="act-upgrade" onclick="upgrade()">Upgrade to Pro</button>`) +
     `<a class="cta secondary" href="/api/v1/auth/logout" onclick="return confirm('Sign out of Overwatch?')">Sign out</a>`;
 }
 load();
