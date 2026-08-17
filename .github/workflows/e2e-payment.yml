@@ -26,7 +26,12 @@ on:
         default: false
 
 concurrency:
-  group: e2e-payment          # one at a time: it creates a real user, org and checkout
+  # SAME group as e2e.yml on purpose: the HTTP walk chains off every sandbox
+  # rebuild and lands exactly when this walk is dispatched. Two walkers
+  # creating and deleting organizations in the same realm race inside
+  # Keycloak — the loser gets uniqueness 400s with empty lookups, or a
+  # ReadTimeout. Sharing the group makes GitHub queue one behind the other.
+  group: e2e-sandbox
   cancel-in-progress: false
 
 jobs:

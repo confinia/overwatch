@@ -188,3 +188,17 @@ def test_keycloak_tooling_uses_the_named_admin_not_bootstrap():   # #36
     joined = "\n".join(login)
     assert "$KC_ADMIN_USERNAME" in joined and "$KC_ADMIN_PASSWORD" in joined
     assert "KC_BOOTSTRAP_ADMIN_USERNAME" not in joined, "still logging in as bootstrap"
+
+
+def test_the_two_sandbox_walks_never_run_concurrently():   # #267
+    """Both walks create and delete organizations in the same realm; run
+    together they race inside Keycloak and the loser fails spuriously
+    (uniqueness 400 with an empty lookup, or a ReadTimeout). One concurrency
+    group serializes them."""
+    import re
+    a = _wf("e2e.yml")
+    b = _wf("e2e-payment.yml")
+    ga = re.search(r"group:\s*(\S+)", a).group(1)
+    gb = re.search(r"group:\s*(\S+)", b).group(1)
+    assert ga == gb == "e2e-sandbox"
+    assert "cancel-in-progress: false" in b
