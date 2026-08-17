@@ -145,6 +145,46 @@
           "value": ""
         },
         {
+          "id": "dg1",
+          "comment": "",
+          "command": "pause",
+          "target": "6000",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "dg2",
+          "comment": "diagnose: where did the sign-in click land?",
+          "command": "executeScript",
+          "target": "return location.href + ' || ' + document.title",
+          "targets": [],
+          "value": "WHERE"
+        },
+        {
+          "id": "dg3",
+          "comment": "",
+          "command": "echo",
+          "target": "LANDED ${WHERE}",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "dg4",
+          "comment": "",
+          "command": "executeScript",
+          "target": "return (document.body ? document.body.innerText : '(no body)').slice(0, 300).replace(/\\s+/g, ' ')",
+          "targets": [],
+          "value": "SNIP"
+        },
+        {
+          "id": "dg5",
+          "comment": "",
+          "command": "echo",
+          "target": "PAGE ${SNIP}",
+          "targets": [],
+          "value": ""
+        },
+        {
           "id": "t-register-m5",
           "comment": "",
           "command": "echo",
