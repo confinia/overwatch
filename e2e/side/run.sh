@@ -83,6 +83,15 @@ for i in $(seq 1 30); do
   sleep 10
 done
 echo "  ready (HTTP $code)"
+# Keycloak serves the login/registration screens through the same host; a walk
+# that starts before it answers times out on the first Keycloak page.
+for i in $(seq 1 18); do
+  kc=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 -u "${GATE_USER}:${GATE_PASS}" \
+       "${BASE}/auth/realms/overwatch-sandbox/.well-known/openid-configuration" || true)
+  [ "$kc" = "200" ] && { echo "  keycloak ready"; break; }
+  [ "$i" = "18" ] && die "keycloak still answers $kc after 3 minutes"
+  sleep 10
+done
 
 # --- run ---------------------------------------------------------------------
 # --network=host: Keycloak's admin API is bound to VM loopback, and the app is

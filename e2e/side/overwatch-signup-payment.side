@@ -126,7 +126,7 @@
           "command": "waitForElementVisible",
           "target": "id=act-signin",
           "targets": [],
-          "value": "30000"
+          "value": "60000"
         },
         {
           "id": "t-register-m4",
@@ -158,7 +158,7 @@
           "command": "waitForElementVisible",
           "target": "id=kc-registration",
           "targets": [],
-          "value": "30000"
+          "value": "60000"
         },
         {
           "id": "t-register-m6",
@@ -190,7 +190,7 @@
           "command": "waitForElementVisible",
           "target": "id=firstName",
           "targets": [],
-          "value": "30000"
+          "value": "60000"
         },
         {
           "id": "t-register-m8",
@@ -302,7 +302,7 @@
           "command": "waitForElementNotPresent",
           "target": "id=password-confirm",
           "targets": [],
-          "value": "30000"
+          "value": "60000"
         }
       ]
     },
@@ -428,7 +428,7 @@
           "command": "waitForElementVisible",
           "target": "id=username",
           "targets": [],
-          "value": "30000"
+          "value": "60000"
         },
         {
           "id": "t-pay-m4",
@@ -476,7 +476,7 @@
           "command": "waitForElementVisible",
           "target": "id=password",
           "targets": [],
-          "value": "30000"
+          "value": "60000"
         },
         {
           "id": "t-pay-m7",
