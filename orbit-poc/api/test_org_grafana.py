@@ -138,3 +138,43 @@ def test_ops_datasource_uid_cannot_clobber_the_public_one():
         if f.endswith(".json"):
             body = open(os.path.join(ops_dir, f), encoding="utf-8").read()
             assert '"orbitcache"' not in body, f"{f} still points at the public datasource"
+
+
+def test_ops_datasource_uid_is_migrated_not_left_colliding(monkeypatch):   # #261
+    """An install created before OPS_DS_UID still holds the PUBLIC uid on its ops
+    datasource. Two rows sharing a uid make Grafana fail provisioning at boot and
+    crash-loop, so provisioning must MOVE ours — and must never touch the public
+    one, which answers to the same uid lookup."""
+    calls = []
+
+    def fake_gf(method, path, body=None, gorg=None):
+        calls.append((method, path, body))
+        class R:
+            status_code = 200
+            def json(self):
+                return {"id": 9, "uid": "orbitcache", "name": "OrbitCache (ops)"}
+        return R()
+
+    monkeypatch.setattr(main, "_gf", fake_gf)
+    main._migrate_ops_datasource_uid(3)
+    put = [b for m, p, b in calls if m == "PUT"]
+    assert put, "ops datasource left on the colliding uid"
+    assert put[0]["uid"] == main.OPS_DS_UID
+
+
+def test_migration_never_renames_the_public_datasource(monkeypatch):   # #261
+    """The public datasource answers to the same uid lookup. Renaming it would
+    break every public dashboard — the exact failure #253 was about."""
+    calls = []
+
+    def fake_gf(method, path, body=None, gorg=None):
+        calls.append((method, path, body))
+        class R:
+            status_code = 200
+            def json(self):
+                return {"id": 1, "uid": "orbitcache", "name": "OrbitCache"}
+        return R()
+
+    monkeypatch.setattr(main, "_gf", fake_gf)
+    main._migrate_ops_datasource_uid(3)
+    assert not [m for m, p, b in calls if m == "PUT"], "renamed the PUBLIC datasource"

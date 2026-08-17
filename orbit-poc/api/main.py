@@ -939,6 +939,36 @@ def _gf(method: str, path: str, body=None, gorg: int | None = None):
                        auth=(GF_ADMIN_USER, GF_ADMIN_PASS), timeout=10)
 
 
+def _migrate_ops_datasource_uid(gorg: int) -> None:
+    """#261: self-heal installs that still hold the PUBLIC uid on the ops
+    datasource.
+
+    #253 stopped NEW ops datasources from taking uid "orbitcache", but rows
+    created before that keep it — and Grafana uids are globally unique, so two
+    rows sharing one makes file-provisioning fail at boot with "data source with
+    the same uid already exists" and Grafana exits(1) in a crash loop. That hit
+    the sandbox and was latent in staging and production. A hand-fix does not
+    survive a restore from an older backup, so move it here, idempotently,
+    before the ops datasource is (re)provisioned.
+    """
+    r = _gf("GET", "/datasources/uid/orbitcache", gorg=gorg)
+    if r.status_code != 200:
+        return                                    # nothing holds the old uid
+    try:
+        ds = r.json()
+    except ValueError:
+        return
+    # Only ever move OUR ops datasource. The same uid also resolves to the
+    # PUBLIC datasource in org 1 — renaming that one would break every public
+    # dashboard, which is the very failure #253 was about.
+    if "(ops)" not in (ds.get("name") or ""):
+        return
+    ds["uid"] = OPS_DS_UID
+    resp = _gf("PUT", f"/datasources/{ds['id']}", ds, gorg=gorg)
+    print(f"migrated ops datasource uid orbitcache -> {OPS_DS_UID} "
+          f"(HTTP {resp.status_code})", flush=True)
+
+
 def _provision_ops_org() -> bool:
     """Idempotently create/refresh the admin-only ops Grafana org (#168).
 
@@ -965,6 +995,7 @@ def _provision_ops_org() -> bool:
             if r.status_code not in (200, 409):
                 return False
             gorg = r.json().get("orgId")
+        _migrate_ops_datasource_uid(gorg)      # #261: before we (re)create it
         for ds in (
             {"name": "OrbitCache (ops)", "uid": OPS_DS_UID, "type": "postgres",
              "access": "proxy", "url": os.environ.get("GF_DS_HOST", "db:5432"),
