@@ -59,6 +59,8 @@ services:
       PUBLIC_BASE: "https://staging.overwatch.confinia.io"
       # Polar SANDBOX. Keep POLAR_ALLOW_STUB=1 to validate before real creds;
       # once .env has real sandbox creds + a webhook secret it talks to Polar.
+      # our stack: the paid edition. Self-host defaults to "selfhost" (#276).
+      OVERWATCH_EDITION: "cloud"
       POLAR_ENV: "off"
       POLAR_ALLOW_STUB: "0"
       # Identity: ONE shared Keycloak, dedicated realm overwatch-sandbox

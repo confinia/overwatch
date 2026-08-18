@@ -26,6 +26,8 @@ services:
       # staging (candidate color) shares this exact config; payment flows are
       # validated in the sandbox (POLAR_ENV=sandbox). Flip to "production" the
       # day billing goes live. See ENVIRONMENTS.md.
+      # our stack: the paid edition. Self-host defaults to "selfhost" (#276).
+      OVERWATCH_EDITION: "cloud"
       POLAR_ENV: "off"
     env_file:
       - .env

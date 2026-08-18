@@ -183,8 +183,13 @@ async function load(){
       `<a class="cta secondary" href="/api/v1/auth/logout" onclick="return confirm('Sign out of Overwatch?')">Sign out</a>`;
     return;
   }
-  let s = null;
-  try { s = await (await fetch("/api/v1/billing/status")).json(); } catch (e) {}
+  // Self-host edition (#276): the billing surface does not exist — the page
+  // then shows no plan, no upgrade, no portal, and never errors about it.
+  let s = null, billingOn = true;
+  try {
+    const r = await fetch("/api/v1/billing/status");
+    if (r.status === 404) billingOn = false; else s = await r.json();
+  } catch (e) {}
   const pro = !!(s && s.pro);
   const paid = !!(s && (s.paid || s.pro));
   const planName = paid ? (s.plan || "pro").toUpperCase() : "FREE";
@@ -193,8 +198,9 @@ async function load(){
   const rows = [
     `<div class="row"><span>Signed in as</span><b>${esc(me.email || me.name || me.sub)}</b></div>`,
     `<div class="row"><span>Organization</span><b>${esc(me.organization.name)}</b></div>`,
-    `<div class="row"><span>Plan</span><span id="plan">${badge}</span></div>`,
   ];
+  if (billingOn) rows.push(
+    `<div class="row"><span>Plan</span><span id="plan">${badge}</span></div>`);
   if (s){
     if (s.sub_status) rows.push(
       `<div class="row"><span>Subscription</span><b>${esc(s.sub_status)}</b></div>`);
@@ -203,16 +209,17 @@ async function load(){
     const u = s.usage || {};
     rows.push(`<div class="row dim"><span>Usage (${esc(u.period || "this month")})</span>` +
       `<span>${u.frames ?? 0} frames · ${u.tm ?? 0} TM · ${u.tc ?? 0} TC</span></div>`);
-  } else {
+  } else if (billingOn) {
     rows.push(`<div class="row dim"><span>Billing status unavailable right now.</span></div>`);
   }
   $("content").innerHTML = rows.join("");
   renderKeys();
-  $("actions").innerHTML =
+  const planActions = !billingOn ? `` :
     (paid ? `<button class="cta" id="act-portal" onclick="portal()">Invoices / manage subscription</button>` +
             (pro ? `` : `<button class="cta" id="act-upgrade" onclick="upgrade('pro')">Upgrade to Pro</button>`)
           : `<button class="cta" id="act-upgrade" onclick="upgrade('pro')">Upgrade to Pro — 49 €/mo</button>` +
-            `<button class="cta secondary" id="act-devsat" onclick="upgrade('devsat')">Start with DevSat — 9 €/mo</button>`) +
+            `<button class="cta secondary" id="act-devsat" onclick="upgrade('devsat')">Start with DevSat — 9 €/mo</button>`);
+  $("actions").innerHTML = planActions +
     `<a class="cta secondary" href="/api/v1/auth/logout" onclick="return confirm('Sign out of Overwatch?')">Sign out</a>`;
 }
 load();

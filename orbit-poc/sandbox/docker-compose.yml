@@ -60,6 +60,8 @@ services:
       # The env is derived from the key itself: a creem_test_ key in .env
       # routes to test-api.creem.io. CREEM_ALLOW_STUB=1 keeps the in-app stub
       # flow working before/without real test credentials.
+      # our stack: the paid edition. Self-host defaults to "selfhost" (#276).
+      OVERWATCH_EDITION: "cloud"
       BILLING_PROVIDER: "creem"
       CREEM_ALLOW_STUB: "1"
       # Legacy Polar sandbox knobs — BILLING_PROVIDER=polar flips back to them
