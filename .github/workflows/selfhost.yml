@@ -56,9 +56,13 @@ jobs:
           curl -s -o /dev/null -w '%{http_code} %{redirect_url}\n' "$base/api/v1/auth/login" | tee /tmp/auth
           grep -q "307 .*$base/auth/realms/overwatch" /tmp/auth
           echo "— the billing surface DOES NOT EXIST (selfhost edition)"
-          for p in /api/v1/billing/mode /api/v1/billing/webhook; do
-            code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$base$p")
-            [ "$code" = "404" ] || { echo "$p answered $code, not 404"; exit 1; }
+          # each route probed with ITS method — a wrong method answers 405
+          # (route exists, method mismatch) before the edition guard runs
+          for probe in "GET /api/v1/billing/mode" "POST /api/v1/billing/webhook" \
+                       "GET /api/v1/billing/status" "POST /api/v1/billing/checkout"; do
+            m=${probe%% *}; p=${probe#* }
+            code=$(curl -s -o /dev/null -w '%{http_code}' -X "$m" "$base$p")
+            [ "$code" = "404" ] || { echo "$m $p answered $code, not 404"; exit 1; }
           done
           echo "all proofs hold"
 
