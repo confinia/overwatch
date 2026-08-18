@@ -68,3 +68,35 @@ def test_account_page_hides_the_plan_ui_without_billing():
     assert "!billingOn ? ``" in html
     assert "} else if (billingOn) {" in html
     assert "if (billingOn) rows.push(" in html
+
+
+def test_selfhost_profile_never_names_a_billing_credential():
+    """The compose profile an operator copies must not even mention billing
+    env vars — a leaked cloud .env pasted next to it stays inert because the
+    profile passes nothing through and the edition defaults to selfhost."""
+    compose = open(os.path.join(ROOT, "selfhost", "docker-compose.yml"),
+                   encoding="utf-8").read()
+    for needle in ("CREEM_", "POLAR_", 'OVERWATCH_EDITION: "cloud"'):
+        assert needle not in compose, needle
+    env = open(os.path.join(ROOT, "selfhost", ".env.example"),
+               encoding="utf-8").read()
+    assert "CREEM" not in env and "POLAR" not in env
+
+
+def test_selfhost_caddy_has_no_gate_and_no_webhook_carveout():
+    """Directives only — comments may explain the absence they guarantee."""
+    lines = [l.split("#", 1)[0] for l in
+             open(os.path.join(ROOT, "selfhost", "Caddyfile"),
+                  encoding="utf-8")]
+    body = "\n".join(lines)
+    assert "basic_auth" not in body
+    assert "webhook" not in body.lower()
+
+
+def test_selfhost_boot_proof_asserts_the_404s():
+    """The CI boot job must fail if a billing route ever answers on-prem."""
+    wf = open(os.path.join(ROOT, ".github", "workflows", "selfhost.yml"),
+              encoding="utf-8").read()
+    assert "/api/v1/billing/mode" in wf and "/api/v1/billing/webhook" in wf
+    assert '"404"' in wf
+    assert "./up.sh" in wf, "CI must boot exactly the way the README says"

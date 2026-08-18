@@ -1,0 +1,34 @@
+# Self-hosted Overwatch front (#276). One entry point, no basic-auth gate and
+# no billing-webhook carve-out: the selfhost edition has no billing surface at
+# all, so there is nothing to exempt. TLS is yours to own — either terminate
+# it in front of this port, or change `:80` to your domain and let Caddy issue
+# certificates itself (needs ports 80/443 published).
+:80 {
+	encode gzip
+
+	header {
+		X-Content-Type-Options "nosniff"
+		-Server
+	}
+
+	handle /auth* {
+		reverse_proxy keycloak:8080
+	}
+
+	handle /api/v1* {
+		uri strip_prefix /api
+		reverse_proxy api:8000
+	}
+
+	handle /v1* {
+		redir * /api{uri} 308
+	}
+
+	handle /grafana* {
+		reverse_proxy grafana:3000
+	}
+
+	handle {
+		reverse_proxy web:8080
+	}
+}

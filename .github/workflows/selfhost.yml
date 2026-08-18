@@ -1,0 +1,67 @@
+name: selfhost (boot proof)
+
+# #276: a fresh machine with nothing but compose must reach a working control
+# room by following selfhost/README.md — this job IS that machine. It boots
+# the profile with generated secrets, waits for the front door, and proves
+# the three things that define the edition: the globe serves, the API
+# answers, and the billing surface does not exist (404).
+on:
+  pull_request:
+    paths:
+      - "selfhost/**"
+      - "orbit-poc/api/**"
+      - "orbit-poc/web/**"
+      - "orbit-poc/db/**"
+      - ".github/workflows/selfhost.yml"
+  push:
+    branches: [main]
+    paths:
+      - "selfhost/**"
+      - ".github/workflows/selfhost.yml"
+  workflow_dispatch:
+
+jobs:
+  boot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compose the operator's .env
+        working-directory: selfhost
+        run: |
+          cp .env.example .env
+          for v in PG_PASSWORD KC_DB_PASSWORD KC_ADMIN_PASSWORD \
+                   OVERWATCH_CLIENT_SECRET ORG_DB_SECRET GF_ADMIN_PASSWORD; do
+            sed -i "s/^$v=.*/$v=$(openssl rand -hex 24)/" .env
+          done
+          # CI boots the core; the ingest profile is exercised by its own tests
+          sed -i "s/^COMPOSE_PROFILES=data/COMPOSE_PROFILES=/" .env
+          grep -cE "=.{20,}" .env
+
+      - name: Boot the stack exactly as the README says
+        working-directory: selfhost
+        run: ./up.sh
+
+      - name: The edition proves itself
+        working-directory: selfhost
+        run: |
+          base="http://127.0.0.1:8080"
+          echo "— the globe serves"
+          curl -fsS "$base/" | grep -qi "overwatch" || { echo "no globe"; exit 1; }
+          echo "— the API answers"
+          curl -fsS "$base/api/v1/satellites" >/dev/null
+          echo "— the auth flow redirects into our own Keycloak"
+          curl -s -o /dev/null -w '%{http_code} %{redirect_url}\n' "$base/api/v1/auth/login" | tee /tmp/auth
+          grep -q "307 .*$base/auth/realms/overwatch" /tmp/auth
+          echo "— the billing surface DOES NOT EXIST (selfhost edition)"
+          for p in /api/v1/billing/mode /api/v1/billing/webhook; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$base$p")
+            [ "$code" = "404" ] || { echo "$p answered $code, not 404"; exit 1; }
+          done
+          echo "all proofs hold"
+
+      - name: Logs on failure
+        if: failure()
+        working-directory: selfhost
+        run: docker compose logs --tail 80 caddy api web keycloak
