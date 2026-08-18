@@ -61,6 +61,7 @@ jobs:
           for probe in "GET /api/v1/billing/mode" "POST /api/v1/billing/webhook" \
                        "GET /api/v1/billing/status" "POST /api/v1/billing/checkout"; do
             m=${probe%% *}; p=${probe#* }
+            sleep 1     # stay under the api's rate limiter — a 429 is not a verdict
             code=$(curl -s -o /dev/null -w '%{http_code}' -X "$m" "$base$p")
             [ "$code" = "404" ] || { echo "$m $p answered $code, not 404"; exit 1; }
           done
