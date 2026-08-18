@@ -31,7 +31,7 @@
   "panels": [
     {
       "id": 5,
-      "title": "Orbit altitude (from position cache \u2014 live for every satellite)",
+      "title": "Orbit altitude (from position cache — live for every satellite)",
       "type": "timeseries",
       "gridPos": {
         "h": 6,
@@ -69,7 +69,7 @@
       "targets": [
         {
           "format": "time_series",
-          "rawSql": "SELECT ts AS time, field AS metric, value_num AS value FROM telemetry WHERE norad = $norad AND (field = 'battery_v' OR field ~* '(volt|vbat|v_bat|bat[a-z_]*_v$|panel_v$)') AND value_num BETWEEN 0 AND 60 ORDER BY ts"
+          "rawSql": "SELECT ts AS time, CASE WHEN length(field) > 40 THEN regexp_replace(field, '^.*_([^_]+_[^_]+_[^_]+_[^_]+)$', '\\1') ELSE field END AS metric, value_num AS value FROM telemetry WHERE norad = $norad AND (field = 'battery_v' OR field ~* '(volt|vbat|v_bat|bat[a-z_]*_v$|panel_v$)') AND value_num BETWEEN 0 AND 60 ORDER BY ts"
         }
       ]
     },
@@ -91,7 +91,7 @@
       "targets": [
         {
           "format": "time_series",
-          "rawSql": "SELECT ts AS time, field AS metric, value_num AS value FROM telemetry WHERE norad = $norad AND field ~* '(temp|bat[a-z_]*_t$)' AND value_num IS NOT NULL ORDER BY ts"
+          "rawSql": "SELECT ts AS time, CASE WHEN length(field) > 40 THEN regexp_replace(field, '^.*_([^_]+_[^_]+_[^_]+_[^_]+)$', '\\1') ELSE field END AS metric, value_num AS value FROM telemetry WHERE norad = $norad AND field ~* '(temp|bat[a-z_]*_t$)' AND value_num IS NOT NULL ORDER BY ts"
         }
       ]
     },
@@ -113,7 +113,7 @@
       "targets": [
         {
           "format": "time_series",
-          "rawSql": "SELECT ts AS time, field AS metric, value_num AS value FROM telemetry WHERE norad = $norad AND (field = 'battery_i' OR field ~* '(current|curr|_i_|amp)') AND value_num BETWEEN -20 AND 20 ORDER BY ts"
+          "rawSql": "SELECT ts AS time, CASE WHEN length(field) > 40 THEN regexp_replace(field, '^.*_([^_]+_[^_]+_[^_]+_[^_]+)$', '\\1') ELSE field END AS metric, value_num AS value FROM telemetry WHERE norad = $norad AND (field = 'battery_i' OR field ~* '(current|curr|_i_|amp)') AND value_num BETWEEN -20 AND 20 ORDER BY ts"
         }
       ]
     },
@@ -160,7 +160,7 @@
     },
     {
       "id": 8,
-      "title": "Battery vs orbital sunlight \u2014 position+telemetry fusion",
+      "title": "Battery vs orbital sunlight — position+telemetry fusion",
       "type": "timeseries",
       "gridPos": {
         "h": 7,
@@ -276,7 +276,7 @@
       "targets": [
         {
           "format": "time_series",
-          "rawSql": "SELECT ts AS time, field AS metric, value_num AS value FROM telemetry WHERE norad = $norad AND field ~* '(count|cnt|seqnum|uptime|reset|boot|reboot|packets|errors)' AND value_num IS NOT NULL ORDER BY ts"
+          "rawSql": "SELECT ts AS time, CASE WHEN length(field) > 40 THEN regexp_replace(field, '^.*_([^_]+_[^_]+_[^_]+_[^_]+)$', '\\1') ELSE field END AS metric, value_num AS value FROM telemetry WHERE norad = $norad AND field ~* '(count|cnt|seqnum|uptime|reset|boot|reboot|packets|errors)' AND value_num IS NOT NULL ORDER BY ts"
         }
       ]
     },
@@ -298,7 +298,7 @@
       "targets": [
         {
           "format": "time_series",
-          "rawSql": "SELECT ts AS time, field AS metric, value_num AS value FROM telemetry WHERE norad = $norad AND field ~* '(pwr|power|watt|_w$|charge)' AND field <> 'battery_pct' AND value_num IS NOT NULL ORDER BY ts"
+          "rawSql": "SELECT ts AS time, CASE WHEN length(field) > 40 THEN regexp_replace(field, '^.*_([^_]+_[^_]+_[^_]+_[^_]+)$', '\\1') ELSE field END AS metric, value_num AS value FROM telemetry WHERE norad = $norad AND field ~* '(pwr|power|watt|_w$|charge)' AND field <> 'battery_pct' AND value_num IS NOT NULL ORDER BY ts"
         }
       ]
     },
@@ -323,7 +323,7 @@
       "targets": [
         {
           "format": "time_series",
-          "rawSql": "SELECT ts AS time, field AS metric, value_num AS value FROM telemetry WHERE norad = $norad AND field ~* '(mode|state|status|flag|enabled|armed|active)' AND value_num IS NOT NULL ORDER BY ts"
+          "rawSql": "SELECT ts AS time, CASE WHEN length(field) > 40 THEN regexp_replace(field, '^.*_([^_]+_[^_]+_[^_]+_[^_]+)$', '\\1') ELSE field END AS metric, value_num AS value FROM telemetry WHERE norad = $norad AND field ~* '(mode|state|status|flag|enabled|armed|active)' AND value_num IS NOT NULL ORDER BY ts"
         }
       ]
     },
@@ -404,7 +404,7 @@
       "targets": [
         {
           "format": "time_series",
-          "rawSql": "SELECT ts AS time, field AS metric, value_num AS value FROM telemetry WHERE norad = $norad AND value_num IS NOT NULL AND field NOT IN ('battery_v','battery_i','battery_pct') AND field !~* '(volt|vbat|v_bat|_v$|temp|current|curr|_i_|amp|count|cnt|seqnum|uptime|reset|boot|reboot|packets|errors|pwr|power|watt|_w$|charge|mode|state|status|flag|enabled|armed|active|pct)' ORDER BY ts"
+          "rawSql": "SELECT ts AS time, CASE WHEN length(field) > 40 THEN regexp_replace(field, '^.*_([^_]+_[^_]+_[^_]+_[^_]+)$', '\\1') ELSE field END AS metric, value_num AS value FROM telemetry WHERE norad = $norad AND value_num IS NOT NULL AND field NOT IN ('battery_v','battery_i','battery_pct') AND field !~* '(volt|vbat|v_bat|_v$|temp|current|curr|_i_|amp|count|cnt|seqnum|uptime|reset|boot|reboot|packets|errors|pwr|power|watt|_w$|charge|mode|state|status|flag|enabled|armed|active|pct)' ORDER BY ts"
         }
       ]
     }

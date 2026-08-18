@@ -100,3 +100,41 @@ def test_next_passes_focuses_on_the_next_24h():   # #232
     assert d["time"] == {"from": "now", "to": "now+24h"}
     for p in d["panels"]:
         assert "interval '24 hours'" in p["targets"][0]["rawSql"], p["title"]
+
+
+def test_series_labels_survive_boilerplate_prefixes():   # #248
+    """UWE-4's thermistors share a 58-char decoder prefix; a legend truncates
+    from the right, so labeling by raw field rendered six identical series.
+    Every timeseries that labels by field must go through the tail-extracting
+    CASE, and that expression must (a) leave short names alone and (b) make
+    the six thermistors distinct within the first 20 characters."""
+    import json as _json
+    import re
+    files = (os.path.join(HERE, "..", "grafana", "dashboards", "public",
+                          "orbit-telemetry.json"),
+             os.path.join(HERE, "..", "grafana", "dashboards", "ops",
+                          "tenant-demo.json"),
+             os.path.join(HERE, "tenant_dashboard.json"))
+    seen_case = 0
+    for f in files:
+        d = _json.load(open(f, encoding="utf-8"))
+        for p in d.get("panels", []):
+            for t in p.get("targets", []):
+                sql = t.get("rawSql", "")
+                assert "field AS metric" not in sql, \
+                    f"{os.path.basename(f)}/{p.get('title')}: raw field label"
+                if "ELSE field END AS metric" in sql:
+                    seen_case += 1
+    assert seen_case >= 9, "the labeled panels lost the CASE expression"
+
+    # mirror of the SQL expression: same regex, same length gate
+    def label(field):
+        if len(field) > 40:
+            return re.sub(r"^.*_([^_]+_[^_]+_[^_]+_[^_]+)$", r"\1", field)
+        return field
+
+    tails = {label("ax25_frame_payload_ax25_info_beacon_payload_beacon_payload_"
+                   f"panel_{s}_temp")[:20]
+             for s in ("pos_z", "neg_z", "pos_y", "pos_x", "neg_y", "neg_x")}
+    assert len(tails) == 6
+    assert label("battery_v") == "battery_v"

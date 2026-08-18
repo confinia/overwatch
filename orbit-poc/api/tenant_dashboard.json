@@ -3,14 +3,20 @@
   "uid": "org-private",
   "timezone": "utc",
   "refresh": "1m",
-  "time": { "from": "now-24h", "to": "now" },
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
   "templating": {
     "list": [
       {
         "name": "satellite",
         "type": "query",
         "label": "Satellite",
-        "datasource": { "type": "postgres", "uid": "__DS_UID__" },
+        "datasource": {
+          "type": "postgres",
+          "uid": "__DS_UID__"
+        },
         "query": "SELECT DISTINCT satellite FROM tenant_telemetry ORDER BY 1",
         "refresh": 2
       },
@@ -20,7 +26,10 @@
         "label": "Field",
         "multi": true,
         "includeAll": true,
-        "datasource": { "type": "postgres", "uid": "__DS_UID__" },
+        "datasource": {
+          "type": "postgres",
+          "uid": "__DS_UID__"
+        },
         "query": "SELECT DISTINCT field FROM tenant_telemetry WHERE satellite = '$satellite' ORDER BY 1",
         "refresh": 2
       }
@@ -31,13 +40,29 @@
       "id": 1,
       "title": "$satellite — your telemetry",
       "type": "timeseries",
-      "datasource": { "type": "postgres", "uid": "__DS_UID__" },
-      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 0 },
-      "fieldConfig": { "defaults": { "custom": { "lineWidth": 1, "showPoints": "never" } }, "overrides": [] },
+      "datasource": {
+        "type": "postgres",
+        "uid": "__DS_UID__"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 1,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
       "targets": [
         {
           "format": "time_series",
-          "rawSql": "SELECT ts AS time, field AS metric, value_num AS value FROM tenant_telemetry WHERE satellite = '$satellite' AND field IN ($field) AND value_num IS NOT NULL AND $__timeFilter(ts) ORDER BY ts"
+          "rawSql": "SELECT ts AS time, CASE WHEN length(field) > 40 THEN regexp_replace(field, '^.*_([^_]+_[^_]+_[^_]+_[^_]+)$', '\\1') ELSE field END AS metric, value_num AS value FROM tenant_telemetry WHERE satellite = '$satellite' AND field IN ($field) AND value_num IS NOT NULL AND $__timeFilter(ts) ORDER BY ts"
         }
       ]
     },
@@ -45,8 +70,16 @@
       "id": 2,
       "title": "Your satellites — fields and freshness",
       "type": "table",
-      "datasource": { "type": "postgres", "uid": "__DS_UID__" },
-      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 10 },
+      "datasource": {
+        "type": "postgres",
+        "uid": "__DS_UID__"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 10
+      },
       "targets": [
         {
           "format": "table",
