@@ -46,7 +46,8 @@ jobs:
       - name: The edition proves itself
         working-directory: selfhost
         run: |
-          base="http://127.0.0.1:8080"
+          # localhost, not 127.0.0.1: redirects carry PUBLIC_BASE verbatim
+          base="http://localhost:8080"
           echo "— the globe serves"
           curl -fsS "$base/" | grep -qi "overwatch" || { echo "no globe"; exit 1; }
           echo "— the API answers"
