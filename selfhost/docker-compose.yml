@@ -1,0 +1,168 @@
+# Overwatch — SELF-HOSTED (#276). Your infrastructure, your data, no cloud
+# dependency: this profile runs the complete control room — Postgres, ingest,
+# api, web, Grafana, Keycloak and a Caddy front — from the same images the
+# hosted service runs. See README.md next to this file for the full guide.
+#
+#   cp .env.example .env      # fill in the secrets
+#   ./up.sh                   # first run: boots, bootstraps Keycloak, done
+#
+# This is the SELFHOST edition by design: OVERWATCH_EDITION is deliberately
+# NOT set, so the api runs paymentless — every /v1/billing/* answers 404 and
+# billing credentials, even if present, arm nothing. All features are simply
+# available; there is no plan concept on-prem.
+
+name: overwatch
+
+services:
+  db:
+    image: docker.io/library/postgres:16
+    environment:
+      POSTGRES_USER: orbit
+      POSTGRES_PASSWORD: ${PG_PASSWORD:?set PG_PASSWORD in .env}
+      POSTGRES_DB: orbit
+    volumes:
+      - ../orbit-poc/db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U orbit"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  # Open-data ingest (SatNOGS + TLEs). On by default via COMPOSE_PROFILES=data
+  # in .env.example; a SATNOGS_TOKEN raises rate limits but is not required.
+  ingest:
+    build: ../orbit-poc/ingest
+    profiles: ["data"]
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_DSN: "dbname=orbit user=orbit password=${PG_PASSWORD} host=db"
+      SATNOGS_TOKEN: ${SATNOGS_TOKEN:-}
+      ELEMENTS_INTERVAL: "21600"
+      POSITION_INTERVAL: "15"
+      TELEMETRY_INTERVAL: "1800"
+    restart: unless-stopped
+
+  api:
+    build: ../orbit-poc/api
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_DSN: "dbname=orbit user=orbit password=${PG_PASSWORD} host=db"
+      REQUIRE_API_KEY: "false"
+      PUBLIC_BASE: ${PUBLIC_BASE:?set PUBLIC_BASE in .env}
+      # Identity: this stack's OWN Keycloak, realm "overwatch".
+      KC_ISSUER: "${PUBLIC_BASE}/auth/realms/overwatch"
+      KC_INTERNAL: "http://keycloak:8080/auth/realms/overwatch"
+      KC_ADMIN_USERNAME: ${KC_ADMIN_USERNAME:-admin}
+      KC_ADMIN_PASSWORD: ${KC_ADMIN_PASSWORD:?set KC_ADMIN_PASSWORD in .env}
+      OVERWATCH_CLIENT_SECRET: ${OVERWATCH_CLIENT_SECRET:?set OVERWATCH_CLIENT_SECRET in .env}
+      ORG_DB_SECRET: ${ORG_DB_SECRET:?set ORG_DB_SECRET in .env}
+      GF_URL: "http://grafana:3000"
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_ADMIN_PASSWORD:?set GF_ADMIN_PASSWORD in .env}
+    volumes:
+      - ../orbit-poc/grafana/ops-dashboards:/ops-dashboards:ro
+      - ../orbit-poc/grafana/ops-alerts.json:/ops-alerts.json:ro
+    restart: unless-stopped
+
+  web:
+    build: ../orbit-poc/web
+    depends_on:
+      - api
+    environment:
+      DB_DSN: "dbname=orbit user=orbit password=${PG_PASSWORD} host=db"
+    restart: unless-stopped
+
+  grafana:
+    image: docker.io/grafana/grafana:11.2.0
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_ADMIN_PASSWORD}
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Viewer"
+      GF_SECURITY_ALLOW_EMBEDDING: "true"
+      GF_SECURITY_COOKIE_SAMESITE: "disabled"
+      GF_USERS_DEFAULT_THEME: "dark"
+      GF_SERVER_ROOT_URL: "${PUBLIC_BASE}/grafana"
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      GF_AUTH_GENERIC_OAUTH_ENABLED: "true"
+      GF_AUTH_GENERIC_OAUTH_NAME: "Overwatch"
+      GF_AUTH_GENERIC_OAUTH_CLIENT_ID: "overwatch"
+      GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET: ${OVERWATCH_CLIENT_SECRET}
+      GF_AUTH_GENERIC_OAUTH_SCOPES: "openid profile email"
+      GF_AUTH_GENERIC_OAUTH_AUTH_URL: "${PUBLIC_BASE}/auth/realms/overwatch/protocol/openid-connect/auth"
+      GF_AUTH_GENERIC_OAUTH_TOKEN_URL: "http://keycloak:8080/auth/realms/overwatch/protocol/openid-connect/token"
+      GF_AUTH_GENERIC_OAUTH_API_URL: "http://keycloak:8080/auth/realms/overwatch/protocol/openid-connect/userinfo"
+      GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_PATH: "'Viewer'"
+      GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_STRICT: "false"
+      GF_AUTH_OAUTH_ALLOW_INSECURE_EMAIL_LOOKUP: "true"
+      DB_PASSWORD: ${PG_PASSWORD}
+    volumes:
+      - grafana:/var/lib/grafana
+      - ../orbit-poc/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../orbit-poc/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    restart: unless-stopped
+
+  kc-db:
+    image: docker.io/library/postgres:16
+    environment:
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: ${KC_DB_PASSWORD:?set KC_DB_PASSWORD in .env}
+      POSTGRES_DB: keycloak
+    volumes:
+      - kc_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.3
+    command: ["start", "--http-enabled", "true"]
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://kc-db:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KC_DB_PASSWORD}
+      KC_HTTP_RELATIVE_PATH: /auth
+      KC_PROXY_HEADERS: xforwarded
+      KC_HOSTNAME: "${PUBLIC_BASE}/auth"
+      KC_HEALTH_ENABLED: "true"
+      # Consumed only when the database is EMPTY (first boot): Keycloak creates
+      # this admin, and bootstrap_keycloak.py then builds the realm with it.
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KC_ADMIN_USERNAME:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_ADMIN_PASSWORD}
+    depends_on:
+      kc-db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  caddy:
+    image: docker.io/library/caddy:2
+    depends_on:
+      - web
+      - api
+      - grafana
+      - keycloak
+    ports:
+      - "${HTTP_BIND:-0.0.0.0:8080}:80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  grafana:
+  kc_pgdata:
+  caddy_data:
+  caddy_config:
