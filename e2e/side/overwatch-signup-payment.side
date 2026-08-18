@@ -1026,31 +1026,31 @@
           "id": "t-pay-m36",
           "comment": "",
           "command": "echo",
-          "target": ">> step 36: waitForElementPresent css=iframe[name^='__privateStripeFrame']",
+          "target": ">> step 36: executeScript var nm = ${CARD_NAME}; var el = document.querySelector(\"input[name='cardHolderName']\"); if (el && !el.value){ var set = Obje",
           "targets": [],
           "value": ""
         },
         {
-          "id": "c066",
-          "comment": "",
-          "command": "waitForElementPresent",
-          "target": "css=iframe[name^='__privateStripeFrame']",
+          "id": "aw1",
+          "comment": "Card holder name sits OUTSIDE the card iframe.",
+          "command": "executeScript",
+          "target": "var nm = ${CARD_NAME}; var el = document.querySelector(\"input[name='cardHolderName']\"); if (el && !el.value){ var set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set; set.call(el, nm); el.dispatchEvent(new Event('input', {bubbles: true})); } return el ? el.value : '(no cardHolderName)'",
           "targets": [],
-          "value": "60000"
+          "value": "HOLDER"
         },
         {
           "id": "t-pay-m37",
           "comment": "",
           "command": "echo",
-          "target": ">> step 37: selectFrame css=iframe[name^='__privateStripeFrame']",
+          "target": ">> step 37: echo HOLDER ${HOLDER}",
           "targets": [],
           "value": ""
         },
         {
-          "id": "c067",
+          "id": "aw2",
           "comment": "",
-          "command": "selectFrame",
-          "target": "css=iframe[name^='__privateStripeFrame']",
+          "command": "echo",
+          "target": "HOLDER ${HOLDER}",
           "targets": [],
           "value": ""
         },
@@ -1058,63 +1058,63 @@
           "id": "t-pay-m38",
           "comment": "",
           "command": "echo",
-          "target": ">> step 38: type css=input[name='number'], #Field-numberInput",
+          "target": ">> step 38: waitForElementPresent css=iframe[name^='__zoid__card_form__']",
           "targets": [],
           "value": ""
         },
         {
-          "id": "c068",
-          "comment": "",
-          "command": "type",
-          "target": "css=input[name='number'], #Field-numberInput",
+          "id": "aw3",
+          "comment": "Creem test mode mounts an Airwallex (zoid) card form, not Stripe.",
+          "command": "waitForElementPresent",
+          "target": "css=iframe[name^='__zoid__card_form__']",
           "targets": [],
-          "value": "${CARD}"
+          "value": "60000"
         },
         {
           "id": "t-pay-m39",
           "comment": "",
           "command": "echo",
-          "target": ">> step 39: type css=input[name='expiry'], #Field-expiryInput",
+          "target": ">> step 39: selectFrame css=iframe[name^='__zoid__card_form__']",
           "targets": [],
           "value": ""
         },
         {
-          "id": "c069",
+          "id": "aw4",
           "comment": "",
-          "command": "type",
-          "target": "css=input[name='expiry'], #Field-expiryInput",
+          "command": "selectFrame",
+          "target": "css=iframe[name^='__zoid__card_form__']",
           "targets": [],
-          "value": "${CARD_EXP}"
+          "value": ""
         },
         {
           "id": "t-pay-m40",
           "comment": "",
           "command": "echo",
-          "target": ">> step 40: type css=input[name='cvc'], #Field-cvcInput",
+          "target": ">> step 40: executeScript var cn = ${CARD}; var ex = ${CARD_EXP}; var cv = ${CARD_CVC}; var set = Object.getOwnPropertyDescriptor(window.HTMLInputElem",
           "targets": [],
           "value": ""
         },
         {
-          "id": "c070",
-          "comment": "",
-          "command": "type",
-          "target": "css=input[name='cvc'], #Field-cvcInput",
+          "id": "aw5",
+          "comment": "Fill number/expiry/cvc by attribute pattern inside the Airwallex frame; echo what matched so a DOM change is diagnosable from the log.",
+          "command": "executeScript",
+          "target": "var cn = ${CARD}; var ex = ${CARD_EXP}; var cv = ${CARD_CVC}; var set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set; function fill(re, v){ var el = Array.from(document.querySelectorAll('input')).find(function(e){ var k = (e.name || '') + ' ' + (e.id || '') + ' ' + (e.placeholder || '') + ' ' + (e.getAttribute('aria-label') || ''); return re.test(k) }); if (el){ set.call(el, v); el.dispatchEvent(new Event('input', {bubbles: true})); el.dispatchEvent(new Event('change', {bubbles: true})); return (el.name || el.id || 'hit') } return 'MISS' } var r = [fill(/number|card(?!.*holder)/i, cn), fill(/expir|mm.?yy|exp/i, ex), fill(/cvc|cvv|security/i, cv)]; return r.join(' | ') + ' /// ' + Array.from(document.querySelectorAll('input')).map(function(e){ return (e.name || e.id || '?') + ':' + (e.placeholder || e.type) }).join(', ').slice(0, 200)",
           "targets": [],
-          "value": "${CARD_CVC}"
+          "value": "CARDFILL"
         },
         {
           "id": "t-pay-m41",
           "comment": "",
           "command": "echo",
-          "target": ">> step 41: selectFrame relative=top",
+          "target": ">> step 41: echo CARDFILL ${CARDFILL}",
           "targets": [],
           "value": ""
         },
         {
-          "id": "c071",
+          "id": "aw6",
           "comment": "",
-          "command": "selectFrame",
-          "target": "relative=top",
+          "command": "echo",
+          "target": "CARDFILL ${CARDFILL}",
           "targets": [],
           "value": ""
         },
@@ -1122,7 +1122,23 @@
           "id": "t-pay-m42",
           "comment": "",
           "command": "echo",
-          "target": ">> step 42: click css=button[type='submit']",
+          "target": ">> step 42: selectFrame relative=top",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "aw7",
+          "comment": "",
+          "command": "selectFrame",
+          "target": "relative=top",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "t-pay-m43",
+          "comment": "",
+          "command": "echo",
+          "target": ">> step 43: click css=button[type='submit']",
           "targets": [],
           "value": ""
         },
@@ -1135,10 +1151,10 @@
           "value": ""
         },
         {
-          "id": "t-pay-m43",
+          "id": "t-pay-m44",
           "comment": "",
           "command": "echo",
-          "target": ">> step 43: waitForElementVisible id=plan",
+          "target": ">> step 44: waitForElementVisible id=plan",
           "targets": [],
           "value": ""
         },
@@ -1151,10 +1167,10 @@
           "value": "120000"
         },
         {
-          "id": "t-pay-m44",
+          "id": "t-pay-m45",
           "comment": "",
           "command": "echo",
-          "target": ">> step 44: assertElementPresent id=banner",
+          "target": ">> step 45: assertElementPresent id=banner",
           "targets": [],
           "value": ""
         },
@@ -1167,10 +1183,10 @@
           "value": ""
         },
         {
-          "id": "t-pay-m45",
+          "id": "t-pay-m46",
           "comment": "",
           "command": "echo",
-          "target": ">> step 45: assertText id=plan",
+          "target": ">> step 46: assertText id=plan",
           "targets": [],
           "value": ""
         },
@@ -1183,10 +1199,10 @@
           "value": "PRO"
         },
         {
-          "id": "t-pay-m46",
+          "id": "t-pay-m47",
           "comment": "",
           "command": "echo",
-          "target": ">> step 46: assertElementPresent id=act-portal",
+          "target": ">> step 47: assertElementPresent id=act-portal",
           "targets": [],
           "value": ""
         },
