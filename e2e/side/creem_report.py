@@ -70,7 +70,9 @@ def main():
     cid = mine[0]["id"]
     print(f"  customer   {cid}")
 
-    st, subs = get("/subscriptions?" + urllib.parse.urlencode({"customer_id": cid}))
+    # /v1/subscriptions wants a subscription_id; by-customer listing lives
+    # under the customer resource
+    st, subs = get(f"/customers/{urllib.parse.quote(cid)}/subscriptions")
     active = []
     if st == 200:
         for s in subs.get("items", [subs] if subs.get("id") else []):
