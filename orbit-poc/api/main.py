@@ -1674,6 +1674,19 @@ def tenant_push(key: str, body: TenantPush):
         quota = row[1]
         if len(row) > 2:
             key = str(row[2])          # service token -> write under the org id
+            # DevSat includes exactly ONE satellite slot (#275): a push naming a
+            # second one is refused with the upgrade path, not silently dropped.
+            cur.execute("SELECT plan FROM organization WHERE id = %s::uuid", (key,))
+            plan_row = cur.fetchone()
+            if plan_row and plan_row[0] == "devsat":
+                cur.execute("""SELECT DISTINCT satellite FROM tenant_telemetry
+                               WHERE tenant = %s::uuid""", (key,))
+                existing = {r[0] for r in cur.fetchall()}
+                if existing and body.satellite not in existing:
+                    raise HTTPException(
+                        403, "The DevSat plan includes one satellite "
+                             f"({sorted(existing)[0]!r}). Upgrade to Pro for a "
+                             "fleet — /w/account.")
         cur.execute("""SELECT count(*) FROM tenant_telemetry
                        WHERE tenant = %s::uuid AND ts > now() - interval '1 day'""", (key,))
         if cur.fetchone()[0] + len(body.points) > quota:
@@ -1765,11 +1778,11 @@ def _apply_billing_event(cur, ev):
               and status in ("active", "trialing", None))
     if active:
         cur.execute(
-            "UPDATE organization SET plan='pro', sub_status='active', subscription_id=%s, "
+            "UPDATE organization SET plan=%s, sub_status='active', subscription_id=%s, "
             "entitled_until = COALESCE(%s::timestamptz, now() + interval '32 days'), "
             "polar_customer_id = COALESCE(%s, polar_customer_id) "
             "WHERE id=%s::uuid",
-            (ev.get("subscription_id"), ev.get("until"),
+            (ev.get("plan") or "pro", ev.get("subscription_id"), ev.get("until"),
              ev.get("customer_id"), org_id))
         _provision_org_db(cur, org_id)                 # ensure RLS role (idempotent)
     elif typ == "subscription.canceled":
@@ -1795,14 +1808,25 @@ def billing_mode():
             "polar_env": billing.ENV}
 
 
+class CheckoutRequest(BaseModel):
+    plan: str = "pro"
+
+
 @app.post("/v1/billing/checkout")
-def billing_checkout(request: Request):
+def billing_checkout(request: Request, body: CheckoutRequest | None = None):
     """Mint an embedded checkout for the caller's org — they never leave Overwatch."""
     c, org = _require_org(request)
     if not (billing.configured() or billing.stub_allowed()):
         raise HTTPException(503, "Billing is not open yet — contact contact@confinia.io.")
-    ck = billing.create_checkout(org[0], c.get("email", ""),
-                               f"{_base_of(request)}/w/account?upgraded=1")
+    plan = (body.plan if body else "pro").lower()
+    if plan not in ("pro", "devsat"):
+        raise HTTPException(422, f"Unknown plan {plan!r}.")
+    try:
+        ck = billing.create_checkout(org[0], c.get("email", ""),
+                                     f"{_base_of(request)}/w/account?upgraded=1",
+                                     plan=plan)
+    except LookupError as e:
+        raise HTTPException(503, str(e))
     return {"checkout_url": ck["url"], "checkout_id": ck["id"], "stub": ck["stub"]}
 
 
@@ -1859,8 +1883,10 @@ def billing_status(request: Request):
         cur.execute("SELECT frames, tm_count, tc_count FROM org_usage "
                     "WHERE customer=%s AND period=%s", (str(org_id), metering._period()))
         u = cur.fetchone() or (0, 0, 0)
-    pro = bool(plan == "pro" and until and until > _dt.datetime.now(_dt.timezone.utc))
-    return {"plan": plan, "pro": pro, "sub_status": sub,
+    entitled = bool(until and until > _dt.datetime.now(_dt.timezone.utc))
+    pro = bool(plan == "pro" and entitled)
+    paid = bool(plan in ("pro", "devsat") and entitled)
+    return {"plan": plan, "pro": pro, "paid": paid, "sub_status": sub,
             "entitled_until": until.isoformat() if until else None, "freq_tier": tier,
             "usage": {"frames": u[0], "tm": u[1], "tc": u[2], "period": metering._period()}}
 

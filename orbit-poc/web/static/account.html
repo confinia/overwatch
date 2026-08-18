@@ -62,9 +62,11 @@ async function post(path, body){
   if (!r.ok) throw new Error(d.detail || `Request failed (${r.status})`);
   return d;
 }
-async function upgrade(){
-  try { const d = await post("/api/v1/billing/checkout"); location.href = d.checkout_url; }
-  catch (e) { alert(e.message); }
+async function upgrade(plan){
+  try {
+    const d = await post("/api/v1/billing/checkout", { plan: plan || "pro" });
+    location.href = d.checkout_url;
+  } catch (e) { alert(e.message); }
 }
 async function portal(){
   try { const d = await post("/api/v1/billing/portal"); location.href = d.portal_url; }
@@ -184,7 +186,9 @@ async function load(){
   let s = null;
   try { s = await (await fetch("/api/v1/billing/status")).json(); } catch (e) {}
   const pro = !!(s && s.pro);
-  const badge = `<span class="badge ${pro ? "pro" : "free"}">${pro ? "PRO" : "FREE"}</span>`;
+  const paid = !!(s && (s.paid || s.pro));
+  const planName = paid ? (s.plan || "pro").toUpperCase() : "FREE";
+  const badge = `<span class="badge ${paid ? "pro" : "free"}">${planName}</span>`;
   const until = s && s.entitled_until ? new Date(s.entitled_until).toLocaleDateString() : null;
   const rows = [
     `<div class="row"><span>Signed in as</span><b>${esc(me.email || me.name || me.sub)}</b></div>`,
@@ -205,8 +209,10 @@ async function load(){
   $("content").innerHTML = rows.join("");
   renderKeys();
   $("actions").innerHTML =
-    (pro ? `<button class="cta" id="act-portal" onclick="portal()">Invoices / manage subscription</button>`
-         : `<button class="cta" id="act-upgrade" onclick="upgrade()">Upgrade to Pro</button>`) +
+    (paid ? `<button class="cta" id="act-portal" onclick="portal()">Invoices / manage subscription</button>` +
+            (pro ? `` : `<button class="cta" id="act-upgrade" onclick="upgrade('pro')">Upgrade to Pro</button>`)
+          : `<button class="cta" id="act-upgrade" onclick="upgrade('pro')">Upgrade to Pro — 49 €/mo</button>` +
+            `<button class="cta secondary" id="act-devsat" onclick="upgrade('devsat')">Start with DevSat — 9 €/mo</button>`) +
     `<a class="cta secondary" href="/api/v1/auth/logout" onclick="return confirm('Sign out of Overwatch?')">Sign out</a>`;
 }
 load();
