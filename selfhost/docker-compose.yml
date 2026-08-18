@@ -73,6 +73,8 @@ services:
     build: ../orbit-poc/web
     depends_on:
       - api
+    environment:
+      DB_DSN: "dbname=orbit user=orbit password=${PG_PASSWORD} host=db"
     restart: unless-stopped
 
   grafana:
