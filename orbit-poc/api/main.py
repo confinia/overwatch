@@ -1767,6 +1767,22 @@ def _base_of(request: Request) -> str:
     return f"{proto}://{host}"
 
 
+# Cloud vs self-host editions (#276). Payments exist ONLY in the cloud
+# edition; the default — an operator who copies the compose profile and sets
+# nothing — is the paymentless one, so a leaked cloud .env cannot arm a
+# checkout on-prem. Our own deploy composes set OVERWATCH_EDITION=cloud
+# explicitly.
+EDITION = os.environ.get("OVERWATCH_EDITION", "selfhost").strip().lower() or "selfhost"
+
+
+def _cloud_only():
+    """The self-host edition has NO billing surface: every /v1/billing/*
+    answers 404 — the webhook included, so there is nothing to secure or
+    exempt in a self-host Caddyfile."""
+    if EDITION != "cloud":
+        raise HTTPException(404, "Not found")
+
+
 def _apply_billing_event(cur, ev):
     """Flip an org's entitlement from a normalized Polar event (idempotent SQL)."""
     org_id = ev.get("org_id")
@@ -1795,6 +1811,7 @@ def _apply_billing_event(cur, ev):
 
 @app.get("/v1/billing/mode")
 def billing_mode():
+    _cloud_only()
     """Which payment mode this API is actually in — public and unauthenticated.
 
     The UI badge MUST come from here, not from a POLAR_ENV copied into the web
@@ -1815,6 +1832,7 @@ class CheckoutRequest(BaseModel):
 @app.post("/v1/billing/checkout")
 def billing_checkout(request: Request, body: CheckoutRequest | None = None):
     """Mint an embedded checkout for the caller's org — they never leave Overwatch."""
+    _cloud_only()
     c, org = _require_org(request)
     if not (billing.configured() or billing.stub_allowed()):
         raise HTTPException(503, "Billing is not open yet — contact contact@confinia.io.")
@@ -1836,6 +1854,7 @@ def billing_portal(request: Request):
     where the end-user downloads invoices/receipts and manages the
     subscription. The MoR owns invoicing; we only mint the session and return
     its URL."""
+    _cloud_only()
     c, org = _require_org(request)
     if not (billing.configured() or billing.stub_allowed()):
         raise HTTPException(503, "Billing is not open yet — contact contact@confinia.io.")
@@ -1851,6 +1870,7 @@ def billing_portal(request: Request):
 @app.post("/v1/billing/webhook")
 async def billing_webhook(request: Request):
     """MoR -> us: signature-verified, idempotent; the entitlement source of truth."""
+    _cloud_only()
     raw = await request.body()
     hdrs = {k.lower(): v for k, v in request.headers.items()}
     if not billing.verify_webhook(raw, hdrs):
@@ -1874,6 +1894,7 @@ async def billing_webhook(request: Request):
 @app.get("/v1/billing/status")
 def billing_status(request: Request):
     """Org plan, entitlement and current-period usage — for the account UI."""
+    _cloud_only()
     c, org = _require_org(request)
     org_id = org[0]
     with cursor() as cur:
@@ -1896,6 +1917,7 @@ def billing_simulate_paid(request: Request):
     """DEV/sandbox only: simulate a completed payment for the caller's org so the
     checkout -> webhook -> entitlement flow is provable in-app without Polar.
     Only where the stub is explicitly allowed (POLAR_ALLOW_STUB, never prod)."""
+    _cloud_only()
     if not billing.stub_allowed():
         raise HTTPException(403, "stub billing not enabled here")
     c, org = _require_org(request)
