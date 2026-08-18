@@ -73,7 +73,7 @@
           "value": "CARD_NAME"
         },
         {
-          "id": "t-register-m1",
+          "id": "t-reg-m1",
           "comment": "",
           "command": "echo",
           "target": ">> step 1: open ${BASE}/w/account",
@@ -89,10 +89,58 @@
           "value": ""
         },
         {
-          "id": "t-register-m2",
+          "id": "t-reg-m2",
           "comment": "",
           "command": "echo",
-          "target": ">> step 2: waitForElementVisible id=act-signin",
+          "target": ">> step 2: pause 3000",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "reg-d0",
+          "comment": "",
+          "command": "pause",
+          "target": "3000",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "t-reg-m3",
+          "comment": "",
+          "command": "echo",
+          "target": ">> step 3: executeScript return location.href + ' /// ' + document.title + ' /// ' + (document.body ? document.body.innerText.slice(0,150).replace(/\\s",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "reg-d1",
+          "comment": "diagnose the intermittent blank first page",
+          "command": "executeScript",
+          "target": "return location.href + ' /// ' + document.title + ' /// ' + (document.body ? document.body.innerText.slice(0,150).replace(/\\s+/g,' ') : '(no body)')",
+          "targets": [],
+          "value": "FIRSTPAGE"
+        },
+        {
+          "id": "t-reg-m4",
+          "comment": "",
+          "command": "echo",
+          "target": ">> step 4: echo FIRSTPAGE ${FIRSTPAGE}",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "reg-d2",
+          "comment": "",
+          "command": "echo",
+          "target": "FIRSTPAGE ${FIRSTPAGE}",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "t-reg-m5",
+          "comment": "",
+          "command": "echo",
+          "target": ">> step 5: waitForElementVisible id=act-signin",
           "targets": [],
           "value": ""
         },
@@ -105,10 +153,10 @@
           "value": "60000"
         },
         {
-          "id": "t-register-m3",
+          "id": "t-reg-m6",
           "comment": "",
           "command": "echo",
-          "target": ">> step 3: executeAsyncScript Promise.all([fetch('/api/v1/me').then(function(r){return 'me='+r.status}).catch(function(e){return 'me=ERR:'+e}),fetch('/api/v1/auth/login').then(func",
+          "target": ">> step 6: executeAsyncScript Promise.all([fetch('/api/v1/me').then(function(r){return 'me='+r.status}).catch(function(e){return 'me=ERR:'+e}),fetch('",
           "targets": [],
           "value": ""
         },
@@ -121,10 +169,10 @@
           "value": "NET"
         },
         {
-          "id": "t-register-m4",
+          "id": "t-reg-m7",
           "comment": "",
           "command": "echo",
-          "target": ">> step 4: echo NET ${NET}",
+          "target": ">> step 7: echo NET ${NET}",
           "targets": [],
           "value": ""
         },
@@ -137,10 +185,10 @@
           "value": ""
         },
         {
-          "id": "t-register-m5",
+          "id": "t-reg-m8",
           "comment": "",
           "command": "echo",
-          "target": ">> step 5: click id=act-signin",
+          "target": ">> step 8: click id=act-signin",
           "targets": [],
           "value": ""
         },
@@ -153,10 +201,10 @@
           "value": ""
         },
         {
-          "id": "t-register-m6",
+          "id": "t-reg-m9",
           "comment": "",
           "command": "echo",
-          "target": ">> step 6: pause 6000",
+          "target": ">> step 9: pause 6000",
           "targets": [],
           "value": ""
         },
@@ -169,10 +217,10 @@
           "value": ""
         },
         {
-          "id": "t-register-m7",
+          "id": "t-reg-m10",
           "comment": "",
           "command": "echo",
-          "target": ">> step 7: executeScript return location.href + ' || ' + document.title",
+          "target": ">> step 10: executeScript return location.href + ' || ' + document.title",
           "targets": [],
           "value": ""
         },
@@ -185,10 +233,10 @@
           "value": "WHERE"
         },
         {
-          "id": "t-register-m8",
+          "id": "t-reg-m11",
           "comment": "",
           "command": "echo",
-          "target": ">> step 8: echo LANDED ${WHERE}",
+          "target": ">> step 11: echo LANDED ${WHERE}",
           "targets": [],
           "value": ""
         },
@@ -201,10 +249,10 @@
           "value": ""
         },
         {
-          "id": "t-register-m9",
+          "id": "t-reg-m12",
           "comment": "",
           "command": "echo",
-          "target": ">> step 9: executeScript return (document.body ? document.body.innerText : '(no body)').slice(0, 300).replace(/\\s+/g, ' ')",
+          "target": ">> step 12: executeScript return (document.body ? document.body.innerText : '(no body)').slice(0, 300).replace(/\\s+/g, ' ')",
           "targets": [],
           "value": ""
         },
@@ -217,10 +265,10 @@
           "value": "SNIP"
         },
         {
-          "id": "t-register-m10",
+          "id": "t-reg-m13",
           "comment": "",
           "command": "echo",
-          "target": ">> step 10: echo PAGE ${SNIP}",
+          "target": ">> step 13: echo PAGE ${SNIP}",
           "targets": [],
           "value": ""
         },
@@ -233,10 +281,10 @@
           "value": ""
         },
         {
-          "id": "t-register-m11",
+          "id": "t-reg-m14",
           "comment": "",
           "command": "echo",
-          "target": ">> step 11: waitForElementVisible id=kc-registration",
+          "target": ">> step 14: waitForElementVisible id=kc-registration",
           "targets": [],
           "value": ""
         },
@@ -249,10 +297,10 @@
           "value": "60000"
         },
         {
-          "id": "t-register-m12",
+          "id": "t-reg-m15",
           "comment": "",
           "command": "echo",
-          "target": ">> step 12: click css=#kc-registration a",
+          "target": ">> step 15: click css=#kc-registration a",
           "targets": [],
           "value": ""
         },
@@ -265,10 +313,10 @@
           "value": ""
         },
         {
-          "id": "t-register-m13",
+          "id": "t-reg-m16",
           "comment": "",
           "command": "echo",
-          "target": ">> step 13: waitForElementVisible id=firstName",
+          "target": ">> step 16: waitForElementVisible id=firstName",
           "targets": [],
           "value": ""
         },
@@ -281,10 +329,10 @@
           "value": "60000"
         },
         {
-          "id": "t-register-m14",
+          "id": "t-reg-m17",
           "comment": "",
           "command": "echo",
-          "target": ">> step 14: type id=firstName",
+          "target": ">> step 17: type id=firstName",
           "targets": [],
           "value": ""
         },
@@ -297,10 +345,10 @@
           "value": "E2E"
         },
         {
-          "id": "t-register-m15",
+          "id": "t-reg-m18",
           "comment": "",
           "command": "echo",
-          "target": ">> step 15: type id=lastName",
+          "target": ">> step 18: type id=lastName",
           "targets": [],
           "value": ""
         },
@@ -313,10 +361,10 @@
           "value": "Bot"
         },
         {
-          "id": "t-register-m16",
+          "id": "t-reg-m19",
           "comment": "",
           "command": "echo",
-          "target": ">> step 16: type id=email",
+          "target": ">> step 19: type id=email",
           "targets": [],
           "value": ""
         },
@@ -329,10 +377,10 @@
           "value": "${EMAIL}"
         },
         {
-          "id": "t-register-m17",
+          "id": "t-reg-m20",
           "comment": "",
           "command": "echo",
-          "target": ">> step 17: type id=password",
+          "target": ">> step 20: type id=password",
           "targets": [],
           "value": ""
         },
@@ -345,10 +393,10 @@
           "value": "${PASS}"
         },
         {
-          "id": "t-register-m18",
+          "id": "t-reg-m21",
           "comment": "",
           "command": "echo",
-          "target": ">> step 18: type id=password-confirm",
+          "target": ">> step 21: type id=password-confirm",
           "targets": [],
           "value": ""
         },
@@ -361,10 +409,10 @@
           "value": "${PASS}"
         },
         {
-          "id": "t-register-m19",
+          "id": "t-reg-m22",
           "comment": "",
           "command": "echo",
-          "target": ">> step 19: click css=input[type=submit]",
+          "target": ">> step 22: click css=input[type=submit]",
           "targets": [],
           "value": ""
         },
@@ -377,10 +425,10 @@
           "value": ""
         },
         {
-          "id": "t-register-m20",
+          "id": "t-reg-m23",
           "comment": "",
           "command": "echo",
-          "target": ">> step 20: waitForElementNotPresent id=password-confirm",
+          "target": ">> step 23: waitForElementNotPresent id=password-confirm",
           "targets": [],
           "value": ""
         },
