@@ -50,6 +50,10 @@ def api(method, path, body=None, token=None, form=None):
             return r.status, (json.loads(raw) if raw.strip() else None)
     except urllib.error.HTTPError as e:
         return e.code, e.read().decode()[:300]
+    except urllib.error.URLError as e:
+        # connection refused while Keycloak is still booting — the wait loop's
+        # normal diet, never a crash
+        return 0, str(e.reason)
 
 
 def wait_and_login():
