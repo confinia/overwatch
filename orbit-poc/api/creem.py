@@ -24,7 +24,21 @@ import os
 
 API_KEY = os.environ.get("CREEM_API_KEY", "").strip()
 PRODUCT_PRO = os.environ.get("CREEM_PRODUCT_ID_PRO", "").strip()
+PRODUCT_DEVSAT = os.environ.get("CREEM_PRODUCT_ID_DEVSAT", "").strip()
 WEBHOOK_SECRET = os.environ.get("CREEM_WEBHOOK_SECRET", "").strip()
+
+# plan name <-> Creem product. The webhook resolves the product it carries
+# back to a plan through this — the entitlement is the PLAN, never a raw
+# product id (#275).
+PRODUCTS = {name: pid for name, pid in
+            (("pro", PRODUCT_PRO), ("devsat", PRODUCT_DEVSAT)) if pid}
+
+
+def plan_of(product_id: str) -> str:
+    for name, pid in PRODUCTS.items():
+        if pid and pid == product_id:
+            return name
+    return "pro"      # unknown product on a paid event: fail toward the old behaviour
 
 ENV = ("off" if not API_KEY
        else "sandbox" if API_KEY.startswith("creem_test_") else "production")
@@ -53,17 +67,22 @@ def _secret() -> str:
     return _STUB_SECRET if stub_allowed() else ""      # inert when not allowed
 
 
-def create_checkout(org_id: str, email: str, success_url: str) -> dict:
+def create_checkout(org_id: str, email: str, success_url: str,
+                    plan: str = "pro") -> dict:
     """Return {url, id, stub}. The org rides in metadata — the webhook hands it
     back, which is how the entitlement finds its organization."""
     if not configured():
         return {"id": f"stub_{org_id}",
-                "url": f"/v1/billing/checkout/stub?org={org_id}", "stub": True}
+                "url": f"/v1/billing/checkout/stub?org={org_id}&plan={plan}",
+                "stub": True}
+    product = PRODUCTS.get(plan)
+    if not product:
+        raise LookupError(f"plan {plan!r} has no product here")
     import requests
     r = requests.post(
         f"{API_BASE}/checkouts",
         headers={"x-api-key": API_KEY},
-        json={"product_id": PRODUCT_PRO,
+        json={"product_id": product,
               "customer": {"email": email} if email else None,
               "success_url": success_url,
               "metadata": {"org": str(org_id)}}, timeout=10)
@@ -147,10 +166,14 @@ def parse_event(payload: dict) -> dict:
     # would fail _apply_billing_event's active-status check
     if raw_type == "checkout.completed":
         status = None
+    product_id = _id_of(obj.get("product")) or next(
+        (_id_of(i.get("productId") or i.get("product"))
+         for i in obj.get("items", []) if isinstance(i, dict)), None)
     return {"type": _TYPE_MAP.get(raw_type, raw_type),
             "org_id": meta.get("org"),
             "subscription_id": sub_id,
             "customer_id": _id_of(obj.get("customer")),
+            "plan": plan_of(product_id or ""),
             "status": "active" if status in ("active", "paid") else status,
             "until": (obj.get("current_period_end_date")
                       or obj.get("current_period_end"))}

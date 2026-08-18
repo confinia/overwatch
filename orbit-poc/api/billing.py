@@ -26,10 +26,22 @@ else:
 
 configured = _p.configured
 stub_allowed = _p.stub_allowed
-create_checkout = _p.create_checkout
 verify_webhook = _p.verify_webhook
 parse_event = _p.parse_event
 sign = _p.sign
+
+# plans the active provider can actually sell (#275)
+PLANS = tuple(getattr(_p, "PRODUCTS", {"pro": True}).keys()) or ("pro",)
+
+
+def create_checkout(org_id: str, email: str, success_url: str,
+                    plan: str = "pro") -> dict:
+    """Polar predates the plan ladder and only ever sold Pro."""
+    if PROVIDER == "polar":
+        if plan != "pro":
+            raise LookupError(f"plan {plan!r} is not available via polar")
+        return _p.create_checkout(org_id, email, success_url)
+    return _p.create_checkout(org_id, email, success_url, plan)
 
 
 def create_customer_session(org_id: str, return_url: str,
