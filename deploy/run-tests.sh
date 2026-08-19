@@ -36,11 +36,14 @@ pip install -q -r api/requirements.txt pytest httpx requests >/dev/null 2>&1
 apt-get -qq update >/dev/null 2>&1 && apt-get -qq install -y postgresql-client >/dev/null 2>&1
 PGPASSWORD=orbit psql -h "$(echo $DB_DSN | sed -E "s/.*host=([^ ]+).*/\1/")" -U orbit -d orbit -f db/init.sql >/dev/null 2>&1
 cd api
-python -m pytest test_subscription.py test_rls.py test_frontend.py test_selfhost.py test_faq.py test_backup.py test_fields.py test_dashboards.py test_spacecraft.py test_calibration.py test_metering.py test_billing.py test_sandbox_ports.py test_env_headers.py test_sandbox_deploy.py test_account_ui.py test_sandbox_auth.py test_grafana_role.py test_api_hostnames.py test_org_grafana.py test_auth_header.py test_deploy_target.py test_workflows.py test_maplibre.py test_self_serve_access.py test_staging_isolation.py test_app_role.py test_ops_role.py test_registrations.py test_oem.py test_ephemeris.py test_passes.py test_favorites.py test_decoder_flatten.py -q 2>&1 | tail -1
+python -m pytest test_subscription.py test_rls.py test_frontend.py test_selfhost.py test_faq.py test_backup.py test_fields.py test_dashboards.py test_spacecraft.py test_calibration.py test_metering.py test_billing.py test_sandbox_ports.py test_env_headers.py test_sandbox_deploy.py test_account_ui.py test_sandbox_auth.py test_grafana_role.py test_api_hostnames.py test_org_grafana.py test_auth_header.py test_deploy_target.py test_workflows.py test_maplibre.py test_self_serve_access.py test_staging_isolation.py test_app_role.py test_ops_role.py test_registrations.py test_oem.py test_ephemeris.py test_passes.py test_favorites.py test_decoder_flatten.py test_shell_pipefail.py -q 2>&1 | tail -1
 python -m pytest test_polar.py -q 2>&1 | tail -1
 ' 2>&1)
 
-SUB=$(echo "$OUT" | grep -oE '[0-9]+ passed|[0-9]+ failed' | head -2 | paste -sd' ' -)
+# `head -2` closes the pipe early, upstream takes SIGPIPE and — under
+# `set -o pipefail` — the whole pipeline reports failure even though it
+# matched. `sed -n` reads to EOF, so nothing upstream is ever killed.
+SUB=$(echo "$OUT" | grep -oE '[0-9]+ passed|[0-9]+ failed' | sed -n '1,2p' | paste -sd' ' -)
 POL=$(echo "$OUT" | grep -oE '[0-9]+ passed|[0-9]+ failed|[0-9]+ skipped' | tail -2 | paste -sd' ' -)
 STAMP=$(date -u +"%Y-%m-%d %H:%M UTC")
 FAILED=$(echo "$OUT" | grep -c "failed")
@@ -53,7 +56,7 @@ Do not edit by hand.
 
 | Suite | Result | Covers |
 |---|---|---|
-| subscription | $(echo "$OUT" | grep -m1 -oE '[0-9]+ passed.*') | signup, org isolation, service tokens, quotas |
+| subscription | $(echo "$OUT" | grep -oE '[0-9]+ passed.*' | sed -n 1p) | signup, org isolation, service tokens, quotas |
 | polar | $(echo "$OUT" | grep -oE '[0-9]+ passed.*' | tail -1) | pro-account product, trial, discount codes |
 
 **Run:** $STAMP · host: VM (podman) · $([ "$FAILED" -eq 0 ] && echo "ALL GREEN ✅" || echo "FAILURES ❌")

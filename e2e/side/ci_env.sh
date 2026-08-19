@@ -15,7 +15,9 @@ DEST=~/e2e-side/.env
 [ -f "$SRC" ] || { echo "sandbox stack .env not found at $SRC" >&2; exit 1; }
 : "${BASIC_PASS:?the gate password was not passed through}"
 
-val() { grep -E "^$1=" "$SRC" | head -1 | cut -d= -f2- | tr -d '"'; }
+# sed -n 1p rather than head -1: head would SIGPIPE grep, and pipefail
+# turns that into a failure of a lookup that actually succeeded.
+val() { grep -E "^$1=" "$SRC" | sed -n 1p | cut -d= -f2- | tr -d '"'; }
 
 umask 077
 cat > "$DEST" <<EOF

@@ -36,7 +36,7 @@ SQL
 echo "[$ENV] waiting up to 120s for the alert to fire + Grafana to notify..."
 for i in $(seq 1 12); do
   if podman logs --since 130s "$GRAF" 2>&1 \
-       | grep -q 'rule_uid=new-registration.*Sending alerts to local notifier'; then
+       | grep -e 'rule_uid=new-registration.*Sending alerts to local notifier' >/dev/null; then
     echo "[$ENV] PASS — new-registration alert fired and Grafana sent the ops mail."
     exit 0
   fi

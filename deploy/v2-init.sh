@@ -20,7 +20,9 @@ KC="podman exec ovw2_keycloak_1 /opt/keycloak/bin/kcadm.sh"
 $KC config credentials --server http://127.0.0.1:8080/auth \
   --realm master --user "$KC_ADMIN_USERNAME" --password "$KC_ADMIN_PASSWORD" >/dev/null
 
-CID=$($KC get clients -r overwatch -q clientId=overwatch --fields id --format csv --noquotes | head -1)
+# sed -n 1p, not head -1: head exits early, kcadm takes SIGPIPE, and under
+# pipefail the assignment fails even though the id was read.
+CID=$($KC get clients -r overwatch -q clientId=overwatch --fields id --format csv --noquotes | sed -n 1p)
 $KC update "clients/$CID" -r overwatch -s "secret=$OVERWATCH_CLIENT_SECRET"
 echo "== client secret set (client $CID)"
 $KC update "clients/$CID" -r overwatch -s 'defaultClientScopes+=organization' 2>/dev/null || true
