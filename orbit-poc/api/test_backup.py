@@ -72,3 +72,27 @@ def test_a_dump_is_verified_before_it_counts():   # incident 2026-08-19
     assert "mv \"$tmp\" \"$out\"" in s, "publish only after the checks"
     # and the failure must propagate: the script runs under set -e
     assert "set -euo pipefail" in s
+
+
+def test_backup_captures_cluster_roles():   # incident 2026-08-19
+    """A pg_dump of a database contains no roles. Our per-org RLS roles
+    (org_<hex>) and service roles (grafana_ro, ops_ro, orbit_app) are cluster
+    objects, and the data dumps are full of OWNER/GRANT statements naming
+    them — so a restore onto a fresh Postgres dies on the first missing role.
+    A rehearsal of the 2026-08-02 dump proved it: it would not load."""
+    s = _script("backup.sh")
+    assert "pg_dumpall" in s and "--globals-only" in s
+    assert "globals orbit-poc_db_1" in s and "globals ovw2_kc-db_1" in s
+
+
+def test_a_restore_rehearsal_exists_and_never_touches_live_data():
+    """A dump that has never been restored is a belief, not a backup — and
+    restore.sh loads into the LIVE database behind a confirmation prompt, so
+    it is never exercised."""
+    s = _script("restore-rehearsal.sh")
+    assert "SCRATCH=" in s and 'refusing to touch the live database' in s
+    # it must verify the backup carries the roles it references, not merely
+    # that a scratch restore inside the live cluster happens to work
+    assert "globals" in s and "does not contain" in s
+    # and never mistake the roles file for the data dump
+    assert "-globals-" in s and "grep -v" in s
