@@ -46,13 +46,19 @@ jobs:
       - name: Wait for the front door
         working-directory: selfhost
         run: |
+          # both halves: the web container answers "/" well before the api is
+          # ready, so waiting on the globe alone probes a half-booted stack
           for i in $(seq 1 60); do
-            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 \
-                   http://localhost:8080/ || true)
-            [ "$code" = "200" ] && exit 0
+            web=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 \
+                  http://localhost:8080/ || true)
+            api=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 \
+                  http://localhost:8080/api/v1/satellites || true)
+            [ "$web" = "200" ] && [ "$api" = "200" ] && exit 0
             sleep 5
           done
-          echo "front still answers $code"; docker compose logs --tail 40 caddy web kc-bootstrap; exit 1
+          echo "web=$web api=$api after 5 minutes"
+          docker compose logs --tail 40 caddy web api kc-bootstrap
+          exit 1
 
       - name: The edition proves itself
         working-directory: selfhost
