@@ -10,7 +10,7 @@ PSQL="podman exec -i orbit-poc_db_1 psql -U orbit -t -A"
 
 case $cmd in
 up)
-  TK=$($PSQL -c "WITH ins AS (INSERT INTO tenant (name,email) VALUES ('clemsat-demo','demo@confinia.io') RETURNING key) SELECT key FROM ins;" | head -1 | tr -d '[:space:]')
+  TK=$($PSQL -c "WITH ins AS (INSERT INTO tenant (name,email) VALUES ('clemsat-demo','demo@confinia.io') RETURNING key) SELECT key FROM ins;" | sed -n 1p | tr -d '[:space:]')
   echo "$TK" > "$STATE"
   podman build -q -t localhost/clemsat:latest ./clemsat >/dev/null
   podman rm -f clemsat >/dev/null 2>&1 || true
