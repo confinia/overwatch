@@ -99,4 +99,11 @@ def test_selfhost_boot_proof_asserts_the_404s():
               encoding="utf-8").read()
     assert "/api/v1/billing/mode" in wf and "/api/v1/billing/webhook" in wf
     assert '"404"' in wf
-    assert "./up.sh" in wf, "CI must boot exactly the way the README says"
+    # rule 28: the CI boots with the SAME plain command the README documents —
+    # no wrapper script exists, let alone is required
+    assert "docker compose up -d --build" in wf
+    readme = open(os.path.join(ROOT, "selfhost", "README.md"),
+                  encoding="utf-8").read()
+    assert "docker compose up -d --build" in readme
+    assert "up.sh" not in readme and "up.sh" not in wf
+    assert not os.path.exists(os.path.join(ROOT, "selfhost", "up.sh"))

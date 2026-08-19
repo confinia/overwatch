@@ -41,7 +41,18 @@ jobs:
 
       - name: Boot the stack exactly as the README says
         working-directory: selfhost
-        run: ./up.sh
+        run: docker compose up -d --build
+
+      - name: Wait for the front door
+        working-directory: selfhost
+        run: |
+          for i in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 \
+                   http://localhost:8080/ || true)
+            [ "$code" = "200" ] && exit 0
+            sleep 5
+          done
+          echo "front still answers $code"; docker compose logs --tail 40 caddy web kc-bootstrap; exit 1
 
       - name: The edition proves itself
         working-directory: selfhost

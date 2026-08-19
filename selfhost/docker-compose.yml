@@ -3,8 +3,12 @@
 # api, web, Grafana, Keycloak and a Caddy front — from the same images the
 # hosted service runs. See README.md next to this file for the full guide.
 #
-#   cp .env.example .env      # fill in the secrets
-#   ./up.sh                   # first run: boots, bootstraps Keycloak, done
+#   cp .env.example .env              # fill in the secrets
+#   docker compose up -d --build      # (or: podman-compose up -d --build)
+#
+# That single command IS the whole install (rule 28): the kc-bootstrap
+# one-shot service below builds the Keycloak realm on first run and exits;
+# it is idempotent, so restarts and upgrades re-run it harmlessly.
 #
 # This is the SELFHOST edition by design: OVERWATCH_EDITION is deliberately
 # NOT set, so the api runs paymentless — every /v1/billing/* answers 404 and
@@ -144,6 +148,29 @@ services:
       kc-db:
         condition: service_healthy
     restart: unless-stopped
+
+  # One-shot first-run bootstrap (rule 28): creates the realm, the OIDC
+  # client and the organization claim, then exits 0. Idempotent — updates in
+  # place on every `up`. Waits out Keycloak's boot window by itself.
+  kc-bootstrap:
+    image: docker.io/library/python:3.12-slim
+    depends_on:
+      - keycloak
+    environment:
+      KC_BOOT_BASE: "http://keycloak:8080/auth"
+      PUBLIC_BASE: ${PUBLIC_BASE}
+      KC_ADMIN_USERNAME: ${KC_ADMIN_USERNAME:-admin}
+      KC_ADMIN_PASSWORD: ${KC_ADMIN_PASSWORD}
+      OVERWATCH_CLIENT_SECRET: ${OVERWATCH_CLIENT_SECRET}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+    volumes:
+      - ./bootstrap_keycloak.py:/bootstrap.py:ro
+    command: ["python3", "/bootstrap.py"]
+    restart: on-failure
 
   caddy:
     image: docker.io/library/caddy:2
