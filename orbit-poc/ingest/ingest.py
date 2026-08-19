@@ -57,6 +57,8 @@ PASSES_MIN_EL       = float(os.environ.get("PASSES_MIN_EL",     10.0))
 PASSES_MAX_STATIONS = int(os.environ.get("PASSES_MAX_STATIONS", 20))
 
 # Be a good citizen: identify ourselves.
+from flatten import flatten_decoded
+
 UA = {"User-Agent": "orbit-poc/0.1 (educational; contact: you@example.org)"}
 
 
@@ -462,26 +464,7 @@ def _decode_frame(decoder, frame_hex):
     mod = importlib.import_module(f"satnogsdecoders.decoder.{decoder}")
     cls = getattr(mod, decoder.capitalize())
     obj = cls.from_bytes(bytes.fromhex(frame_hex))
-    out = {}
-
-    def flat(o, prefix="", depth=0):
-        if depth > 4:
-            return
-        for a in dir(o):
-            if a.startswith("_"):
-                continue
-            try:
-                v = getattr(o, a)
-            except Exception:
-                continue
-            if isinstance(v, (int, float)) and not isinstance(v, bool):
-                out[prefix + a] = v
-            elif hasattr(v, "__class__") and \
-                    v.__class__.__module__.startswith("satnogsdecoders"):
-                flat(v, prefix + a + "_", depth + 1)
-
-    flat(obj)
-    return out
+    return flatten_decoded(obj)
 
 
 def _maidenhead(loc):
