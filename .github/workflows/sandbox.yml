@@ -55,8 +55,22 @@ jobs:
           cp ~/projects/overwatch/orbit-poc/sandbox/.env orbit-poc/sandbox/.env
           chmod 600 orbit-poc/sandbox/.env
           cd orbit-poc/sandbox
-          podman-compose -p ovw-sandbox -f docker-compose.yml down 2>/dev/null || true
-          podman-compose -p ovw-sandbox -f docker-compose.yml up -d --build 2>&1 | tail -3
+          # #237: never `down` first. The long part of a redeploy is the BUILD
+          # (2-4 min); with the stack torn down, that whole window answers a
+          # bare 502 — to a prospect's browser and to our own e2e walks alike.
+          # Build while the OLD stack keeps serving, then swap in seconds.
+          C="podman-compose -p ovw-sandbox -f docker-compose.yml"
+          $C build 2>&1 | tail -3
+          # `up` alone collides on existing container names and silently keeps
+          # the OLD containers (#119) — so the swap must be explicit. Only the
+          # app services: db keeps its data warm, caddy keeps the listener up.
+          $C up -d 2>&1 | tail -2
+          $C up -d --force-recreate web api grafana ingest 2>&1 | tail -3
+          # The Caddyfile is bind-mounted from this checkout, so routing
+          # changes land on disk without a recreate. Reload in place —
+          # graceful by design, no dropped connections.
+          podman exec ovw-sandbox_caddy_1 caddy reload \
+            --config /etc/caddy/Caddyfile --adapter caddyfile 2>&1 | tail -1
           for c in $(podman ps --format '{{.Names}}' | grep ^ovw-sandbox); do
             podman update --restart=always "$c" >/dev/null; done
           echo "sandbox now runs $SHA"

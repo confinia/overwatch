@@ -28,3 +28,30 @@ def test_sandbox_up_does_clean_recreate():
     assert down != -1, "sandbox-up must run an explicit `down` (clean recreate)"
     assert up != -1, "sandbox-up must run `up`"
     assert down < up, "the `down` must precede the `up` in sandbox-up"
+
+
+def test_sandbox_workflow_deploys_without_a_downtime_window():   # #237
+    """The automatic deploy must NOT tear the stack down: `down` removes the
+    caddy for the 2-4 minutes of a rebuild and everything aimed at the sandbox
+    — a prospect's browser, our own e2e walks — gets a bare 502. `up -d
+    --build` recreates only what changed and the listener stays up.
+
+    The Makefile's `sandbox-up` keeps its explicit down->up: that one is an
+    operator deliberately asking for a clean recreate, not a push."""
+    wf = open(os.path.join(os.path.dirname(MAKEFILE), ".github", "workflows",
+                           "sandbox.yml"), encoding="utf-8").read()
+    deploy = wf.split("Check it answers")[0]
+    for line in deploy.splitlines():
+        code = line.split("#", 1)[0]
+        assert "compose -p ovw-sandbox -f docker-compose.yml down" not in code, \
+            f"the workflow still tears the sandbox down: {line.strip()}"
+    # the build must happen while the old stack still serves...
+    b = deploy.index("$C build")
+    # ...and the swap must be EXPLICIT: `up` alone keeps the old containers
+    # (#119), so a plain `up -d --build` would deploy nothing at all
+    r = deploy.index("--force-recreate")
+    assert b < r, "the build must precede the recreate, or the swap is the slow part"
+    assert "caddy" not in deploy[r:deploy.index("\n", r)], \
+        "caddy must NOT be force-recreated — it is what keeps the listener up"
+    # a routing change must still be picked up, gracefully
+    assert "caddy reload" in deploy
