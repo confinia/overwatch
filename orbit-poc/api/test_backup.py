@@ -56,3 +56,19 @@ def test_restore_decrypts_age():                            # #31 round-trip
     t = _script("restore.sh")
     assert "*.age" in t and "age -d" in t
     assert "BACKUP_AGE_IDENTITY" in t
+
+
+def test_a_dump_is_verified_before_it_counts():   # incident 2026-08-19
+    """When the stack moved to its own Unix user, `podman exec` failed for the
+    unit still running as `debian` — but the gzip in the pipeline kept writing
+    a valid EMPTY archive (20 bytes). Seventeen nightly 'backups' were empty
+    and nothing said so. The dump must therefore verify what it produced:
+    write aside, test the archive, check it is non-trivial, publish only then,
+    and fail the run otherwise so systemd marks the unit failed."""
+    s = _script("backup.sh")
+    assert 'tmp="$out.part"' in s, "dumps must not be published before verification"
+    assert "gzip -t" in s, "a corrupt archive must be detected"
+    assert "MIN_BYTES" in s and "an empty archive is not a backup" in s
+    assert "mv \"$tmp\" \"$out\"" in s, "publish only after the checks"
+    # and the failure must propagate: the script runs under set -e
+    assert "set -euo pipefail" in s

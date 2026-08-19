@@ -14,9 +14,33 @@ KEYFILE="${BACKUP_AGE_RECIPIENT:-$HOME/.config/overwatch/backup.pub}"
 mkdir -p "$DEST"
 STAMP=$(date -u +"%Y%m%dT%H%M%SZ")
 
+# A dump is only a backup once it is verified. When the container is missing
+# (as after the stack moved to its own Unix user), `podman exec` fails but the
+# gzip in the pipeline still writes a valid EMPTY archive: 20 bytes of header.
+# Seventeen consecutive nightly "backups" were exactly that, and nothing said
+# so. Now: write to a temp name, check the archive is intact and non-trivial,
+# and only then publish it — a bad dump leaves no file and fails the run, so
+# systemd marks the unit failed and the alerting sees it.
+MIN_BYTES="${BACKUP_MIN_BYTES:-1024}"
+
 dump() {  # $1 container, $2 pguser, $3 db, $4 label
   local out="$DEST/${4}-${STAMP}.sql.gz"
-  podman exec "$1" pg_dump -U "$2" "$3" | gzip > "$out"
+  local tmp="$out.part"
+  if ! podman exec "$1" pg_dump -U "$2" "$3" | gzip > "$tmp"; then
+    rm -f "$tmp"
+    echo "!! FAILED: pg_dump of $3 from $1 (is the container running under THIS user?)" >&2
+    return 1
+  fi
+  if ! gzip -t "$tmp" 2>/dev/null; then
+    rm -f "$tmp"; echo "!! FAILED: $4 archive is corrupt" >&2; return 1
+  fi
+  local size; size=$(wc -c < "$tmp")
+  if [ "$size" -lt "$MIN_BYTES" ]; then
+    rm -f "$tmp"
+    echo "!! FAILED: $4 dump is $size bytes (< $MIN_BYTES) — an empty archive is not a backup" >&2
+    return 1
+  fi
+  mv "$tmp" "$out"
   if [ -f "$KEYFILE" ] && command -v age >/dev/null 2>&1; then
     age -R "$KEYFILE" -o "$out.age" "$out" && rm "$out"
     out="$out.age"
