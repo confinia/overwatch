@@ -48,9 +48,35 @@ dump() {  # $1 container, $2 pguser, $3 db, $4 label
   echo "  $(basename "$out") ($(du -h "$out" | cut -f1))"
 }
 
+# Cluster-level objects are NOT in a pg_dump of a database. Our per-org RLS
+# roles (org_<hex>) and the service roles (grafana_ro, ops_ro, orbit_app) are
+# cluster objects, and the data dumps are full of OWNER/GRANT statements
+# naming them — so a restore onto a fresh Postgres fails on the first missing
+# role. Proven by a restore rehearsal: the 2026-08-02 dump would not load
+# because an org role it references no longer exists. Roles are what makes
+# tenant isolation restorable, so they are part of the backup.
+globals() {  # $1 container, $2 pguser, $3 label
+  local out="$DEST/${3}-globals-${STAMP}.sql.gz"
+  local tmp="$out.part"
+  if ! podman exec "$1" pg_dumpall -U "$2" --globals-only --no-role-passwords \
+        | gzip > "$tmp"; then
+    rm -f "$tmp"; echo "!! FAILED: pg_dumpall globals from $1" >&2; return 1
+  fi
+  if ! gzip -t "$tmp" 2>/dev/null || [ "$(wc -c < "$tmp")" -lt 200 ]; then
+    rm -f "$tmp"; echo "!! FAILED: $3 globals dump is empty or corrupt" >&2; return 1
+  fi
+  mv "$tmp" "$out"
+  if [ -f "$KEYFILE" ] && command -v age >/dev/null 2>&1; then
+    age -R "$KEYFILE" -o "$out.age" "$out" && rm "$out"; out="$out.age"
+  fi
+  echo "  $(basename "$out") ($(du -h "$out" | cut -f1))"
+}
+
 echo "== backup $STAMP"
-dump orbit-poc_db_1 orbit orbit          orbit
-dump ovw2_kc-db_1   keycloak keycloak     keycloak
+dump    orbit-poc_db_1 orbit    orbit    orbit
+globals orbit-poc_db_1 orbit             orbit
+dump    ovw2_kc-db_1   keycloak keycloak keycloak
+globals ovw2_kc-db_1   keycloak          keycloak
 
 # Retention: 14 days.
 find "$DEST" -name '*.sql.gz*' -mtime +14 -delete
