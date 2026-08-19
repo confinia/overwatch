@@ -27,13 +27,14 @@ git clone https://github.com/confinia/overwatch
 cd overwatch/selfhost
 cp .env.example .env
 # fill in .env — every secret is yours; generate them with: openssl rand -hex 24
-./up.sh
+docker compose up -d --build        # or: podman-compose up -d --build
 ```
 
-`up.sh` builds the images, starts the stack, bootstraps Keycloak (realm
-`overwatch`, self-registration on, the OIDC client wired to your
-`PUBLIC_BASE`) and waits for the front door. It is idempotent — re-run it
-after any `.env` change or upgrade.
+That one command is the whole install. Compose itself refuses to start while
+a required secret is empty (and names it), and the `kc-bootstrap` one-shot
+service builds the Keycloak realm — self-registration on, the OIDC client
+wired to your `PUBLIC_BASE` — then exits. Everything is idempotent: re-run
+the same command after any `.env` change or upgrade.
 
 First local run: keep `PUBLIC_BASE=http://localhost:8080`, then open
 <http://localhost:8080>. The globe is live as soon as the ingest has pulled
@@ -44,7 +45,7 @@ its first TLE/positions cycle (a few minutes).
 1. Open `PUBLIC_BASE` → **Account** → **Sign in / Register**.
 2. Register — with no SMTP configured, accounts work immediately (e-mail
    verification and password reset switch on automatically when you set the
-   `SMTP_*` values and re-run `./up.sh`).
+   `SMTP_*` values and re-run `docker compose up -d`).
 3. Create your organization, then mint a **service token** on the account
    page and push telemetry:
 
@@ -69,7 +70,7 @@ podman run --rm --network=host -e SIM_KEY=<token> \
 |---|---|
 | status | `docker compose ps` |
 | logs | `docker compose logs -f api web ingest` |
-| upgrade | `git pull && ./up.sh` |
+| upgrade | `git pull && docker compose up -d --build` |
 | stop | `docker compose down` |
 | backup | `docker compose exec db pg_dump -U orbit orbit > overwatch.sql`, plus the `kc_pgdata` and `grafana` volumes |
 | restore | recreate volumes, `psql -U orbit orbit < overwatch.sql` |
@@ -87,7 +88,9 @@ and Caddy provisions certificates itself.
 - **Front answers 502** — the stack is still building/booting; `docker
   compose logs caddy web api`.
 - **Sign-in loops or 401s** — `PUBLIC_BASE` must match the URL in the
-  browser exactly (scheme included); re-run `./up.sh` after changing it.
+  browser exactly (scheme included); re-run `docker compose up -d` after
+  changing it.
 - **Globe empty after 10 minutes** — check `docker compose logs ingest`;
   ensure `COMPOSE_PROFILES=data` is set in `.env`.
-- **Password reset greyed out** — configure `SMTP_*` and re-run `./up.sh`.
+- **Password reset greyed out** — configure `SMTP_*` and re-run
+  `docker compose up -d`.
