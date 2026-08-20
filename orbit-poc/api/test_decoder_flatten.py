@@ -102,3 +102,18 @@ def test_real_frame_decodes_past_the_old_cutoff():
     obj = mod.Cp16.from_bytes(bytes.fromhex(hexf))
     assert len(flatten_decoded(obj, max_depth=4)) < 10      # the bug
     assert len(flatten_decoded(obj)) > 100                  # the fix
+
+
+def test_the_candidate_sweep_uses_the_same_depth_bound():   # #171 / fleet growth
+    """batch/sweep_full.py scores which satellites are worth adding by how many
+    fields decode. It carries its own copy of the flattener (its container
+    mounts only batch/), so if that copy keeps the old cutoff the sweep
+    under-counts exactly the AX.25-nested satellites — and we would select
+    against the good candidates while believing we were selecting for them."""
+    sweep = os.path.join(HERE, "..", "..", "batch", "sweep_full.py")
+    if not os.path.exists(sweep):
+        sweep = os.path.join(HERE, "..", "batch", "sweep_full.py")
+    src = open(sweep, encoding="utf-8").read()
+    assert "MAX_DEPTH = 8" in src, "the sweep's bound drifted from flatten.py"
+    assert "depth > MAX_DEPTH" in src and "depth > 4" not in src
+    assert "seen" in src, "no cycle guard in the sweep's copy"
