@@ -250,11 +250,20 @@ def refresh_catalog():
     log.info("Catalog: %d satellites available to pick from", rows)
 
 
+# A per-satellite CelesTrak lookup is a fallback path, so it must fail FAST.
+# At 30s it does not: CelesTrak's per-object endpoint has been unreachable
+# from this VM while the bulk group endpoint kept working, and priming
+# elements at startup then costs ~30s PER satellite before positions can
+# start — twelve minutes of dark globe after every deploy. SatNOGS answers
+# right after, so a short timeout loses nothing.
+CELESTRAK_ONE_TIMEOUT = int(os.environ.get("CELESTRAK_ONE_TIMEOUT", 8))
+
+
 def _tle_from_celestrak(norad):
     try:
         r = requests.get(CELESTRAK_BASE,
                          params={"CATNR": norad, "FORMAT": "TLE"},
-                         headers=UA, timeout=30)
+                         headers=UA, timeout=CELESTRAK_ONE_TIMEOUT)
         r.raise_for_status()
         lines = [ln for ln in r.text.strip().splitlines() if ln.strip()]
         if len(lines) >= 2 and lines[-2].startswith("1 "):
