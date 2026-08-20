@@ -170,6 +170,57 @@ def fetch_elements():
         time.sleep(1)
 
 
+def refresh_catalog():
+    """Mirror the SatNOGS satellite DB into `catalog` — the list users pick
+    from (#230). A lookup table only: choosing an entry copies it into
+    `satellite`, which is what actually gets tracked. Paginated, ~1700 rows,
+    refreshed daily; SatNOGS needs no key for this endpoint."""
+    url, page, rows = f"{SATNOGS_BASE}/satellites/", 0, 0
+    headers = dict(UA)
+    if SATNOGS_TOKEN:
+        headers["Authorization"] = f"Token {SATNOGS_TOKEN}"
+    while url and page < 40:
+        try:
+            r = requests.get(url, headers=headers, timeout=60)
+            if r.status_code == 429:
+                time.sleep(int(r.headers.get("Retry-After", 30)))
+                continue
+            r.raise_for_status()
+            data = r.json()
+        except Exception as e:
+            log.warning("Catalog refresh failed at page %d: %s", page, e)
+            return
+        items = data.get("results", data) if isinstance(data, dict) else data
+        batch = []
+        for sat in items:
+            norad = sat.get("norad_cat_id")
+            name = (sat.get("name") or "").strip()
+            if not norad or not name:
+                continue            # objects without a catalogue number cannot be propagated
+            batch.append((norad, name, sat.get("sat_id"), sat.get("status")))
+        if batch:
+            with db() as conn, conn.cursor() as cur:
+                execute_values(cur,
+                    """INSERT INTO catalog (norad, name, sat_id, status)
+                       VALUES %s
+                       ON CONFLICT (norad) DO UPDATE SET
+                         name = EXCLUDED.name, sat_id = EXCLUDED.sat_id,
+                         status = EXCLUDED.status, updated_at = now()""", batch)
+                conn.commit()
+            rows += len(batch)
+        url = data.get("next") if isinstance(data, dict) else None
+        page += 1
+        time.sleep(1)
+    # decoders are what turn a tracked satellite into a telemetry one
+    with db() as conn, conn.cursor() as cur:
+        cur.execute("""UPDATE catalog c SET decoder = s.decoder
+                       FROM satellite s
+                       WHERE s.norad = c.norad AND s.decoder IS NOT NULL
+                         AND c.decoder IS DISTINCT FROM s.decoder""")
+        conn.commit()
+    log.info("Catalog: %d satellites available to pick from", rows)
+
+
 def _tle_from_celestrak(norad):
     try:
         r = requests.get(CELESTRAK_BASE,
@@ -597,6 +648,7 @@ def main():
     threading.Thread(target=loop, args=(compute_passes, PASSES_INTERVAL, "passes"),
                      daemon=True).start()
     # positions in the main thread
+    loop(refresh_catalog, int(os.environ.get("CATALOG_INTERVAL", 86400)), "catalog")
     loop(propagate_positions, POSITION_INTERVAL, "positions")
 
 

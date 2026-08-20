@@ -106,6 +106,18 @@ CREATE TABLE IF NOT EXISTS org_token (
 );
 -- Private tenants: a party plugs ITS OWN satellite telemetry in and
 -- observes it in isolated dashboards. Never mixed with the public fleet.
+-- The open-network catalogue users pick from (#230). Refreshed from the
+-- SatNOGS satellite DB by the ingest; it is a LOOKUP list, not the tracked
+-- set — tracking a satellite copies it into `satellite`.
+CREATE TABLE IF NOT EXISTS catalog (
+    norad      INTEGER PRIMARY KEY,
+    name       TEXT NOT NULL,
+    sat_id     TEXT,
+    status     TEXT,                       -- alive | dead | re-entered | future
+    decoder    TEXT,                       -- satnogs-decoders module, when known
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS catalog_name_idx ON catalog (lower(name));
 CREATE TABLE IF NOT EXISTS tenant (
     key        uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     name       text NOT NULL,
@@ -1314,6 +1326,108 @@ def _remove_favorite(cur, sub: str, norad: int) -> int:
 
 class SatAdd(BaseModel):
     norad: int
+
+
+# --- open-network catalogue: pick any satellite, not just the fleet (#230) ---
+# Telemetry decoding needs a per-satellite decoder, which is why the fleet is
+# curated. Position tracking does not: CelesTrak has a TLE for anything
+# catalogued and SGP4 propagates it. So "add any satellite" means position
+# tracking, with telemetry only where a decoder already exists.
+TRACK_CAP = int(os.environ.get("TRACK_CAP", "250"))
+
+
+@app.get("/v1/catalog/search")
+def catalog_search(q: str = Query("", max_length=60),
+                   limit: int = Query(20, ge=1, le=50)):
+    """Text search over the open network. Anonymous-friendly: this is a
+    read-only lookup, and the result says what is already tracked."""
+    term = q.strip()
+    with cursor() as cur:
+        if term.isdigit():
+            cur.execute(
+                """SELECT c.norad, c.name, c.status, c.decoder,
+                          (s.norad IS NOT NULL) AS tracked
+                   FROM catalog c LEFT JOIN satellite s ON s.norad = c.norad
+                   WHERE c.norad = %s""", (int(term),))
+        else:
+            cur.execute(
+                """SELECT c.norad, c.name, c.status, c.decoder,
+                          (s.norad IS NOT NULL) AS tracked
+                   FROM catalog c LEFT JOIN satellite s ON s.norad = c.norad
+                   WHERE (%s = '' OR c.name ILIKE %s)
+                   ORDER BY (s.norad IS NOT NULL) DESC,
+                            (c.status = 'alive') DESC, c.name
+                   LIMIT %s""", (term, f"%{term}%", limit))
+        return [{"norad": n, "name": nm, "status": st,
+                 "telemetry": bool(dec), "tracked": tr}
+                for n, nm, st, dec, tr in cur.fetchall()]
+
+
+class TrackRequest(BaseModel):
+    norad: int
+
+
+@app.post("/v1/catalog/track", status_code=201)
+def catalog_track(request: Request, body: TrackRequest):
+    """Add a catalogued satellite to the tracked set, so its position is
+    computed and it appears on the globe. Idempotent. The tracked set is
+    SHARED — one person adding a satellite makes it available to everyone,
+    which is why it is capped and validated against the catalogue."""
+    with cursor() as cur:
+        cur.execute("SELECT name, sat_id, decoder, status FROM catalog WHERE norad = %s",
+                    (body.norad,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, f"NORAD {body.norad} is not in the open-network "
+                                     f"catalogue — nothing to track.")
+        name, sat_id, decoder, status = row
+        cur.execute("SELECT 1 FROM satellite WHERE norad = %s", (body.norad,))
+        if cur.fetchone():
+            return {"norad": body.norad, "name": name, "tracked": True,
+                    "already": True, "telemetry": bool(decoder)}
+        cur.execute("SELECT count(*) FROM satellite")
+        if cur.fetchone()[0] >= TRACK_CAP:
+            raise HTTPException(429, f"The tracked set is full ({TRACK_CAP} satellites). "
+                                     "Ask us to raise it: contact@confinia.io")
+        cur.execute(
+            """INSERT INTO satellite (norad, name, sat_id, has_telemetry, decoder, note)
+               VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT (norad) DO NOTHING""",
+            (body.norad, name, sat_id, bool(decoder), decoder, "added from the open network"))
+        cur.connection.commit()
+    # Fetch elements now rather than waiting for the 6-hourly sweep, so the
+    # satellite appears within one position cycle instead of hours later.
+    tle = _tle_now(body.norad)
+    return {"norad": body.norad, "name": name, "tracked": True, "already": False,
+            "telemetry": bool(decoder), "status": status,
+            "elements": bool(tle),
+            "note": ("position tracking only — no decoder for this satellite"
+                     if not decoder else "telemetry decoding available")}
+
+
+def _tle_now(norad: int) -> bool:
+    """Best-effort immediate TLE fetch so a freshly tracked satellite shows up
+    at once. The ingest refreshes elements anyway; this only removes the wait."""
+    try:
+        r = _rq.get("https://celestrak.org/NORAD/elements/gp.php",
+                    params={"CATNR": norad, "FORMAT": "TLE"},
+                    headers={"User-Agent": "overwatch/1.0"}, timeout=15)
+        lines = [l for l in r.text.strip().splitlines() if l.strip()]
+        if len(lines) < 2 or not lines[-2].startswith("1 "):
+            return False
+        tle1, tle2 = lines[-2], lines[-1]
+        yr = int(tle1[18:20]); yr += 2000 if yr < 57 else 1900
+        epoch = (_dt.datetime(yr, 1, 1, tzinfo=_dt.timezone.utc)
+                 + _dt.timedelta(days=float(tle1[20:32]) - 1))
+        with cursor() as cur:
+            cur.execute("""INSERT INTO elements (norad, epoch, tle1, tle2)
+                           VALUES (%s,%s,%s,%s)
+                           ON CONFLICT (norad, epoch) DO NOTHING""",
+                        (norad, epoch, tle1, tle2))
+            cur.connection.commit()
+        return True
+    except Exception as e:
+        print(f"tle fetch failed for {norad}: {e}", flush=True)
+        return False
 
 
 @app.get("/v1/me/satellites")
