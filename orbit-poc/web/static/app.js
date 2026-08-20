@@ -452,6 +452,53 @@ window.addEventListener("hashchange", () => {
   }
 });
 
+// --- open-network picker (#230) ---------------------------------------------
+let catalogSeq = 0;           // drop responses that arrive after a newer query
+
+async function renderCatalog(q, list){
+  const seq = ++catalogSeq;
+  let hits = [];
+  try {
+    const r = await fetch(`${API_BASE}/api/v1/catalog/search?q=${encodeURIComponent(q)}&limit=8`);
+    if (!r.ok) return;
+    hits = await r.json();
+  } catch (e) { return; }
+  if (seq !== catalogSeq) return;                 // a newer query won
+  const fresh = hits.filter(h => !h.tracked);     // already-tracked ones are above
+  if (!fresh.length) return;
+  const hdr = document.createElement("div");
+  hdr.className = "meta"; hdr.style.padding = "8px 12px 2px";
+  hdr.textContent = "From the open network — add any satellite to the globe";
+  list.appendChild(hdr);
+  for (const h of fresh){
+    const div = document.createElement("div");
+    div.className = "sat";
+    const kind = h.telemetry ? "telemetry + position" : "position only";
+    div.innerHTML =
+      `<div class="row"><span class="name">${h.name}</span>` +
+      `<button class="link" onclick="event.stopPropagation();trackSat(${h.norad},this)">+ add</button></div>` +
+      `<div class="meta">NORAD ${h.norad} · ${h.status || "unknown"} · ${kind}</div>`;
+    list.appendChild(div);
+  }
+}
+
+async function trackSat(norad, btn){
+  btn.disabled = true; btn.textContent = "adding…";
+  try {
+    const r = await fetch(`${API_BASE}/api/v1/catalog/track`, {
+      method: "POST", headers: {"content-type": "application/json"},
+      body: JSON.stringify({norad})});
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || `failed (${r.status})`);
+    btn.textContent = d.elements ? "added ✓" : "added — waiting for elements";
+    // Its position is computed on the next cycle; refresh so it appears.
+    setTimeout(() => { if (typeof refresh === "function") refresh(); }, 3000);
+  } catch (e) {
+    btn.disabled = false; btn.textContent = "+ add";
+    alert(e.message);
+  }
+}
+
 function renderList(sats){
   const list = document.getElementById("list");
   const q = document.getElementById("search").value.trim().toLowerCase();
@@ -509,6 +556,12 @@ function renderList(sats){
     div.onclick = () => select(s);
     list.appendChild(div);
   }
+  // #230: the open network. The tracked fleet is curated because telemetry
+  // needs a per-satellite decoder — but position tracking works for anything
+  // catalogued, so anyone can add a satellite and watch it fly. Only searched
+  // for once the query is specific enough to be worth a round trip.
+  if (q.length >= 2) renderCatalog(q, list);
+
   // Station results: station-first view for ground-station operators
   // ("does MY station appear?"). Shown when the query matches a callsign.
   const stq = q ? allStations.filter(st =>
