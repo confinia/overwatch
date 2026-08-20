@@ -164,3 +164,17 @@ def test_position_propagation_is_never_starved_by_another_loop():   # #230 regre
     after = body[body.index(calls[0]) + len(calls[0]):]
     assert not [l for l in after.splitlines() if l.strip() and not l.strip().startswith("#")], \
         "code after loop(propagate_positions) never runs"
+
+
+def test_a_dead_tle_source_cannot_stall_startup():   # #230 follow-up
+    """Elements are primed BEFORE positions start, and the per-satellite
+    CelesTrak lookup is a fallback path. At a 30s timeout an unreachable
+    CelesTrak costs 30s per satellite before the globe moves at all — twelve
+    minutes of dark globe after every deploy, observed live while CelesTrak's
+    per-object endpoint was down and SatNOGS answered fine."""
+    src = open(os.path.join(os.path.dirname(__file__), "..", "ingest", "ingest.py"),
+               encoding="utf-8").read()
+    one = src[src.index("def _tle_from_celestrak("):src.index("def _tle_from_satnogs(")]
+    assert "CELESTRAK_ONE_TIMEOUT" in one
+    default = int(src.split('CELESTRAK_ONE_TIMEOUT", ')[1].split(")")[0])
+    assert default <= 10, f"{default}s is too slow for a fallback lookup"
