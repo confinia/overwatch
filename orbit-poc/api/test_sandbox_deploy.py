@@ -86,5 +86,12 @@ def test_sandbox_deploy_cannot_serve_a_stale_image():   # #237 follow-up
     # caddy and db are never torn down — that is what keeps the listener up
     assert "caddy" not in removed and "_db_1" not in removed
     # and the deploy must prove the code is new, not merely the container
+    # `up` must touch ONLY the services just removed: podman-compose errors on
+    # an existing container name instead of skipping it, so a bare `up` dies on
+    # the still-running caddy and nothing is recreated at all.
+    up_line = next(l for l in logical if " up -d" in l and "--no-deps" in l)
+    for svc in ("web", "api", "grafana", "ingest"):
+        assert svc in up_line, svc
+    assert "caddy" not in up_line
     assert "STALE DEPLOY" in deploy
     assert "podman image inspect" in deploy and "{{.Image}}" in deploy
