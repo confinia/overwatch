@@ -55,3 +55,24 @@ def test_sandbox_workflow_deploys_without_a_downtime_window():   # #237
         "caddy must NOT be force-recreated — it is what keeps the listener up"
     # a routing change must still be picked up, gracefully
     assert "caddy reload" in deploy
+
+
+def test_sandbox_deploy_cannot_serve_a_stale_image():   # #237 follow-up
+    """Dropping the `down` (#237) removed the downtime window but introduced a
+    worse failure: `--force-recreate` recreates the CONTAINER while reusing the
+    image id pinned in it, so a freshly built :latest is ignored and the stack
+    silently serves yesterday's code — with every check green. Observed live.
+
+    Two properties fix it: the app containers are REMOVED before `up` (so the
+    tag is resolved again), and the deploy asserts the running container uses
+    the image just built. Container age proves neither."""
+    wf = open(os.path.join(os.path.dirname(MAKEFILE), ".github", "workflows",
+                           "sandbox.yml"), encoding="utf-8").read()
+    deploy = wf.split("Check it answers")[0]
+    assert "rm -sf web api" in deploy, "containers must be removed so `up` re-resolves the tag"
+    # caddy is still never torn down — that is what keeps the listener up
+    rm_line = next(l for l in deploy.splitlines() if "rm -sf" in l)
+    assert "caddy" not in rm_line and "db" not in rm_line
+    # and the deploy must prove the code is new, not merely the container
+    assert "STALE DEPLOY" in deploy
+    assert "podman image inspect" in deploy and "{{.Image}}" in deploy

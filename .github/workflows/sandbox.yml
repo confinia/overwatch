@@ -64,8 +64,13 @@ jobs:
           # `up` alone collides on existing container names and silently keeps
           # the OLD containers (#119) — so the swap must be explicit. Only the
           # app services: db keeps its data warm, caddy keeps the listener up.
+          # `--force-recreate` recreates the CONTAINER but reuses the image id
+          # already pinned in it, so a freshly built :latest is ignored and the
+          # stack silently keeps serving yesterday's code. Removing the app
+          # containers first forces `up` to resolve the tag again. caddy and db
+          # are never touched, so the listener stays up (#237).
+          $C rm -sf web api grafana ingest 2>&1 | tail -2
           $C up -d 2>&1 | tail -2
-          $C up -d --force-recreate web api grafana ingest 2>&1 | tail -3
           # The Caddyfile is bind-mounted from this checkout, so routing
           # changes land on disk without a recreate. Reload in place —
           # graceful by design, no dropped connections.
@@ -73,7 +78,19 @@ jobs:
             --config /etc/caddy/Caddyfile --adapter caddyfile 2>&1 | tail -1
           for c in $(podman ps --format '{{.Names}}' | grep ^ovw-sandbox); do
             podman update --restart=always "$c" >/dev/null; done
-          echo "sandbox now runs $SHA"
+          # Container age proves the container is new; it does NOT prove the
+          # CODE is new — a recreate can reuse the old image and serve stale
+          # code with every green check. Assert the running container uses the
+          # image we just built.
+          for svc in api web; do
+            want=$(podman image inspect "localhost/ovw-sandbox_${svc}:latest" --format '{{.Id}}' 2>/dev/null || true)
+            got=$(podman inspect "ovw-sandbox_${svc}_1" --format '{{.Image}}' 2>/dev/null || true)
+            if [ -n "$want" ] && [ "$want" != "$got" ]; then
+              echo "STALE DEPLOY: $svc runs ${got:0:12}, freshly built image is ${want:0:12}" >&2
+              exit 1
+            fi
+          done
+          echo "sandbox now runs $SHA (api+web on the freshly built images)"
           REMOTE
 
       - name: Check it answers
