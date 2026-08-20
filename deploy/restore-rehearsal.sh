@@ -8,9 +8,16 @@
 # A dump that has never been restored is a belief, not a backup. deploy/
 # restore.sh loads into the LIVE database and asks for confirmation, so it is
 # never rehearsed — which is how you discover at 3am that the dumps were
-# unusable all along. This restores into a scratch database in the same
-# Postgres, checks the data is really there, and drops it again. Safe to run
+# unusable all along. This restores into a THROWAWAY Postgres container —
+# empty cluster, no roles, nothing of ours in it — loads the globals and then
+# the data, checks the rows are really there, and destroys it. Safe to run
 # unattended, and non-zero on failure so a systemd unit surfaces it.
+#
+# A fresh cluster is the point. Restoring into a scratch database inside the
+# LIVE Postgres passes even when the backup is missing roles, because they
+# still exist there: a rehearsal that runs in the environment it is meant to
+# replace tests the environment, not the backup. That is exactly how the
+# missing-roles gap stayed hidden.
 #
 # Portable across products: everything specific is an env var. Another stack
 # reuses this by setting RH_CONTAINER / RH_USER / RH_DB / RH_EXPECT.
@@ -18,7 +25,8 @@
 #   RH_BACKUP_DIR   where dumps live                  (default ~/backups)
 #   RH_CONTAINER    postgres container                (default per target)
 #   RH_USER         postgres role                     (default per target)
-#   RH_DB           the LIVE db name — never written  (default per target)
+#   RH_DB           database name inside the throwaway cluster (per target)
+#   RH_IMAGE        postgres image for the throwaway    (default postgres:16)
 #   RH_EXPECT       "table:minrows,table:minrows"     (default per target)
 set -euo pipefail
 
@@ -50,19 +58,31 @@ if [ -z "$FILE" ]; then
 fi
 [ -f "$FILE" ] || fail "no such file: $FILE"
 
-SCRATCH="rehearsal_${TARGET}_$$"
-[ "$SCRATCH" != "$LIVE_DB" ] || fail "refusing to touch the live database"
+RH_IMAGE="${RH_IMAGE:-docker.io/library/postgres:16}"
+SANDBOX="rehearsal-$TARGET-$$"
 
-echo "== rehearsing $(basename "$FILE") -> scratch db $SCRATCH"
+echo "== rehearsing $(basename "$FILE") in a FRESH $RH_IMAGE cluster"
 
-psql_() { podman exec -i "$CONTAINER" psql -qtA -U "$PGUSER" "$@"; }
-
-cleanup() {
-  psql_ -d postgres -c "DROP DATABASE IF EXISTS \"$SCRATCH\"" >/dev/null 2>&1 || true
-  rm -f "$PLAIN"
-}
 PLAIN=$(mktemp)
+cleanup() {
+  podman rm -f "$SANDBOX" >/dev/null 2>&1 || true
+  rm -f "$PLAIN" "$PLAIN.err"
+}
 trap cleanup EXIT
+
+# The throwaway cluster never touches the live one: separate container,
+# no volume, destroyed on exit.
+podman run -d --name "$SANDBOX" -e POSTGRES_PASSWORD=rehearsal \
+  -e POSTGRES_USER="$PGUSER" -e POSTGRES_DB="$LIVE_DB" "$RH_IMAGE" >/dev/null \
+  || fail "could not start the throwaway cluster"
+for _ in $(seq 1 30); do
+  podman exec "$SANDBOX" pg_isready -U "$PGUSER" >/dev/null 2>&1 && break
+  sleep 2
+done
+podman exec "$SANDBOX" pg_isready -U "$PGUSER" >/dev/null 2>&1 \
+  || fail "the throwaway cluster never became ready"
+
+psql_() { podman exec -i "$SANDBOX" psql -qtA -U "$PGUSER" "$@"; }
 
 # --- decompress (and decrypt where the dump is encrypted) --------------------
 if [[ "$FILE" == *.age ]]; then
@@ -80,39 +100,35 @@ echo "   expands to $(numfmt --to=iec "$BYTES" 2>/dev/null || echo "$BYTES")B"
 # A scratch restore inside the LIVE cluster passes even when roles are missing
 # from the backup, because they still exist here — which is exactly how the
 # gap hid. Compare instead against what the backup actually captured.
+# Load the globals into the empty cluster — not grep them. In a fresh cluster
+# a missing role is a hard error on the first OWNER/GRANT, which is precisely
+# what a real disaster recovery would hit.
 GLOBALS=$(ls -1t "$DIR/${TARGET}-globals-"*.sql.gz* 2>/dev/null | sed -n 1p) || true
-if [ -n "$GLOBALS" ]; then
-  HAVE=$(gunzip -c "$GLOBALS" 2>/dev/null | grep -oE '^CREATE ROLE [A-Za-z0-9_]+' \
-         | awk '{print $3}' | sort -u)
-  NEED=$(grep -ohE '(OWNER TO|GRANT [^;]* TO) [A-Za-z0-9_]+' "$PLAIN" \
-         | awk '{print $NF}' | sort -u | grep -vE '^(PUBLIC|postgres)$' || true)
-  MISSING=$(comm -23 <(echo "$NEED") <(echo "$HAVE") | grep -v '^$' || true)
-  [ -z "$MISSING" ] || fail "the backup names roles it does not contain: $(echo $MISSING | tr '\n' ' ')"
-  echo "   roles: $(echo "$HAVE" | grep -c .) captured, all referenced roles present"
+[ -n "$GLOBALS" ] \
+  || fail "no globals dump beside this one — roles are NOT backed up, and a restore onto a fresh Postgres would fail"
+if [[ "$GLOBALS" == *.age ]]; then
+  age -d -i "${BACKUP_AGE_IDENTITY:?}" "$GLOBALS" | gunzip | psql_ -d "$LIVE_DB" >/dev/null 2>&1 || true
 else
-  echo "   !! no globals dump beside this one — roles are NOT backed up" >&2
-  fail "cluster roles missing from the backup set (restore onto a fresh Postgres would fail)"
+  gunzip -c "$GLOBALS" | psql_ -d "$LIVE_DB" >/dev/null 2>&1 || true
 fi
+ROLES=$(psql_ -d "$LIVE_DB" -c "SELECT count(*) FROM pg_roles WHERE rolname NOT LIKE 'pg\\_%'")
+echo "   globals loaded: $ROLES roles now exist in the fresh cluster"
 
-# --- restore into the scratch database --------------------------------------
-psql_ -d postgres -c "DROP DATABASE IF EXISTS \"$SCRATCH\"" >/dev/null
-psql_ -d postgres -c "CREATE DATABASE \"$SCRATCH\"" >/dev/null || fail "cannot create scratch db"
-if ! podman exec -i "$CONTAINER" psql -q -U "$PGUSER" -d "$SCRATCH" \
-       -v ON_ERROR_STOP=1 < "$PLAIN" >/dev/null 2>"$PLAIN.err"; then
-  echo "   psql errors:"; sed -n '1,5p' "$PLAIN.err" >&2; rm -f "$PLAIN.err"
-  fail "the dump did not load"
+# --- restore the data into the fresh cluster --------------------------------
+if ! psql_ -q -d "$LIVE_DB" -v ON_ERROR_STOP=1 < "$PLAIN" >/dev/null 2>"$PLAIN.err"; then
+  echo "   psql errors:"; sed -n '1,5p' "$PLAIN.err" >&2
+  fail "the dump did not load into a fresh cluster"
 fi
-rm -f "$PLAIN.err"
 
 # --- prove the data is actually there ---------------------------------------
 IFS=',' read -ra CHECKS <<< "$EXPECT"
 for check in "${CHECKS[@]}"; do
   table="${check%%:*}"; minrows="${check##*:}"
-  rows=$(psql_ -d "$SCRATCH" -c "SELECT count(*) FROM \"$table\"" 2>/dev/null) \
+  rows=$(psql_ -d "$LIVE_DB" -c "SELECT count(*) FROM \"$table\"" 2>/dev/null) \
     || fail "table $table is missing from the restored dump"
   [ "$rows" -ge "$minrows" ] \
     || fail "$table restored with $rows rows (expected >= $minrows)"
   echo "   $table: $rows rows"
 done
 
-echo "== OK — $(basename "$FILE") restores and contains data"
+echo "== OK — $(basename "$FILE") restores into an EMPTY cluster and contains data"

@@ -90,9 +90,17 @@ def test_a_restore_rehearsal_exists_and_never_touches_live_data():
     restore.sh loads into the LIVE database behind a confirmation prompt, so
     it is never exercised."""
     s = _script("restore-rehearsal.sh")
-    assert "SCRATCH=" in s and 'refusing to touch the live database' in s
-    # it must verify the backup carries the roles it references, not merely
-    # that a scratch restore inside the live cluster happens to work
-    assert "globals" in s and "does not contain" in s
-    # and never mistake the roles file for the data dump
+    # A rehearsal that runs in the environment it is meant to replace tests
+    # the environment, not the backup: restoring into a scratch database
+    # inside the LIVE cluster passes even when roles are missing, because
+    # they still exist there. It must use a throwaway cluster.
+    assert "podman run -d --name" in s and "podman rm -f" in s
+    assert "FRESH" in s
+    # the globals must be LOADED, not grepped — in an empty cluster a missing
+    # role is a hard error on the first OWNER/GRANT, as in a real recovery
+    assert "globals loaded" in s
+    assert "roles are NOT backed up" in s
+    # never mistake the roles file for the data dump
     assert "-globals-" in s and "grep -v" in s
+    # and an empty dump must fail BEFORE any check that would pass vacuously
+    assert s.index("nothing to restore") < s.index("globals loaded")
