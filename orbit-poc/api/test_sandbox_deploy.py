@@ -69,8 +69,16 @@ def test_sandbox_deploy_cannot_serve_a_stale_image():   # #237 follow-up
     wf = open(os.path.join(os.path.dirname(MAKEFILE), ".github", "workflows",
                            "sandbox.yml"), encoding="utf-8").read()
     deploy = wf.split("Check it answers")[0]
-    # podman-compose 1.3.0 has no `rm` subcommand, so this uses podman directly
-    rm_lines = [l for l in deploy.splitlines() if "podman rm -f" in l]
+    # podman-compose 1.3.0 has no `rm` subcommand, so this uses podman directly.
+    # Join shell line-continuations first: the command spans two lines.
+    logical, buf = [], ""
+    for line in deploy.splitlines():
+        buf += line.rstrip()
+        if buf.endswith("\\"):
+            buf = buf[:-1] + " "
+            continue
+        logical.append(buf); buf = ""
+    rm_lines = [l for l in logical if "podman rm -f" in l]
     assert rm_lines, "containers must be removed so `up` re-resolves the image tag"
     removed = " ".join(rm_lines)
     for svc in ("web", "api", "grafana", "ingest"):
