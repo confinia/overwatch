@@ -73,7 +73,10 @@ jobs:
           # containers with podman directly — the names are deterministic.
           podman rm -f ovw-sandbox_web_1 ovw-sandbox_api_1 \
                        ovw-sandbox_grafana_1 ovw-sandbox_ingest_1 >/dev/null 2>&1 || true
-          $C up -d 2>&1 | tail -2
+          # Only the services just removed, and --no-deps so `up` does not try
+          # to recreate db/caddy — it errors on their existing container names
+          # rather than skipping them (podman-compose has no --replace).
+          $C up -d --no-deps web api grafana ingest 2>&1 | tail -2
           # The Caddyfile is bind-mounted from this checkout, so routing
           # changes land on disk without a recreate. Reload in place —
           # graceful by design, no dropped connections.
