@@ -122,3 +122,21 @@ def test_the_picker_is_reachable_from_the_search_box():   # #230
     assert "catalogSeq" in app, "stale responses could overwrite newer ones"
     # already-tracked satellites belong in the list above, not the picker
     assert "filter(h => !h.tracked)" in app
+
+
+def test_tracking_does_not_block_on_a_third_party():   # #230
+    """A request handler must not make a slow external call: CelesTrak was
+    unreachable from the VM the first time this ran, costing 15s per add.
+    Elements are the ingest's job — it has the token and the SatNOGS
+    fallback — and it fills them within a couple of minutes."""
+    src = open(os.path.join(os.path.dirname(__file__), "main.py"),
+               encoding="utf-8").read()
+    track = src[src.index("def catalog_track("):src.index("@app.get(\"/v1/me/satellites\")")]
+    assert "celestrak" not in track.lower(), "the request path fetches from a third party"
+    assert "requests.get" not in track and "_rq.get" not in track
+    ing = open(os.path.join(os.path.dirname(__file__), "..", "ingest", "ingest.py"),
+               encoding="utf-8").read()
+    assert "def fill_missing_elements" in ing
+    assert "_tle_from_celestrak(norad) or _tle_from_satnogs(norad)" in ing, \
+        "the fill must keep the SatNOGS fallback"
+    assert "elements-fill" in ing, "the fill loop is not scheduled"
