@@ -143,3 +143,24 @@ def test_tracking_does_not_block_on_a_third_party():   # #230
     assert "_tle_from_celestrak(norad) or _tle_from_satnogs(norad)" in ing, \
         "the fill must keep the SatNOGS fallback"
     assert "elements-fill" in ing, "the fill loop is not scheduled"
+
+
+def test_position_propagation_is_never_starved_by_another_loop():   # #230 regression
+    """`loop()` never returns, so it can only be called ONCE outside a thread —
+    whatever comes after it is dead code. Adding the catalogue loops above the
+    positions call made propagate_positions unreachable and silently stopped
+    the globe: no satellite got a position for as long as it was deployed.
+
+    Every loop except positions must therefore run in its own thread, and
+    positions must be the last statement."""
+    src = open(os.path.join(os.path.dirname(__file__), "..", "ingest", "ingest.py"),
+               encoding="utf-8").read()
+    body = src[src.index("def main():"):src.index("def _wait_for_db(")]
+    calls = [l.strip() for l in body.splitlines()
+             if l.strip().startswith("loop(")]
+    assert len(calls) == 1, f"only positions may call loop() directly: {calls}"
+    assert "propagate_positions" in calls[0]
+    # and nothing may follow it
+    after = body[body.index(calls[0]) + len(calls[0]):]
+    assert not [l for l in after.splitlines() if l.strip() and not l.strip().startswith("#")], \
+        "code after loop(propagate_positions) never runs"

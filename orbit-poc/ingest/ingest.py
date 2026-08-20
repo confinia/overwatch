@@ -676,9 +676,17 @@ def main():
                      daemon=True).start()
     threading.Thread(target=loop, args=(compute_passes, PASSES_INTERVAL, "passes"),
                      daemon=True).start()
-    # positions in the main thread
-    loop(fill_missing_elements, int(os.environ.get("FILL_INTERVAL", 120)), "elements-fill")
-    loop(refresh_catalog, int(os.environ.get("CATALOG_INTERVAL", 86400)), "catalog")
+    threading.Thread(target=loop,
+                     args=(fill_missing_elements,
+                           int(os.environ.get("FILL_INTERVAL", 120)), "elements-fill"),
+                     daemon=True).start()
+    threading.Thread(target=loop,
+                     args=(refresh_catalog,
+                           int(os.environ.get("CATALOG_INTERVAL", 86400)), "catalog"),
+                     daemon=True).start()
+    # positions LAST and in the main thread: loop() never returns, so anything
+    # called after it is dead code. Adding a loop above this line instead of a
+    # thread silently stops the globe (#230 did exactly that).
     loop(propagate_positions, POSITION_INTERVAL, "positions")
 
 
