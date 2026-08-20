@@ -27,6 +27,7 @@
 #   RH_USER         postgres role                     (default per target)
 #   RH_DB           database name inside the throwaway cluster (per target)
 #   RH_IMAGE        postgres image for the throwaway    (default postgres:16)
+#   RH_READY_TRIES  2s waits for the cluster to start    (default 30 = 60s)
 #   RH_EXPECT       "table:minrows,table:minrows"     (default per target)
 set -euo pipefail
 
@@ -75,12 +76,18 @@ trap cleanup EXIT
 podman run -d --name "$SANDBOX" -e POSTGRES_PASSWORD=rehearsal \
   -e POSTGRES_USER="$PGUSER" -e POSTGRES_DB="$LIVE_DB" "$RH_IMAGE" >/dev/null \
   || fail "could not start the throwaway cluster"
-for _ in $(seq 1 30); do
+# initdb on a fsync-bound array needs 25-40s idle and well over a minute
+# under load, so a fixed 60s declares a HEALTHY backup unrestorable — the
+# false negative most likely to get a rehearsal quietly abandoned. Reported
+# by the gitlab tenant, who hit it on their first three runs.
+READY_TRIES="${RH_READY_TRIES:-30}"
+for _ in $(seq 1 "$READY_TRIES"); do
   podman exec "$SANDBOX" pg_isready -U "$PGUSER" >/dev/null 2>&1 && break
   sleep 2
 done
 podman exec "$SANDBOX" pg_isready -U "$PGUSER" >/dev/null 2>&1 \
-  || fail "the throwaway cluster never became ready"
+  || fail "the throwaway cluster was not ready after $((READY_TRIES * 2))s — \
+this is a timeout, NOT a verdict on the backup; raise RH_READY_TRIES and retry"
 
 psql_() { podman exec -i "$SANDBOX" psql -qtA -U "$PGUSER" "$@"; }
 
