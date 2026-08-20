@@ -104,3 +104,8 @@ def test_a_restore_rehearsal_exists_and_never_touches_live_data():
     assert "-globals-" in s and "grep -v" in s
     # and an empty dump must fail BEFORE any check that would pass vacuously
     assert s.index("nothing to restore") < s.index("globals loaded")
+    # a slow disk must not read as a broken backup: the wait is configurable
+    # and its failure says so (a false negative is what gets a rehearsal
+    # abandoned)
+    assert "RH_READY_TRIES" in s
+    assert "NOT a verdict on the backup" in s
