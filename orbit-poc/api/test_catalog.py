@@ -132,8 +132,11 @@ def test_tracking_does_not_block_on_a_third_party():   # #230
     src = open(os.path.join(os.path.dirname(__file__), "main.py"),
                encoding="utf-8").read()
     track = src[src.index("def catalog_track("):src.index("@app.get(\"/v1/me/satellites\")")]
-    assert "celestrak" not in track.lower(), "the request path fetches from a third party"
-    assert "requests.get" not in track and "_rq.get" not in track
+    # code only — the comment explains WHY CelesTrak is absent, and naming it
+    # there must not trip the guard
+    code = "\n".join(l.split("#", 1)[0] for l in track.splitlines())
+    assert "celestrak" not in code.lower(), "the request path fetches from a third party"
+    assert "requests.get" not in code and "_rq.get" not in code
     ing = open(os.path.join(os.path.dirname(__file__), "..", "ingest", "ingest.py"),
                encoding="utf-8").read()
     assert "def fill_missing_elements" in ing
