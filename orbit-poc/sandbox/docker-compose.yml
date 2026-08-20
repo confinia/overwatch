@@ -157,10 +157,13 @@ services:
   # down sandbox can never affect prod routing.
   caddy:
     image: docker.io/library/caddy:2
-    depends_on:
-      - web
-      - api
-      - grafana
+    # Deliberately NO depends_on (#237). podman turns depends_on into a hard
+    # container dependency, so `podman rm` refuses to remove web/api/grafana
+    # while this container exists — which blocks the whole point of the
+    # no-downtime deploy: swap the app containers, keep the listener up.
+    # caddy does not need it either: it re-resolves upstreams per request and
+    # answers 502 until they are back, which is exactly the few seconds of a
+    # swap. depends_on only ever affected start ORDER.
     ports:
       - "127.0.0.1:12400:80"    # 1PESI: overwatch(2)·sandbox(4)·caddy(0) — edge target (#213)
     volumes:

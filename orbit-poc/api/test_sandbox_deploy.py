@@ -81,8 +81,12 @@ def test_sandbox_deploy_cannot_serve_a_stale_image():   # #237 follow-up
     rm_lines = [l for l in logical if "podman rm -f" in l]
     assert rm_lines, "containers must be removed so `up` re-resolves the image tag"
     removed = " ".join(rm_lines)
-    for svc in ("web", "api", "grafana", "ingest"):
-        assert f"ovw-sandbox_{svc}_1" in removed, svc
+    # one at a time, in dependency order: `web` depends_on `api`, and podman rm
+    # with several names does not honour the order given
+    order = next(l for l in logical if "for c in" in l)
+    assert order.index("web") < order.index("api"), \
+        "web must be removed before api, or podman refuses"
+    assert 'podman rm -f "ovw-sandbox_${c}_1"' in removed
     # caddy and db are never torn down — that is what keeps the listener up
     assert "caddy" not in removed and "_db_1" not in removed
     # and the deploy must prove the code is new, not merely the container
@@ -95,3 +99,18 @@ def test_sandbox_deploy_cannot_serve_a_stale_image():   # #237 follow-up
     assert "caddy" not in up_line
     assert "STALE DEPLOY" in deploy
     assert "podman image inspect" in deploy and "{{.Image}}" in deploy
+
+
+def test_caddy_has_no_container_dependency_on_the_app():   # #237
+    """podman turns compose `depends_on` into a hard container dependency:
+    `podman rm web` fails with "has dependent containers" while caddy exists.
+    That blocks the no-downtime deploy at its core — swap the app, keep the
+    listener. caddy re-resolves upstreams per request, so it never needed it."""
+    import re
+    compose = open(os.path.join(os.path.dirname(MAKEFILE), "orbit-poc", "sandbox",
+                                "docker-compose.yml"), encoding="utf-8").read()
+    caddy = compose.split("\n  caddy:", 1)[1]
+    caddy = caddy.split("\nvolumes:", 1)[0]
+    body = "\n".join(l.split("#", 1)[0] for l in caddy.splitlines())
+    assert "depends_on" not in body, \
+        "caddy depends_on blocks removing the app containers it fronts"
