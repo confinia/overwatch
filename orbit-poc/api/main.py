@@ -1394,40 +1394,16 @@ def catalog_track(request: Request, body: TrackRequest):
                VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT (norad) DO NOTHING""",
             (body.norad, name, sat_id, bool(decoder), decoder, "added from the open network"))
         cur.connection.commit()
-    # Fetch elements now rather than waiting for the 6-hourly sweep, so the
-    # satellite appears within one position cycle instead of hours later.
-    tle = _tle_now(body.norad)
+    # Elements are fetched by the ingest, not here: a request handler must not
+    # block on a third party (CelesTrak was unreachable from this VM the first
+    # time this ran, for 15s per call), and the ingest already has the
+    # CelesTrak -> SatNOGS fallback and the token. Its fill loop runs every
+    # couple of minutes, so the satellite appears shortly after being added.
     return {"norad": body.norad, "name": name, "tracked": True, "already": False,
             "telemetry": bool(decoder), "status": status,
-            "elements": bool(tle),
+            "elements": False,
             "note": ("position tracking only — no decoder for this satellite"
                      if not decoder else "telemetry decoding available")}
-
-
-def _tle_now(norad: int) -> bool:
-    """Best-effort immediate TLE fetch so a freshly tracked satellite shows up
-    at once. The ingest refreshes elements anyway; this only removes the wait."""
-    try:
-        r = _rq.get("https://celestrak.org/NORAD/elements/gp.php",
-                    params={"CATNR": norad, "FORMAT": "TLE"},
-                    headers={"User-Agent": "overwatch/1.0"}, timeout=15)
-        lines = [l for l in r.text.strip().splitlines() if l.strip()]
-        if len(lines) < 2 or not lines[-2].startswith("1 "):
-            return False
-        tle1, tle2 = lines[-2], lines[-1]
-        yr = int(tle1[18:20]); yr += 2000 if yr < 57 else 1900
-        epoch = (_dt.datetime(yr, 1, 1, tzinfo=_dt.timezone.utc)
-                 + _dt.timedelta(days=float(tle1[20:32]) - 1))
-        with cursor() as cur:
-            cur.execute("""INSERT INTO elements (norad, epoch, tle1, tle2)
-                           VALUES (%s,%s,%s,%s)
-                           ON CONFLICT (norad, epoch) DO NOTHING""",
-                        (norad, epoch, tle1, tle2))
-            cur.connection.commit()
-        return True
-    except Exception as e:
-        print(f"tle fetch failed for {norad}: {e}", flush=True)
-        return False
 
 
 @app.get("/v1/me/satellites")

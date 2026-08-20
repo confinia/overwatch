@@ -170,6 +170,35 @@ def fetch_elements():
         time.sleep(1)
 
 
+def fill_missing_elements(limit=5):
+    """Give freshly tracked satellites their TLE quickly (#230).
+
+    The six-hourly sweep would eventually cover them, but a satellite someone
+    just added should appear on the globe in a couple of minutes, not hours.
+    Runs here rather than in the API because fetching belongs to the ingest —
+    it has the token and the CelesTrak -> SatNOGS fallback, and a request
+    handler must never block on a third party."""
+    with db() as conn, conn.cursor() as cur:
+        cur.execute("""SELECT s.norad FROM satellite s
+                       LEFT JOIN elements e ON e.norad = s.norad
+                       WHERE e.norad IS NULL LIMIT %s""", (limit,))
+        pending = [r[0] for r in cur.fetchall()]
+    for norad in pending:
+        tle = _tle_from_celestrak(norad) or _tle_from_satnogs(norad)
+        if not tle:
+            log.warning("Still no elements for %s (CelesTrak + SatNOGS)", norad)
+            continue
+        tle1, tle2 = tle
+        with db() as conn, conn.cursor() as cur:
+            cur.execute("""INSERT INTO elements (norad, epoch, tle1, tle2)
+                           VALUES (%s,%s,%s,%s)
+                           ON CONFLICT (norad, epoch) DO NOTHING""",
+                        (norad, _epoch_from_tle(tle1), tle1, tle2))
+            conn.commit()
+        log.info("Elements filled for newly tracked %s", norad)
+        time.sleep(2)
+
+
 def refresh_catalog():
     """Mirror the SatNOGS satellite DB into `catalog` — the list users pick
     from (#230). A lookup table only: choosing an entry copies it into
@@ -648,6 +677,7 @@ def main():
     threading.Thread(target=loop, args=(compute_passes, PASSES_INTERVAL, "passes"),
                      daemon=True).start()
     # positions in the main thread
+    loop(fill_missing_elements, int(os.environ.get("FILL_INTERVAL", 120)), "elements-fill")
     loop(refresh_catalog, int(os.environ.get("CATALOG_INTERVAL", 86400)), "catalog")
     loop(propagate_positions, POSITION_INTERVAL, "positions")
 
