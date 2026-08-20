@@ -25,11 +25,22 @@ def get(url, **params):
     return None
 
 
-def flatten(obj, prefix="", depth=0, out=None):
+# Same bound as orbit-poc/ingest/flatten.py, and for the same reason (#171):
+# a cutoff of 4 stops one level above where AX.25-wrapped decoders keep their
+# telemetry, so the field COUNT this sweep scores candidates on was truncated
+# for exactly the satellites worth adding. Kept inline because the sweep runs
+# in a container that mounts only batch/.
+MAX_DEPTH = 8
+
+
+def flatten(obj, prefix="", depth=0, out=None, seen=None):
     if out is None:
         out = {}
-    if depth > 4:
+    if seen is None:
+        seen = set()
+    if depth > MAX_DEPTH or id(obj) in seen:
         return out
+    seen.add(id(obj))
     for a in dir(obj):
         if a.startswith("_"):
             continue
@@ -40,7 +51,7 @@ def flatten(obj, prefix="", depth=0, out=None):
         if isinstance(v, (int, float)) and not isinstance(v, bool):
             out[prefix + a] = v
         elif hasattr(v, "__class__") and v.__class__.__module__.startswith("satnogsdecoders"):
-            flatten(v, prefix + a + "_", depth + 1, out)
+            flatten(v, prefix + a + "_", depth + 1, out, seen)
     return out
 
 
