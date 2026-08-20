@@ -69,10 +69,22 @@ def test_sandbox_deploy_cannot_serve_a_stale_image():   # #237 follow-up
     wf = open(os.path.join(os.path.dirname(MAKEFILE), ".github", "workflows",
                            "sandbox.yml"), encoding="utf-8").read()
     deploy = wf.split("Check it answers")[0]
-    assert "rm -sf web api" in deploy, "containers must be removed so `up` re-resolves the tag"
-    # caddy is still never torn down — that is what keeps the listener up
-    rm_line = next(l for l in deploy.splitlines() if "rm -sf" in l)
-    assert "caddy" not in rm_line and "db" not in rm_line
+    # podman-compose 1.3.0 has no `rm` subcommand, so this uses podman directly.
+    # Join shell line-continuations first: the command spans two lines.
+    logical, buf = [], ""
+    for line in deploy.splitlines():
+        buf += line.rstrip()
+        if buf.endswith("\\"):
+            buf = buf[:-1] + " "
+            continue
+        logical.append(buf); buf = ""
+    rm_lines = [l for l in logical if "podman rm -f" in l]
+    assert rm_lines, "containers must be removed so `up` re-resolves the image tag"
+    removed = " ".join(rm_lines)
+    for svc in ("web", "api", "grafana", "ingest"):
+        assert f"ovw-sandbox_{svc}_1" in removed, svc
+    # caddy and db are never torn down — that is what keeps the listener up
+    assert "caddy" not in removed and "_db_1" not in removed
     # and the deploy must prove the code is new, not merely the container
     assert "STALE DEPLOY" in deploy
     assert "podman image inspect" in deploy and "{{.Image}}" in deploy
