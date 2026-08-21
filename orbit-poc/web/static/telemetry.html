@@ -1,0 +1,141 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<title>Push your own satellite telemetry — Overwatch</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Send your spacecraft's telemetry to Overwatch: the payload contract, limits, errors, and a way to test the whole pipeline before any hardware talks to us.">
+<style>
+  :root { color-scheme: dark; }
+  body { margin:0; min-height:100vh; display:flex; align-items:flex-start; justify-content:center;
+         background:#10151d; color:#e8eaed; font:16px/1.6 system-ui,-apple-system,sans-serif; }
+  main { max-width:48rem; padding:2.5rem 2rem 4rem; }
+  h1 { font-size:1.6rem; margin:0 0 .3rem; } h1 span { color:#7ab8ff; }
+  h2 { font-size:1.05rem; margin:2rem 0 .4rem; color:#9fc5f8; }
+  h3 { font-size:.95rem; margin:1.2rem 0 .3rem; color:#cfe4ff; }
+  p.tag { margin:0 0 1.2rem; opacity:.85; }
+  pre { background:#0b0f16; border:1px solid #26314a; border-radius:8px;
+        padding:.9rem 1rem; overflow-x:auto; font-size:.8rem; }
+  code { background:#0b0f16; border-radius:4px; padding:.1rem .3rem; font-size:.85em; }
+  a { color:#7ab8ff; text-decoration:none; } a:hover { text-decoration:underline; }
+  ul { padding-left:1.2rem; margin:.4rem 0; }
+  table { border-collapse:collapse; width:100%; font-size:.88rem; margin:.6rem 0; }
+  th, td { border:1px solid #26314a; padding:.4rem .6rem; text-align:left; vertical-align:top; }
+  th { background:#16233a; color:#cfe4ff; font-weight:600; }
+  .note { border-left:3px solid #2c6cb0; background:#131c2b; padding:.7rem 1rem;
+          margin:1rem 0; border-radius:0 6px 6px 0; font-size:.92rem; }
+  .cta { display:inline-block; margin-top:1rem; padding:.6rem 1.1rem; border:1px solid #2c6cb0;
+         border-radius:8px; background:#16233a; color:#cfe4ff; }
+  footer { margin-top:2.4rem; font-size:.8rem; opacity:.7; }
+</style></head><body><main>
+
+<h1>Push your own <span>satellite telemetry</span></h1>
+<p class="tag">Your spacecraft, in the same control room as the open-data fleet —
+isolated, and visible only to your organization.</p>
+
+<p>Overwatch stores your telemetry as plain time series: a satellite name, a
+timestamp, a field name, a value. There is no schema to agree with us in
+advance and no format to convert to. If your ground segment can make an HTTPS
+request, it can push here.</p>
+
+<h2>1 · Get a token</h2>
+<p>Sign in, create your organization, then mint a service token from your
+account page. The page shows a ready-to-paste <code>curl</code> with your real
+token already in it.</p>
+<p><a class="cta" href="/w/account">Go to your account</a></p>
+<p style="font-size:.9rem;opacity:.85">The token identifies your organization
+and nothing else — it carries no personal identity, so it belongs in your
+ground segment's configuration. Revoke it from the same page if it leaks; the
+row survives so the audit trail does.</p>
+
+<h2>2 · Push a point</h2>
+<pre>curl -i -X POST https://overwatch.confinia.io/api/v1/tenants/&lt;your-token&gt;/telemetry \
+  -H 'content-type: application/json' \
+  -d '{"satellite":"MYSAT-1",
+       "points":[{"ts":"2026-08-21T11:20:00Z","field":"battery_v","value":7.42}]}'</pre>
+<p>A push that worked answers <code>202</code> with
+<code>{"accepted":1,"satellite":"MYSAT-1"}</code>. Use <code>-i</code>: without
+the status line a rejection can look exactly like a success.</p>
+
+<h3>The payload</h3>
+<table>
+  <tr><th>Field</th><th>Meaning</th></tr>
+  <tr><td><code>satellite</code></td><td>Free-form name. It groups the series and is what you will click on in the app — pick the name your team already uses.</td></tr>
+  <tr><td><code>points[].ts</code></td><td>ISO 8601 timestamp, UTC. Backfill is fine: send historical points and they land in the right place on the chart.</td></tr>
+  <tr><td><code>points[].field</code></td><td>Free-form field name. See the naming note below — it decides how much of the dashboard fills in by itself.</td></tr>
+  <tr><td><code>points[].value</code></td><td>A number, or a string for states and modes (<code>"NOMINAL"</code>, <code>"SAFE"</code>). Numbers are charted; strings are kept and shown as-is.</td></tr>
+</table>
+<p>Re-sending the same <code>(satellite, ts, field)</code> overwrites that
+point rather than duplicating it, so a retry after a network failure is always
+safe.</p>
+
+<h2>3 · Name fields so the dashboards fill themselves</h2>
+<p>Field names are yours to choose, but three are <em>canonical</em> and drive
+the fleet-wide panels:</p>
+<pre>battery_v     battery voltage   (volts)
+battery_i     battery current   (amps, negative = discharging)
+battery_pct   state of charge   (percent)</pre>
+<p>Use those names and your satellite gets the same battery panels as every
+other satellite in the control room, with no configuration. Anything else —
+<code>temp_obc_c</code>, <code>rssi_dbm</code>, <code>mode</code> — is stored
+and charted next to them. Naming a voltage <code>vbatt</code> is not wrong; it
+just means one panel stays empty that could have filled itself.</p>
+
+<h2>4 · Read it back</h2>
+<pre>GET /api/v1/tenants/&lt;your-token&gt;/satellites          → what you have pushed
+GET /api/v1/tenants/&lt;your-token&gt;/telemetry?satellite=MYSAT-1&amp;field=battery_v&amp;hours=24</pre>
+<p>Signed in as a member of the organization, the same data is at
+<code>/api/v1/org/telemetry</code> without a token, and in your organization's
+private Grafana.</p>
+
+<h2>5 · Limits</h2>
+<table>
+  <tr><th>Limit</th><th>Value</th><th>What you get if you exceed it</th></tr>
+  <tr><td>Points per request</td><td><b>1000</b></td><td><code>413</code> — batch your pushes</td></tr>
+  <tr><td>Points per day, per organization</td><td><b>200000</b></td><td><code>429</code> — write to us and we raise it</td></tr>
+</table>
+<p>These are the numbers the API actually enforces. A pass with a 30-second
+beacon and twenty fields is roughly 57,600 points a day, so the default suits
+a small fleet comfortably.</p>
+
+<h3>Errors worth recognising</h3>
+<table>
+  <tr><th>Code</th><th>Meaning</th><th>Fix</th></tr>
+  <tr><td><code>401</code></td><td>Unknown or revoked token</td><td>Mint a new one on the account page</td></tr>
+  <tr><td><code>403</code></td><td>Your plan's satellite limit</td><td>The DevSat tier includes one satellite; upgrade for a fleet</td></tr>
+  <tr><td><code>413</code></td><td>More than 1000 points in one request</td><td>Split the batch</td></tr>
+  <tr><td><code>429</code></td><td>Daily quota reached</td><td>Wait for the period, or ask us to raise it</td></tr>
+</table>
+
+<h2>6 · Test before any hardware talks to us</h2>
+<p>Your satellite may not be flying yet — or may be a flatsat on a bench. The
+repository ships a simulator that speaks this exact API, so you can watch the
+whole path work first:</p>
+<pre>podman build -t simsat orbit-poc/simsat
+podman run --rm --network=host \
+  -e SIM_KEY=&lt;your-token&gt; \
+  -e SIM_BASE=https://overwatch.confinia.io \
+  -e SIM_SCENARIO=battery-decline simsat</pre>
+<p>It generates plausible housekeeping — battery and panels following the
+sunlit/eclipse cycle, temperatures lagging with thermal inertia, uptime
+counters, occasional dropped frames — and can inject faults on request. The
+satellite name is forced to a <code>SIM</code> prefix so simulated data is
+never mistaken for real.</p>
+
+<div class="note">Everything here works the same on a
+<a href="https://github.com/confinia/overwatch/tree/main/selfhost">self-hosted
+install</a>, against your own hostname. The API is identical; only the base
+URL changes.</div>
+
+<h2>Your data</h2>
+<p>Private telemetry is isolated per organization by PostgreSQL row-level
+security — the database enforces it, not the application. It is hosted in
+Europe, and it is yours: we delete it on request.</p>
+
+<footer>
+<a href="/api/v1">API overview</a> ·
+<a href="/api/v1/docs">Interactive reference (OpenAPI)</a> ·
+<a href="/pro.html">Plans</a> ·
+<a href="/">Control room</a> ·
+<a href="mailto:contact@confinia.io?subject=Overwatch%20telemetry%20import">contact@confinia.io</a>
+</footer>
+</main></body></html>

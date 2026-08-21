@@ -1,8 +1,10 @@
 # Overwatch — Frequently asked questions
 
 Plain-language answers for people using Overwatch. For the architecture, see
-[SPECIFICATIONS.md](SPECIFICATIONS.md); for the tenancy model,
-[TENANT.md](TENANT.md); for what a subscription adds, [PRO.md](PRO.md).
+the [write-up](https://overwatch.confinia.io/article.html); for sending your
+own satellite's telemetry, the
+[telemetry guide](https://overwatch.confinia.io/telemetry.html); for what the
+paid plans add, the [pricing page](https://overwatch.confinia.io/pro.html).
 
 ## Why does the map only show around 23 satellites?
 
@@ -123,8 +125,10 @@ never show decoded health, by nature — no decoder can help.
 The open-data globe, telemetry, receptions, and public API are open to
 everyone. If you push **your own** telemetry into a private tenant, it is
 isolated at the database layer (row-level security) — another tenant cannot
-read it even with a hand-edited query. Full model in [TENANT.md](TENANT.md);
-what a subscription includes in [PRO.md](PRO.md).
+read it even with a hand-edited query: each organization's Grafana datasource
+connects as its own PostgreSQL role, so the isolation is enforced by the
+database rather than by application code. What the paid plans include is on
+the [pricing page](https://overwatch.confinia.io/pro.html).
 
 ## Why don't the reception lines connect to the orbit line?
 
@@ -141,8 +145,12 @@ instance with no configuration. See [README.md](README.md).
 ## Is there an API? What is free?
 
 Yes — a public REST API under `/api/v1`. All open-data access is free forever.
-Private tenant data and managed operation are the paid part; see
-[PRO.md](PRO.md).
+Private tenant data and managed operation are the paid part.
+
+To send your **own** satellite's telemetry, the guide is
+<https://overwatch.confinia.io/telemetry.html> — the payload contract, field
+naming, the limits the API actually enforces, the error codes, and a simulator
+for testing the whole path before any hardware talks to us.
 
 ---
 
