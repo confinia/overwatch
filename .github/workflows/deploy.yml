@@ -77,10 +77,24 @@ jobs:
             'wget -qO- --post-data="" \
              "http://admin:$GF_SECURITY_ADMIN_PASSWORD@localhost:3000/api/admin/provisioning/dashboards/reload"' \
             >/dev/null 2>&1 || echo "grafana dashboard reload skipped (not reachable)"
-          # Same class of problem for the ingest: --no-recreate leaves it on the
-          # old image, so pass computation / decoders would silently lag main.
-          # (already inside orbit-poc from the compose call above)
-          podman-compose up -d --build ingest >/dev/null 2>&1 || true
+          # The ingest needs the same treatment as the sandbox (#237): `up -d
+          # --build` BUILDS a new image but reuses the one already pinned in
+          # the existing container, so the ingest silently kept running old
+          # code — 41 hours' worth, including the decoder fix (#171) and the
+          # polite TLE client (#304), while every check stayed green. Build,
+          # remove, recreate, then ASSERT the running image is the built one.
+          # The ingest serves no traffic, so removing it costs nothing visible.
+          podman-compose build ingest 2>&1 | tail -1
+          podman rm -f orbit-poc_ingest_1 >/dev/null 2>&1 || true
+          podman-compose up -d --no-deps ingest 2>&1 | tail -1
+          want=$(podman image inspect localhost/orbit-poc_ingest:latest \
+                 --format '{{.Id}}' 2>/dev/null || true)
+          got=$(podman inspect orbit-poc_ingest_1 --format '{{.Image}}' 2>/dev/null || true)
+          if [ -n "$want" ] && [ "$want" != "$got" ]; then
+            echo "STALE INGEST: running ${got:0:12}, freshly built ${want:0:12}" >&2
+            exit 1
+          fi
+          echo "ingest running the freshly built image"
           cd ~/projects/overwatch
           bash deploy/run-tests.sh          # the gate: no candidate on a red suite
           bash deploy/slots.sh stage
