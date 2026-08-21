@@ -172,10 +172,17 @@ def test_production_deploy_runs_after_the_sandbox_is_updated():
 def test_deploy_applies_grafana_dashboards_and_ingest():
     """The core singletons come up with --no-recreate, so an edited dashboard or
     a changed ingest would sit in the repo and never reach production unless
-    someone touched the VM by hand. CI must apply both."""
+    someone touched the VM by hand. CI must apply both.
+
+    This test used to assert the string `--build ingest`. That string was
+    present the whole time production ran a 41-hour-old ingest: `up --build`
+    builds an image and then reuses the one pinned in the existing container.
+    It checked the spelling, not the effect. It now checks that the container
+    is actually replaced — the assertion that would have caught it."""
     d = _wf("deploy.yml")
     assert "provisioning/dashboards/reload" in d     # boards re-read, no restart
-    assert "--build ingest" in d                     # ingest follows main
+    assert "podman rm -f orbit-poc_ingest_1" in d    # replaced, not reused
+    assert "STALE INGEST" in d                       # and proven afterwards
 
 
 def test_keycloak_tooling_uses_the_named_admin_not_bootstrap():   # #36
@@ -202,3 +209,21 @@ def test_the_two_sandbox_walks_never_run_concurrently():   # #267
     gb = re.search(r"group:\s*(\S+)", b).group(1)
     assert ga == gb == "e2e-sandbox"
     assert "cancel-in-progress: false" in b
+
+
+def test_production_ingest_is_actually_replaced():   # #237 class, prod side
+    """`up -d --build` builds a new image but reuses the one pinned in the
+    existing container. Production ran a 41-hour-old ingest — missing the
+    decoder fix and the polite TLE client — while every check stayed green.
+    The deploy must remove the container and then prove the running image is
+    the one just built."""
+    d = _wf("deploy.yml")
+    stage = d.split("bash deploy/slots.sh stage")[0]
+    assert "podman rm -f orbit-poc_ingest_1" in stage, \
+        "the container must be removed, or `up` reuses the old image"
+    assert "podman-compose build ingest" in stage
+    assert "STALE INGEST" in stage, "the deploy must prove what it deployed"
+    # order matters: build, then remove, then up
+    assert (stage.index("podman-compose build ingest")
+            < stage.index("podman rm -f orbit-poc_ingest_1")
+            < stage.index("up -d --no-deps ingest"))
