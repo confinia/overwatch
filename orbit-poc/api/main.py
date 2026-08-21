@@ -2111,6 +2111,7 @@ raw beacon fields (per-satellite naming) stay queryable next to them.</pre>
 <ul>
 <li><a href="https://overwatch.confinia.io/#57175">Live demo — the control room (MapLibre globe + Grafana)</a></li>
 <li><a href="https://overwatch.confinia.io/article.html">The write-up — architecture &amp; decisions</a></li>
+<li><a href="/telemetry.html">Push your OWN satellite's telemetry — contract, limits, errors</a></li>
 <li><a href="/pro.html">Operators: run this on YOUR fleet's telemetry (private tenants)</a></li>
 <li><a href="/api/v1/docs">Interactive documentation (OpenAPI)</a></li>
 <li><a href="/api/v1/healthz">Service health</a></li>
