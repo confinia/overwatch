@@ -92,16 +92,47 @@ def seed_satellites():
 
 
 def resolve_sat_id(norad):
-    """Look up a SatNOGS sat_id by norad id. /api/satellites/ needs no key."""
+    """Find a SatNOGS sat_id for a norad id — from OUR OWN catalogue first.
+
+    This used to be a per-object query to /api/satellites/?norad_cat_id=, run
+    at every startup for every satellite still missing a sat_id. While the
+    lookup fails (as it does when they are blocking us) the column stays null,
+    so the next start asks again: a polling loop that grows as it fails. That
+    is the same shape as the CelesTrak per-object loop that got this VM
+    blocked (#304).
+
+    The `catalog` table already holds sat_id for the whole network, filled by
+    ONE paginated bulk pass per day. Read it from there; only fall back to a
+    single live query when the catalogue has not been built yet, and back off
+    like any other per-object lookup."""
+    with db() as conn, conn.cursor() as cur:
+        cur.execute("SELECT sat_id FROM catalog WHERE norad = %s AND sat_id IS NOT NULL",
+                    (norad,))
+        row = cur.fetchone()
+        if row:
+            return row[0]
+        cur.execute("SELECT count(*) FROM catalog")
+        catalogued = cur.fetchone()[0]
+    if catalogued:
+        # The catalogue exists and does not carry this object — asking the
+        # network per object will not change that.
+        return None
+    if _cooling("satnogs") or not _due_for_lookup(norad):
+        return None
     try:
         r = requests.get(f"{SATNOGS_BASE}/satellites/",
                          params={"norad_cat_id": norad}, headers=UA, timeout=20)
+        if r.status_code in (403, 429):
+            _cool("satnogs", r)
+            return None
         r.raise_for_status()
         data = r.json()
         if data:
+            _record_lookup(norad, True)
             return data[0].get("sat_id")
     except Exception as e:
         log.warning("sat_id lookup failed for %s: %s", norad, e)
+    _record_lookup(norad, False, "no sat_id from SatNOGS")
     return None
 
 
