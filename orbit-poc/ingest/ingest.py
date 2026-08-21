@@ -116,6 +116,121 @@ CELESTRAK_GROUPS = [g.strip() for g in
                     os.environ.get("CELESTRAK_GROUPS", "amateur,stations").split(",")
                     if g.strip()]
 
+# Groups fetched for the TLE CACHE only — their members are NOT seeded into
+# `satellite` (that would add thousands of objects nobody asked for). This is
+# how an arbitrary satellite added from the catalogue gets its elements
+# without ever touching the per-object endpoint: one bulk file, cached,
+# refreshed on the elements cycle. CelesTrak asks for exactly this, and an
+# unbounded per-object loop is what got our address blocked.
+CELESTRAK_LOOKUP_GROUPS = [g.strip() for g in
+                           os.environ.get("CELESTRAK_LOOKUP_GROUPS", "active").split(",")
+                           if g.strip()]
+_bulk_tles = {"ts": 0.0, "by_norad": {}}
+
+# When CelesTrak or SatNOGS answers 403/429, stop asking entirely until this
+# passes. Hammering something that just refused us is how a rate limit turns
+# into a ban.
+_cooldown_until = {"celestrak": 0.0, "satnogs": 0.0}
+
+
+def _cooling(source):
+    left = _cooldown_until[source] - time.time()
+    if left > 0:
+        log.debug("%s: cooling down for another %.0f min", source, left / 60)
+        return True
+    return False
+
+
+def _cool(source, response=None, hours=6):
+    wait = hours * 3600
+    if response is not None:
+        try:
+            wait = max(wait, int(response.headers.get("Retry-After", 0)))
+        except ValueError:
+            pass
+    _cooldown_until[source] = time.time() + wait
+    log.warning("%s refused us — not asking again for %.1f h", source, wait / 3600)
+
+
+def _refresh_bulk_tles():
+    """One bulk file per lookup group, cached in memory for the elements cycle."""
+    if time.time() - _bulk_tles["ts"] < ELEMENTS_INTERVAL and _bulk_tles["by_norad"]:
+        return _bulk_tles["by_norad"]
+    if _cooling("celestrak"):
+        return _bulk_tles["by_norad"]
+    found = {}
+    for group in CELESTRAK_LOOKUP_GROUPS:
+        try:
+            r = requests.get(CELESTRAK_BASE, params={"GROUP": group, "FORMAT": "TLE"},
+                             headers=UA, timeout=120)
+            if r.status_code in (403, 429):
+                _cool("celestrak", r)
+                break
+            r.raise_for_status()
+            for _name, tle1, tle2 in _parse_tle_file(r.text):
+                found[int(tle1[2:7])] = (tle1, tle2)
+        except Exception as e:
+            log.warning("Bulk group '%s' fetch failed: %s", group, e)
+        time.sleep(2)
+    if found:
+        _bulk_tles["by_norad"] = found
+        _bulk_tles["ts"] = time.time()
+        log.info("TLE cache: %d objects from %s", len(found),
+                 ",".join(CELESTRAK_LOOKUP_GROUPS))
+    return _bulk_tles["by_norad"]
+
+
+def _due_for_lookup(norad):
+    """Has this object served its backoff? Persisted, so a restart does not
+    resume polling something we already gave up on."""
+    with db() as conn, conn.cursor() as cur:
+        cur.execute("""SELECT gave_up, next_attempt <= now() FROM element_fetch
+                       WHERE norad = %s""", (norad,))
+        row = cur.fetchone()
+    if not row:
+        return True
+    gave_up, due = row
+    return bool(due) and not gave_up
+
+
+def _record_lookup(norad, ok, error=""):
+    """Exponential backoff, then a permanent give-up. CelesTrak simply does not
+    carry some objects; asking forever is the abusive pattern."""
+    with db() as conn, conn.cursor() as cur:
+        if ok:
+            cur.execute("DELETE FROM element_fetch WHERE norad = %s", (norad,))
+        else:
+            cur.execute("""INSERT INTO element_fetch (norad, attempts, last_attempt,
+                                                      next_attempt, gave_up, last_error)
+                           VALUES (%s, 1, now(), now() + interval '1 hour', false, %s)
+                           ON CONFLICT (norad) DO UPDATE SET
+                             attempts = element_fetch.attempts + 1,
+                             last_attempt = now(),
+                             next_attempt = now() +
+                               (least(power(2, element_fetch.attempts + 1), 24)
+                                * interval '1 hour'),
+                             gave_up = element_fetch.attempts + 1 >= 6,
+                             last_error = EXCLUDED.last_error""",
+                        (norad, error[:200]))
+        conn.commit()
+
+
+def _tle_for(norad):
+    """Bulk cache first, per-object only as a rare, backed-off fallback."""
+    bulk = _refresh_bulk_tles()
+    if norad in bulk:
+        return bulk[norad]
+    if not _due_for_lookup(norad):
+        return None
+    tle = None
+    if not _cooling("celestrak"):
+        tle = _tle_from_celestrak(norad)
+    if not tle and not _cooling("satnogs"):
+        tle = _tle_from_satnogs(norad)
+    _record_lookup(norad, bool(tle),
+                   "" if tle else "not carried by CelesTrak or SatNOGS")
+    return tle
+
 
 def fetch_elements():
     seen = set()
@@ -152,7 +267,7 @@ def fetch_elements():
         rest = [r[0] for r in cur.fetchall() if r[0] not in seen]
     for norad in rest:
         try:
-            tle = _tle_from_celestrak(norad) or _tle_from_satnogs(norad)
+            tle = _tle_for(norad)
             if not tle:
                 log.warning("No elements found for %s (CelesTrak + SatNOGS)", norad)
                 continue
@@ -170,7 +285,7 @@ def fetch_elements():
         time.sleep(1)
 
 
-def fill_missing_elements(limit=5):
+def fill_missing_elements(limit=3):
     """Give freshly tracked satellites their TLE quickly (#230).
 
     The six-hourly sweep would eventually cover them, but a satellite someone
@@ -179,14 +294,21 @@ def fill_missing_elements(limit=5):
     it has the token and the CelesTrak -> SatNOGS fallback, and a request
     handler must never block on a third party."""
     with db() as conn, conn.cursor() as cur:
+        # Only objects whose backoff has expired and that we have not given
+        # up on — otherwise this loop polls the same unfindable satellites
+        # forever, which is precisely what got our address blocked.
         cur.execute("""SELECT s.norad FROM satellite s
                        LEFT JOIN elements e ON e.norad = s.norad
-                       WHERE e.norad IS NULL LIMIT %s""", (limit,))
+                       LEFT JOIN element_fetch f ON f.norad = s.norad
+                       WHERE e.norad IS NULL
+                         AND COALESCE(f.gave_up, false) = false
+                         AND COALESCE(f.next_attempt, now()) <= now()
+                       LIMIT %s""", (limit,))
         pending = [r[0] for r in cur.fetchall()]
     for norad in pending:
-        tle = _tle_from_celestrak(norad) or _tle_from_satnogs(norad)
+        tle = _tle_for(norad)
         if not tle:
-            log.warning("Still no elements for %s (CelesTrak + SatNOGS)", norad)
+            log.warning("No elements for %s yet — backing off (persisted)", norad)
             continue
         tle1, tle2 = tle
         with db() as conn, conn.cursor() as cur:
@@ -687,7 +809,7 @@ def main():
                      daemon=True).start()
     threading.Thread(target=loop,
                      args=(fill_missing_elements,
-                           int(os.environ.get("FILL_INTERVAL", 120)), "elements-fill"),
+                           int(os.environ.get("FILL_INTERVAL", 600)), "elements-fill"),
                      daemon=True).start()
     threading.Thread(target=loop,
                      args=(refresh_catalog,

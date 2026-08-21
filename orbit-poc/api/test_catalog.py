@@ -140,8 +140,15 @@ def test_tracking_does_not_block_on_a_third_party():   # #230
     ing = open(os.path.join(os.path.dirname(__file__), "..", "ingest", "ingest.py"),
                encoding="utf-8").read()
     assert "def fill_missing_elements" in ing
-    assert "_tle_from_celestrak(norad) or _tle_from_satnogs(norad)" in ing, \
-        "the fill must keep the SatNOGS fallback"
+    # The fallback now lives in _tle_for(), which tries the bulk cache first
+    # and only then CelesTrak, then SatNOGS — see test_tle_client.py. What
+    # matters here is that the fill uses that path rather than calling a
+    # provider directly.
+    fill = ing[ing.index("def fill_missing_elements("):]
+    fill = fill[:fill.index("\ndef ", 10)]
+    assert "_tle_for(norad)" in fill, "the fill must go through the polite lookup"
+    assert "_tle_from_celestrak" not in fill, "no direct per-object call here"
+    assert "_tle_from_satnogs" in ing, "the SatNOGS fallback must still exist"
     assert "elements-fill" in ing, "the fill loop is not scheduled"
 
 

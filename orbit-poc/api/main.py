@@ -109,6 +109,19 @@ CREATE TABLE IF NOT EXISTS org_token (
 -- The open-network catalogue users pick from (#230). Refreshed from the
 -- SatNOGS satellite DB by the ingest; it is a LOOKUP list, not the tracked
 -- set — tracking a satellite copies it into `satellite`.
+-- Per-object TLE lookup state (#303-adjacent). CelesTrak asks callers to
+-- fetch bulk GROUP= files and cache them, not to poll gp.php?CATNR= per
+-- object; an unbounded retry loop against that endpoint got our shared
+-- egress address blocked by two data providers. Backoff must survive a
+-- container restart, or a recycle silently resumes the polling.
+CREATE TABLE IF NOT EXISTS element_fetch (
+    norad        INTEGER PRIMARY KEY,
+    attempts     INTEGER NOT NULL DEFAULT 0,
+    last_attempt timestamptz,
+    next_attempt timestamptz NOT NULL DEFAULT now(),
+    gave_up      BOOLEAN NOT NULL DEFAULT false,
+    last_error   TEXT
+);
 CREATE TABLE IF NOT EXISTS catalog (
     norad      INTEGER PRIMARY KEY,
     name       TEXT NOT NULL,
