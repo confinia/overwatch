@@ -88,3 +88,35 @@ def test_worst_case_request_volume_is_bounded():
     per_day_before = 24 * 60 / 2 * 5          # old loop: every 2 min, 5 objects
     assert per_day_before > 3000              # what we were doing
     assert total <= 6                          # what an unfindable object costs now
+
+
+def test_sat_id_resolution_reads_our_catalogue_not_the_network():
+    """The second per-object loop, missed by the first fix. resolve_sat_id
+    queried /api/satellites/?norad_cat_id= once per satellite at EVERY ingest
+    start, for every satellite still missing a sat_id — and while the lookup
+    fails the column stays null, so the next start asks again. A polling loop
+    that grows as it fails, against the provider already blocking us.
+
+    The catalogue table holds sat_id for the whole network from one paginated
+    bulk pass per day; read it from there."""
+    fn = INGEST[INGEST.index("def resolve_sat_id("):]
+    fn = _code(fn[:fn.index("\ndef ", 10)])
+    assert "FROM catalog WHERE norad" in fn, "must read the catalogue first"
+    # a live query only when the catalogue does not exist yet
+    assert "if catalogued:" in fn and "return None" in fn
+    # and even then, backed off and silent while cooling down
+    assert "_cooling(\"satnogs\")" in fn and "_due_for_lookup" in fn
+    assert "_record_lookup" in fn
+    assert "403, 429" in fn or "(403, 429)" in fn
+
+
+def test_no_unbounded_per_object_loop_remains():
+    """Every call site that hits a provider per object must go through a
+    backed-off path. A grep-level guard, deliberately: the two incidents this
+    week both came from a new loop being added without one."""
+    for fname in ("_tle_from_celestrak", "_tle_from_satnogs"):
+        for line in _code(INGEST).splitlines():
+            if f"{fname}(" in line and "def " not in line:
+                # the only permitted caller is the guarded lookup
+                assert "_tle_for" in _code(INGEST)[:_code(INGEST).index(line)][-400:] \
+                    or "tle = " in line, f"unguarded call: {line.strip()}"
