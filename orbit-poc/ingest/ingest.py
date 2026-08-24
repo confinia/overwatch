@@ -91,6 +91,39 @@ def seed_satellites():
     log.info("Seeded %d showcase satellites.", len(SHOWCASE))
 
 
+# SatNOGS throttles per user, not per satellite and not per endpoint:
+# get_telemetry_user = 6/minute in satnogs-db's db/settings.py (and 1/day for
+# satellites flagged is_frequency_violator). Six a minute is one every ten
+# seconds, so the default leaves a second of margin.
+#
+# This has to be global rather than a sleep in the caller: the limit counts
+# every request we make, so pagination inside one satellite and the move to
+# the next satellite both have to pass through it. The previous sleep(5)
+# between satellites, with three pages fetched back to back inside each, ran
+# at roughly 26 requests a minute while its comment claimed it stayed "well
+# under" the limit.
+#
+# EVERY SatNOGS call goes through here, not just telemetry (#315). Pacing one
+# loop while three other call sites burst past it just moves the overspend:
+# once #313 put an unreachable CelesTrak on cooldown, fill_missing_elements
+# started sending one /tle/ request per satellite, 23 back to back, and spent
+# the budget the telemetry loop was rationing. Holding our whole footprint to
+# the strictest published scope is the only version of this that stays true
+# when a new call site is added.
+SATNOGS_MIN_GAP = float(os.environ.get("SATNOGS_MIN_GAP", 11))
+_satnogs_gate = threading.Lock()
+_satnogs_last = [0.0]
+
+
+def _pace_satnogs():
+    """Block until issuing a SatNOGS request stays inside the published rate."""
+    with _satnogs_gate:
+        wait = SATNOGS_MIN_GAP - (time.time() - _satnogs_last[0])
+        if wait > 0:
+            time.sleep(wait)
+        _satnogs_last[0] = time.time()
+
+
 def resolve_sat_id(norad):
     """Find a SatNOGS sat_id for a norad id — from OUR OWN catalogue first.
 
@@ -120,6 +153,7 @@ def resolve_sat_id(norad):
     if _cooling("satnogs") or not _due_for_lookup(norad):
         return None
     try:
+        _pace_satnogs()
         r = requests.get(f"{SATNOGS_BASE}/satellites/",
                          params={"norad_cat_id": norad}, headers=UA, timeout=20)
         if r.status_code in (403, 429):
@@ -402,6 +436,7 @@ def refresh_catalog():
         headers["Authorization"] = f"Token {SATNOGS_TOKEN}"
     while url and page < 40:
         try:
+            _pace_satnogs()
             r = requests.get(url, headers=headers, timeout=60)
             if r.status_code == 429:
                 time.sleep(int(r.headers.get("Retry-After", 30)))
@@ -491,6 +526,7 @@ def _tle_from_satnogs(norad):
         return None, False
     try:
         headers = dict(UA); headers["Authorization"] = f"Token {SATNOGS_TOKEN}"
+        _pace_satnogs()
         r = requests.get(f"{SATNOGS_BASE}/tle/",
                          params={"norad_cat_id": norad},
                          headers=headers, timeout=30)
@@ -695,31 +731,6 @@ def fetch_telemetry():
             log.warning("Telemetry fetch failed for %s: %s", norad, e)
         # No sleep here: _pace_satnogs() already holds every request to the
         # published rate, and a second delay on top only slows the cycle.
-
-
-# SatNOGS throttles the telemetry endpoint per user, not per satellite:
-# get_telemetry_user = 6/minute in satnogs-db's db/settings.py (and 1/day for
-# satellites flagged is_frequency_violator). Six a minute is one every ten
-# seconds, so the default leaves a second of margin.
-#
-# This has to be global rather than a sleep in the caller: the limit counts
-# every request we make, so pagination inside one satellite and the move to
-# the next satellite both have to pass through it. The previous sleep(5)
-# between satellites, with three pages fetched back to back inside each, ran
-# at roughly 26 requests a minute while its comment claimed it stayed "well
-# under" the limit.
-SATNOGS_MIN_GAP = float(os.environ.get("SATNOGS_MIN_GAP", 11))
-_satnogs_gate = threading.Lock()
-_satnogs_last = [0.0]
-
-
-def _pace_satnogs():
-    """Block until issuing a SatNOGS request stays inside the published rate."""
-    with _satnogs_gate:
-        wait = SATNOGS_MIN_GAP - (time.time() - _satnogs_last[0])
-        if wait > 0:
-            time.sleep(wait)
-        _satnogs_last[0] = time.time()
 
 
 def _get_frames(sat_id, pages=2, until=None):

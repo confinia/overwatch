@@ -227,7 +227,8 @@ def _satnogs(resp, token="tok"):
             return resp
     return _lift("_tle_from_satnogs",
                  requests=_Req, log=_Log(), UA={}, SATNOGS_BASE="x",
-                 SATNOGS_TOKEN=token, _cool=lambda *a, **k: None)
+                 SATNOGS_TOKEN=token, _cool=lambda *a, **k: None,
+                 _pace_satnogs=lambda: None)
 
 
 def test_satnogs_answering_empty_is_absence():
@@ -430,3 +431,38 @@ def test_a_cooldown_short_circuits_the_per_satellite_path():
                _record_lookup=lambda *a, **k: None)
     ns["_tle_for"](25544)
     assert calls == [], "CelesTrak was asked while on cooldown"
+
+
+def test_no_satnogs_call_site_bypasses_the_pacer():   # #315
+    """Deliberately derived from the source rather than a list of function
+    names: the failure this guards against is a NEW call site being added
+    without pacing, which a hardcoded list would never notice.
+
+    Production hit exactly that. The pacer sat inside _get_frames, so when
+    #313 put an unreachable CelesTrak on cooldown and fill_missing_elements
+    began asking SatNOGS for every satellite's TLE instead, 23 unpaced
+    requests a cycle spent the budget the telemetry loop was rationing —
+    a 429 on nearly every telemetry request, days after LSF unblocked us."""
+    code = _code(INGEST)
+    offenders = []
+    for i, line in enumerate(code.splitlines()):
+        if not line.startswith("def "):
+            continue
+        name = line[4:line.index("(")]
+        body = code[code.index(line):]
+        nxt = body.find("\ndef ", 1)
+        body = body[:nxt] if nxt != -1 else body
+        if "SATNOGS_BASE" not in body or "requests.get(" not in body:
+            continue
+        if "_pace_satnogs()" not in body:
+            offenders.append(name)
+        elif body.index("_pace_satnogs()") > body.index("requests.get("):
+            offenders.append(name + " (paces after the request)")
+    assert not offenders, \
+        "these call SatNOGS without going through the pacer: " + ", ".join(offenders)
+
+
+def test_the_pacer_is_defined_before_its_first_caller():
+    """A module-level helper used by resolve_sat_id, which runs during
+    seed_satellites at import-time-adjacent startup."""
+    assert INGEST.index("def _pace_satnogs(") < INGEST.index("def resolve_sat_id(")
