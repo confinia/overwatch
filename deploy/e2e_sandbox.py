@@ -126,8 +126,8 @@ def jpost(op, path, body=None, method="POST"):
         return st, {"raw": txt[:200]}
 
 
-def jget(op, path):
-    st, _, txt = fetch(op, BASE + path)
+def jget(op, path, retries=6):
+    st, _, txt = fetch(op, BASE + path, retries=retries)
     try:
         return st, json.loads(txt or "{}")
     except json.JSONDecodeError:
@@ -292,9 +292,30 @@ def main():
         org_id = me["organization"]["id"]
 
         step(f"private Grafana provisioned for org {org_id[:8]}")
-        st, g = jget(op, "/api/v1/org/grafana")
-        if st != 200 or not g.get("grafana_org_id"):
-            die(f"/v1/org/grafana failed ({st}): {g}")
+        # The endpoint provisions inside the request and answers 503 when
+        # Grafana did not respond in time — its docstring calls that retriable,
+        # so a single attempt is the client getting the contract wrong. The
+        # sandbox shares this VM with the deploy builds, so while one is
+        # running the first attempt loses the race and a healthy stack gets
+        # reported broken (run 32774088344). Same shape as RH_READY_TRIES in
+        # restore-rehearsal.sh: an unretried wait is a false negative
+        # generator, and a suite that cries wolf stops being read.
+        # retries=1 so this loop owns the waiting: fetch() already spends ~30s
+        # retrying a 503 internally, and nesting the two would make the worst
+        # case minutes rather than the minute intended here.
+        tries = int(os.environ.get("E2E_GRAFANA_TRIES", 20))
+        gap = float(os.environ.get("E2E_GRAFANA_GAP", 3))
+        for attempt in range(tries):
+            st, g = jget(op, "/api/v1/org/grafana", retries=1)
+            if st == 200 and g.get("grafana_org_id"):
+                break
+            if st != 503:
+                die(f"/v1/org/grafana failed ({st}): {g}")
+            time.sleep(gap)
+        else:
+            die(f"/v1/org/grafana still 503 after {tries} attempts over "
+                f"{tries * gap:.0f}s — this is a TIMEOUT, not a verdict on the "
+                f"stack; raise E2E_GRAFANA_TRIES and retry")
         gorg = g["grafana_org_id"]
 
         step("sign in to Grafana through OIDC")

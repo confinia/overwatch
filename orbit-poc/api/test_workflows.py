@@ -227,3 +227,20 @@ def test_production_ingest_is_actually_replaced():   # #237 class, prod side
     assert (stage.index("podman-compose build ingest")
             < stage.index("podman rm -f orbit-poc_ingest_1")
             < stage.index("up -d --no-deps ingest"))
+
+
+def test_grafana_provisioning_is_polled_not_asked_once():   # #321
+    """/v1/org/grafana provisions inside the request and answers 503 when
+    Grafana did not respond in time; its own docstring calls that retriable.
+    Asking once made a healthy stack look broken whenever a deploy build was
+    running on the same VM (run 32774088344). The failure message must also
+    say it is a timeout — the RH_READY_TRIES lesson: a suite that reports a
+    slow system as a broken one stops being trusted."""
+    w = open(os.path.join(ROOT, "deploy", "e2e_sandbox.py"), encoding="utf-8").read()
+    block = w[w.index("private Grafana provisioned for org"):]
+    block = block[:block.index("gorg = g[")]
+    assert "for attempt in range(" in block, "the 503 is not polled"
+    assert "E2E_GRAFANA_TRIES" in block, "the budget must be overridable"
+    assert "retries=1" in block, \
+        "fetch() already retries internally; nesting both makes the wait minutes"
+    assert "TIMEOUT" in block, "exhaustion must not read as a verdict on the stack"
