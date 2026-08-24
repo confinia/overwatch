@@ -43,6 +43,15 @@ http://overwatch.confinia.io {
 		Referrer-Policy "strict-origin-when-cross-origin"
 		Content-Security-Policy "frame-ancestors 'self' https://confinia.github.io"
 		X-Overwatch-Env "production"
+		# Which colour is promoted, for the platform dashboard (#323). It is
+		# %LIVE% rather than a literal because slots.sh rewrites this file on
+		# every promote: there is no path that repoints the proxy without also
+		# updating the header, so it cannot drift into claiming blue while
+		# green serves. Emitted here rather than by the app so it survives a
+		# 302, a 401 or a 500 — when knowing the colour matters most.
+		# Caveat: with lb_policy first, a failed health check lets the
+		# candidate answer while this still names the promoted colour.
+		X-Active-Colour "%LIVE%"
 		-Server
 	}
 
@@ -130,6 +139,7 @@ http://api.overwatch.confinia.io {
 		Strict-Transport-Security "max-age=31536000"
 		X-Content-Type-Options "nosniff"
 		X-Overwatch-Env "production"
+		X-Active-Colour "%LIVE%"
 		-Server
 	}
 
