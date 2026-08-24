@@ -35,9 +35,17 @@
       "targets": [
         {
           "format": "time_series",
-          "rawSql": "SELECT t.ts AS time, s.name AS metric, t.value_num AS value FROM telemetry t JOIN satellite s USING (norad) WHERE t.field = 'battery_v' ORDER BY t.ts"
+          "rawSql": "SELECT t.ts AS time, s.name AS metric, t.value_num AS value FROM telemetry t JOIN satellite s USING (norad) WHERE t.field = 'battery_v' ORDER BY t.ts",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "orbitcache"
+          }
         }
-      ]
+      ],
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "orbitcache"
+      }
     },
     {
       "id": 2,
@@ -63,9 +71,17 @@
       "targets": [
         {
           "format": "time_series",
-          "rawSql": "SELECT date_trunc('hour', t.ts) AS time, s.name AS metric, count(DISTINCT t.ts)::float AS value FROM telemetry t JOIN satellite s USING (norad) GROUP BY 1, 2 ORDER BY 1"
+          "rawSql": "SELECT date_trunc('hour', t.ts) AS time, s.name AS metric, count(DISTINCT t.ts)::float AS value FROM telemetry t JOIN satellite s USING (norad) GROUP BY 1, 2 ORDER BY 1",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "orbitcache"
+          }
         }
-      ]
+      ],
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "orbitcache"
+      }
     },
     {
       "id": 3,
@@ -84,9 +100,17 @@
       "targets": [
         {
           "format": "table",
-          "rawSql": "SELECT s.name AS satellite, s.norad, max(t.ts) AS last_frame, round(extract(epoch FROM now() - max(t.ts)) / 3600, 1) AS hours_silent, count(DISTINCT t.ts) AS frames_7d, round(avg(t.value_num) FILTER (WHERE t.field = 'battery_v')::numeric, 2) AS avg_battery_v, round(avg(t.value_num) FILTER (WHERE t.field = 'battery_pct')::numeric, 0) AS avg_battery_pct FROM satellite s LEFT JOIN telemetry t USING (norad) GROUP BY s.name, s.norad ORDER BY max(t.ts) DESC NULLS LAST"
+          "rawSql": "SELECT s.name AS satellite, s.norad, max(t.ts) AS last_frame, round(extract(epoch FROM now() - max(t.ts)) / 3600, 1) AS hours_silent, count(DISTINCT t.ts) AS frames_7d, round(avg(t.value_num) FILTER (WHERE t.field = 'battery_v')::numeric, 2) AS avg_battery_v, round(avg(t.value_num) FILTER (WHERE t.field = 'battery_pct')::numeric, 0) AS avg_battery_pct FROM satellite s LEFT JOIN telemetry t USING (norad) GROUP BY s.name, s.norad ORDER BY max(t.ts) DESC NULLS LAST",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "orbitcache"
+          }
         }
-      ]
+      ],
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "orbitcache"
+      }
     }
   ]
 }
