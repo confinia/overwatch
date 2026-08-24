@@ -158,6 +158,11 @@ CELESTRAK_LOOKUP_GROUPS = [g.strip() for g in
                            if g.strip()]
 _bulk_tles = {"ts": 0.0, "by_norad": {}}
 
+# How long to wait for a TCP connection to a provider. Downloads may be slow;
+# a handshake with a reachable host is not. Keeping these separate is what
+# stops an unreachable provider from being indistinguishable from a big file.
+CONNECT_TIMEOUT = int(os.environ.get("CONNECT_TIMEOUT", 8))
+
 # When CelesTrak or SatNOGS answers 403/429, stop asking entirely until this
 # passes. Hammering something that just refused us is how a rate limit turns
 # into a ban.
@@ -172,7 +177,7 @@ def _cooling(source):
     return False
 
 
-def _cool(source, response=None, hours=6):
+def _cool(source, response=None, hours=6, reason="refused us"):
     wait = hours * 3600
     if response is not None:
         try:
@@ -180,7 +185,7 @@ def _cool(source, response=None, hours=6):
         except ValueError:
             pass
     _cooldown_until[source] = time.time() + wait
-    log.warning("%s refused us — not asking again for %.1f h", source, wait / 3600)
+    log.warning("%s %s — not asking again for %.1f h", source, reason, wait / 3600)
 
 
 def _refresh_bulk_tles():
@@ -192,16 +197,28 @@ def _refresh_bulk_tles():
     found = {}
     for group in CELESTRAK_LOOKUP_GROUPS:
         try:
+            # (connect, read): the `active` file is large and deserves a
+            # generous read budget, but a connect to a host that is dropping
+            # our packets must fail in seconds. A single 120s value here cost
+            # 120s PER SATELLITE inside fetch_elements — see below.
             r = requests.get(CELESTRAK_BASE, params={"GROUP": group, "FORMAT": "TLE"},
-                             headers=UA, timeout=120)
+                             headers=UA, timeout=(CONNECT_TIMEOUT, 120))
             if r.status_code in (403, 429):
                 _cool("celestrak", r)
                 break
             r.raise_for_status()
             for _name, tle1, tle2 in _parse_tle_file(r.text):
                 found[int(tle1[2:7])] = (tle1, tle2)
-        except Exception as e:
+        except requests.exceptions.RequestException as e:
+            # Unreachable is not the same as refused, but it calls for the same
+            # silence. Without this the cache is never stamped, so EVERY
+            # caller retries: fetch_elements primes synchronously before the
+            # position loop starts, so 23 satellites x 120s left the globe
+            # frozen for ~50 minutes after each restart (#313), while knocking
+            # ~700 times a day on a host that is firewalling us.
             log.warning("Bulk group '%s' fetch failed: %s", group, e)
+            _cool("celestrak", hours=1, reason="is unreachable")
+            break
         time.sleep(2)
     if found:
         _bulk_tles["by_norad"] = found
