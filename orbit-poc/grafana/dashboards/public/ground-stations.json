@@ -26,9 +26,17 @@
       "targets": [
         {
           "format": "table",
-          "rawSql": "SELECT split_part(observer, '-', 1) AS station, max(observer) AS observer, count(*) AS frames, count(DISTINCT norad) AS satellites_heard, max(ts) AS last_reception FROM reception WHERE ts > now() - interval '7 days' GROUP BY 1 ORDER BY 3 DESC LIMIT 50"
+          "rawSql": "SELECT split_part(observer, '-', 1) AS station, max(observer) AS observer, count(*) AS frames, count(DISTINCT norad) AS satellites_heard, max(ts) AS last_reception FROM reception WHERE ts > now() - interval '7 days' GROUP BY 1 ORDER BY 3 DESC LIMIT 50",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "orbitcache"
+          }
         }
-      ]
+      ],
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "orbitcache"
+      }
     },
     {
       "id": 2,
@@ -51,9 +59,17 @@
       "targets": [
         {
           "format": "time_series",
-          "rawSql": "SELECT date_trunc('hour', ts) AS time, count(*)::float AS receptions FROM reception WHERE ts > now() - interval '7 days' GROUP BY 1 ORDER BY 1"
+          "rawSql": "SELECT date_trunc('hour', ts) AS time, count(*)::float AS receptions FROM reception WHERE ts > now() - interval '7 days' GROUP BY 1 ORDER BY 1",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "orbitcache"
+          }
         }
-      ]
+      ],
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "orbitcache"
+      }
     },
     {
       "id": 3,
@@ -68,9 +84,17 @@
       "targets": [
         {
           "format": "table",
-          "rawSql": "SELECT s.name AS satellite, count(DISTINCT r.observer) AS stations, count(*) AS receptions, max(r.ts) AS last_heard FROM reception r JOIN satellite s USING (norad) WHERE r.ts > now() - interval '7 days' GROUP BY s.name ORDER BY 2 DESC"
+          "rawSql": "SELECT s.name AS satellite, count(DISTINCT r.observer) AS stations, count(*) AS receptions, max(r.ts) AS last_heard FROM reception r JOIN satellite s USING (norad) WHERE r.ts > now() - interval '7 days' GROUP BY s.name ORDER BY 2 DESC",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "orbitcache"
+          }
         }
-      ]
+      ],
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "orbitcache"
+      }
     }
   ]
 }

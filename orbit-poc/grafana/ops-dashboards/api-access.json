@@ -1,7 +1,7 @@
 {
   "uid": "api-access",
   "title": "API Access (Ops)",
-  "description": "The public /v1 product API: traffic, latency, consumers, countries, keys. Metering view — this is what pricing reads at the monetization review.",
+  "description": "The public /v1 product API: traffic, latency, consumers, countries, keys. Metering view \u2014 this is what pricing reads at the monetization review.",
   "tags": [
     "ops",
     "api"
@@ -32,7 +32,11 @@
       "targets": [
         {
           "expr": "sum by (route) (rate(ovw_api_requests_total[$__rate_interval])) * 60",
-          "legendFormat": "{{route}}"
+          "legendFormat": "{{route}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "promops"
+          }
         }
       ]
     },
@@ -53,11 +57,19 @@
       "targets": [
         {
           "expr": "histogram_quantile(0.50, sum by (le) (rate(ovw_duration_milliseconds_bucket{span_name=~\"(GET|POST) /v1.*\"}[$__rate_interval])))",
-          "legendFormat": "p50"
+          "legendFormat": "p50",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "promops"
+          }
         },
         {
           "expr": "histogram_quantile(0.95, sum by (le) (rate(ovw_duration_milliseconds_bucket{span_name=~\"(GET|POST) /v1.*\"}[$__rate_interval])))",
-          "legendFormat": "p95"
+          "legendFormat": "p95",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "promops"
+          }
         }
       ]
     },
@@ -78,7 +90,11 @@
       "targets": [
         {
           "expr": "sum by (status) (rate(ovw_api_requests_total[$__rate_interval])) * 60",
-          "legendFormat": "{{status}}"
+          "legendFormat": "{{status}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "promops"
+          }
         }
       ]
     },
@@ -99,7 +115,11 @@
       "targets": [
         {
           "expr": "sum by (keyed) (rate(ovw_api_requests_total[$__rate_interval])) * 60",
-          "legendFormat": "keyed={{keyed}}"
+          "legendFormat": "keyed={{keyed}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "promops"
+          }
         }
       ]
     },
@@ -120,7 +140,11 @@
       "targets": [
         {
           "expr": "sum by (client) (rate(ovw_api_requests_total[$__rate_interval])) * 60",
-          "legendFormat": "{{client}}"
+          "legendFormat": "{{client}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "promops"
+          }
         }
       ]
     },
@@ -142,7 +166,11 @@
         {
           "expr": "topk(15, sum by (country) (increase(ovw_api_requests_total[$__range])))",
           "legendFormat": "{{country}}",
-          "instant": true
+          "instant": true,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "promops"
+          }
         }
       ]
     },
@@ -163,7 +191,11 @@
       "targets": [
         {
           "format": "table",
-          "rawSql": "SELECT country, count(DISTINCT client_hash) AS visitors FROM visitor_daily WHERE $__timeFilter(day) GROUP BY country ORDER BY visitors DESC LIMIT 15"
+          "rawSql": "SELECT country, count(DISTINCT client_hash) AS visitors FROM visitor_daily WHERE $__timeFilter(day) GROUP BY country ORDER BY visitors DESC LIMIT 15",
+          "datasource": {
+            "type": "postgres",
+            "uid": "orbitcache-ops"
+          }
         }
       ],
       "options": {
@@ -177,7 +209,7 @@
     },
     {
       "id": 8,
-      "title": "Top API keys (range) — each key is a person we can talk to",
+      "title": "Top API keys (range) \u2014 each key is a person we can talk to",
       "type": "table",
       "datasource": {
         "type": "postgres",
@@ -192,7 +224,11 @@
       "targets": [
         {
           "format": "table",
-          "rawSql": "SELECT left(k.key::text, 8) AS key, k.email, k.note, min(u.day) AS first_seen, sum(u.requests) AS requests FROM api_usage u JOIN api_key k USING (key) WHERE $__timeFilter(u.day) GROUP BY 1, 2, 3 ORDER BY requests DESC LIMIT 20"
+          "rawSql": "SELECT left(k.key::text, 8) AS key, k.email, k.note, min(u.day) AS first_seen, sum(u.requests) AS requests FROM api_usage u JOIN api_key k USING (key) WHERE $__timeFilter(u.day) GROUP BY 1, 2, 3 ORDER BY requests DESC LIMIT 20",
+          "datasource": {
+            "type": "postgres",
+            "uid": "orbitcache-ops"
+          }
         }
       ]
     }

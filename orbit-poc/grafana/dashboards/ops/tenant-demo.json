@@ -1,6 +1,6 @@
 {
   "uid": "tenant-demo",
-  "title": "Tenant — private telemetry (demo)",
+  "title": "Tenant \u2014 private telemetry (demo)",
   "description": "Private-tenant view: data pushed via POST /api/v1/tenants/{key}/telemetry. Admin-only until the tenant auth proxy ships (issue #7).",
   "tags": [
     "ops",
@@ -51,7 +51,7 @@
   "panels": [
     {
       "id": 1,
-      "title": "$satellite — pushed telemetry",
+      "title": "$satellite \u2014 pushed telemetry",
       "type": "timeseries",
       "datasource": {
         "type": "postgres",
@@ -66,13 +66,17 @@
       "targets": [
         {
           "format": "time_series",
-          "rawSql": "SELECT ts AS time, CASE WHEN length(field) > 40 THEN regexp_replace(field, '^.*_([^_]+_[^_]+_[^_]+_[^_]+)$', '\\1') ELSE field END AS metric, value_num AS value FROM tenant_telemetry WHERE tenant = '$tenant'::uuid AND satellite = '$satellite' AND field IN ($field) AND value_num IS NOT NULL AND $__timeFilter(ts) ORDER BY ts"
+          "rawSql": "SELECT ts AS time, CASE WHEN length(field) > 40 THEN regexp_replace(field, '^.*_([^_]+_[^_]+_[^_]+_[^_]+)$', '\\1') ELSE field END AS metric, value_num AS value FROM tenant_telemetry WHERE tenant = '$tenant'::uuid AND satellite = '$satellite' AND field IN ($field) AND value_num IS NOT NULL AND $__timeFilter(ts) ORDER BY ts",
+          "datasource": {
+            "type": "postgres",
+            "uid": "orbitcache"
+          }
         }
       ]
     },
     {
       "id": 2,
-      "title": "Your data — satellites, fields, freshness",
+      "title": "Your data \u2014 satellites, fields, freshness",
       "type": "table",
       "datasource": {
         "type": "postgres",
@@ -87,7 +91,11 @@
       "targets": [
         {
           "format": "table",
-          "rawSql": "SELECT satellite, field, count(*) AS points, max(ts) AS last FROM tenant_telemetry WHERE tenant = '$tenant'::uuid GROUP BY 1, 2 ORDER BY 1, 2"
+          "rawSql": "SELECT satellite, field, count(*) AS points, max(ts) AS last FROM tenant_telemetry WHERE tenant = '$tenant'::uuid GROUP BY 1, 2 ORDER BY 1, 2",
+          "datasource": {
+            "type": "postgres",
+            "uid": "orbitcache"
+          }
         }
       ]
     }

@@ -138,3 +138,41 @@ def test_series_labels_survive_boilerplate_prefixes():   # #248
              for s in ("pos_z", "neg_z", "pos_y", "pos_x", "neg_y", "neg_x")}
     assert len(tails) == 6
     assert label("battery_v") == "battery_v"
+
+
+def _ds_uid(obj):
+    ds = obj.get("datasource")
+    return ds.get("uid") if isinstance(ds, dict) else ds
+
+
+def test_no_panel_relies_on_the_default_datasource():   # #319
+    """A dashboard must name its datasource. Panels that leave it unset
+    resolve to whichever source happens to hold the default flag, and in
+    production that was `orbitcache-ops` — a datasource created through the UI
+    and never added to provisioning, which runs as `ops_ro`. That role is
+    deliberately not granted the public tables, so all 20 unpinned panels
+    rendered "permission denied for table reception" as an empty chart on the
+    live site while the data itself was fine."""
+    for f in _dashboards():
+        d = json.load(open(f, encoding="utf-8"))
+        name = os.path.basename(f)
+        for p in d["panels"]:
+            assert _ds_uid(p), f"{name}: panel {p.get('title')!r} has no datasource"
+            for t in p.get("targets", []):
+                assert _ds_uid(t), \
+                    f"{name}: a target of {p.get('title')!r} has no datasource"
+        for v in d.get("templating", {}).get("list", []):
+            if v.get("type") == "query":
+                assert _ds_uid(v), \
+                    f"{name}: template variable {v.get('name')!r} has no datasource"
+
+
+def test_public_boards_use_the_least_privilege_role():   # #319
+    """The public embeds are served to anonymous viewers, so they must go
+    through `grafana_ro` (uid orbitcache) — never the ops role, and never the
+    app role that can reach private tenant data."""
+    for f in glob.glob(os.path.join(DASH, "public", "*.json")):
+        d = json.load(open(f, encoding="utf-8"))
+        for p in d["panels"]:
+            assert _ds_uid(p) == "orbitcache", \
+                f"{os.path.basename(f)}: {p.get('title')!r} -> {_ds_uid(p)}"

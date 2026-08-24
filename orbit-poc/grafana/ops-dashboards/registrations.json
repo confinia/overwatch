@@ -1,269 +1,293 @@
 {
- "uid": "registrations",
- "title": "User registrations",
- "description": "Who signed up and when (#172): the registration registry fed by every Keycloak login and backfilled from the realm. Funnel: registered -> organization -> API key. Admin-only (ops Grafana org).",
- "tags": [
-  "ops",
-  "accounts"
- ],
- "timezone": "utc",
- "schemaVersion": 39,
- "version": 1,
- "refresh": "5m",
- "time": {
-  "from": "now-90d",
-  "to": "now"
- },
- "templating": {
-  "list": []
- },
- "panels": [
-  {
-   "id": 1,
-   "title": "Registered users",
-   "type": "stat",
-   "datasource": {
-    "type": "postgres",
-    "uid": "orbitcache-ops"
-   },
-   "gridPos": {
-    "h": 4,
-    "w": 6,
-    "x": 0,
-    "y": 0
-   },
-   "fieldConfig": {
-    "defaults": {
-     "unit": "short",
-     "color": {
-      "mode": "fixed",
-      "fixedColor": "green"
-     }
-    },
-    "overrides": []
-   },
-   "options": {
-    "reduceOptions": {
-     "calcs": [
-      "lastNotNull"
-     ],
-     "fields": "",
-     "values": false
-    },
-    "colorMode": "value",
-    "graphMode": "none",
-    "textMode": "auto",
-    "justifyMode": "auto"
-   },
-   "targets": [
-    {
-     "format": "table",
-     "rawSql": "SELECT count(*) AS value FROM registered_user",
-     "refId": "A"
-    }
-   ]
+  "uid": "registrations",
+  "title": "User registrations",
+  "description": "Who signed up and when (#172): the registration registry fed by every Keycloak login and backfilled from the realm. Funnel: registered -> organization -> API key. Admin-only (ops Grafana org).",
+  "tags": [
+    "ops",
+    "accounts"
+  ],
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5m",
+  "time": {
+    "from": "now-90d",
+    "to": "now"
   },
-  {
-   "id": 2,
-   "title": "New this week",
-   "type": "stat",
-   "datasource": {
-    "type": "postgres",
-    "uid": "orbitcache-ops"
-   },
-   "gridPos": {
-    "h": 4,
-    "w": 6,
-    "x": 6,
-    "y": 0
-   },
-   "fieldConfig": {
-    "defaults": {
-     "unit": "short",
-     "color": {
-      "mode": "fixed",
-      "fixedColor": "blue"
-     }
-    },
-    "overrides": []
-   },
-   "options": {
-    "reduceOptions": {
-     "calcs": [
-      "lastNotNull"
-     ],
-     "fields": "",
-     "values": false
-    },
-    "colorMode": "value",
-    "graphMode": "none",
-    "textMode": "auto",
-    "justifyMode": "auto"
-   },
-   "targets": [
-    {
-     "format": "table",
-     "rawSql": "SELECT count(*) AS value FROM registered_user WHERE first_seen > now() - interval '7 days'",
-     "refId": "A"
-    }
-   ]
+  "templating": {
+    "list": []
   },
-  {
-   "id": 3,
-   "title": "Signed up, never came back",
-   "type": "stat",
-   "datasource": {
-    "type": "postgres",
-    "uid": "orbitcache-ops"
-   },
-   "gridPos": {
-    "h": 4,
-    "w": 6,
-    "x": 12,
-    "y": 0
-   },
-   "fieldConfig": {
-    "defaults": {
-     "unit": "short",
-     "color": {
-      "mode": "fixed",
-      "fixedColor": "orange"
-     }
-    },
-    "overrides": []
-   },
-   "options": {
-    "reduceOptions": {
-     "calcs": [
-      "lastNotNull"
-     ],
-     "fields": "",
-     "values": false
-    },
-    "colorMode": "value",
-    "graphMode": "none",
-    "textMode": "auto",
-    "justifyMode": "auto"
-   },
-   "targets": [
+  "panels": [
     {
-     "format": "table",
-     "rawSql": "SELECT count(*) AS value FROM registered_user WHERE last_login IS NULL",
-     "refId": "A"
-    }
-   ]
-  },
-  {
-   "id": 4,
-   "title": "Active API keys",
-   "type": "stat",
-   "datasource": {
-    "type": "postgres",
-    "uid": "orbitcache-ops"
-   },
-   "gridPos": {
-    "h": 4,
-    "w": 6,
-    "x": 18,
-    "y": 0
-   },
-   "fieldConfig": {
-    "defaults": {
-     "unit": "short",
-     "color": {
-      "mode": "fixed",
-      "fixedColor": "purple"
-     }
+      "id": 1,
+      "title": "Registered users",
+      "type": "stat",
+      "datasource": {
+        "type": "postgres",
+        "uid": "orbitcache-ops"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "green"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT count(*) AS value FROM registered_user",
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "orbitcache-ops"
+          }
+        }
+      ]
     },
-    "overrides": []
-   },
-   "options": {
-    "reduceOptions": {
-     "calcs": [
-      "lastNotNull"
-     ],
-     "fields": "",
-     "values": false
+    {
+      "id": 2,
+      "title": "New this week",
+      "type": "stat",
+      "datasource": {
+        "type": "postgres",
+        "uid": "orbitcache-ops"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT count(*) AS value FROM registered_user WHERE first_seen > now() - interval '7 days'",
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "orbitcache-ops"
+          }
+        }
+      ]
     },
-    "colorMode": "value",
-    "graphMode": "none",
-    "textMode": "auto",
-    "justifyMode": "auto"
-   },
-   "targets": [
     {
-     "format": "table",
-     "rawSql": "SELECT count(*) AS value FROM api_key WHERE active",
-     "refId": "A"
-    }
-   ]
-  },
-  {
-   "id": 5,
-   "title": "Registrations / day",
-   "type": "timeseries",
-   "datasource": {
-    "type": "postgres",
-    "uid": "orbitcache-ops"
-   },
-   "gridPos": {
-    "h": 8,
-    "w": 24,
-    "x": 0,
-    "y": 4
-   },
-   "fieldConfig": {
-    "defaults": {
-     "unit": "short",
-     "custom": {
-      "drawStyle": "bars",
-      "fillOpacity": 60
-     }
+      "id": 3,
+      "title": "Signed up, never came back",
+      "type": "stat",
+      "datasource": {
+        "type": "postgres",
+        "uid": "orbitcache-ops"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "orange"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT count(*) AS value FROM registered_user WHERE last_login IS NULL",
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "orbitcache-ops"
+          }
+        }
+      ]
     },
-    "overrides": []
-   },
-   "options": {
-    "legend": {
-     "displayMode": "list",
-     "placement": "bottom"
-    }
-   },
-   "targets": [
     {
-     "format": "time_series",
-     "refId": "A",
-     "rawSql": "SELECT date_trunc('day', first_seen) AS time, count(*) AS \"registrations\" FROM registered_user WHERE first_seen > $__timeFrom() GROUP BY 1 ORDER BY 1"
-    }
-   ]
-  },
-  {
-   "id": 6,
-   "title": "Registrations \u2014 newest first",
-   "type": "table",
-   "datasource": {
-    "type": "postgres",
-    "uid": "orbitcache-ops"
-   },
-   "gridPos": {
-    "h": 10,
-    "w": 24,
-    "x": 0,
-    "y": 12
-   },
-   "fieldConfig": {
-    "defaults": {},
-    "overrides": []
-   },
-   "options": {
-    "showHeader": true
-   },
-   "targets": [
+      "id": 4,
+      "title": "Active API keys",
+      "type": "stat",
+      "datasource": {
+        "type": "postgres",
+        "uid": "orbitcache-ops"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "purple"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT count(*) AS value FROM api_key WHERE active",
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "orbitcache-ops"
+          }
+        }
+      ]
+    },
     {
-     "format": "table",
-     "refId": "A",
-     "rawSql": "SELECT email AS \"Email\", name AS \"Name\", first_seen AS \"Registered\", last_login AS \"Last login\" FROM registered_user ORDER BY first_seen DESC LIMIT 100"
+      "id": 5,
+      "title": "Registrations / day",
+      "type": "timeseries",
+      "datasource": {
+        "type": "postgres",
+        "uid": "orbitcache-ops"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 60
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "format": "time_series",
+          "refId": "A",
+          "rawSql": "SELECT date_trunc('day', first_seen) AS time, count(*) AS \"registrations\" FROM registered_user WHERE first_seen > $__timeFrom() GROUP BY 1 ORDER BY 1",
+          "datasource": {
+            "type": "postgres",
+            "uid": "orbitcache-ops"
+          }
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Registrations \u2014 newest first",
+      "type": "table",
+      "datasource": {
+        "type": "postgres",
+        "uid": "orbitcache-ops"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 12
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "format": "table",
+          "refId": "A",
+          "rawSql": "SELECT email AS \"Email\", name AS \"Name\", first_seen AS \"Registered\", last_login AS \"Last login\" FROM registered_user ORDER BY first_seen DESC LIMIT 100",
+          "datasource": {
+            "type": "postgres",
+            "uid": "orbitcache-ops"
+          }
+        }
+      ]
     }
-   ]
-  }
- ]
+  ]
 }

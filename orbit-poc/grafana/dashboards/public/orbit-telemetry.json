@@ -31,7 +31,7 @@
   "panels": [
     {
       "id": 5,
-      "title": "Orbit altitude (from position cache — live for every satellite)",
+      "title": "Orbit altitude (from position cache \u2014 live for every satellite)",
       "type": "timeseries",
       "gridPos": {
         "h": 6,
@@ -47,9 +47,17 @@
       "targets": [
         {
           "format": "time_series",
-          "rawSql": "SELECT ts AS time, alt_km AS altitude FROM position WHERE norad = $norad ORDER BY ts"
+          "rawSql": "SELECT ts AS time, alt_km AS altitude FROM position WHERE norad = $norad ORDER BY ts",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "orbitcache"
+          }
         }
-      ]
+      ],
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "orbitcache"
+      }
     },
     {
       "id": 1,
@@ -69,9 +77,17 @@
       "targets": [
         {
           "format": "time_series",
-          "rawSql": "SELECT ts AS time, CASE WHEN length(field) > 40 THEN regexp_replace(field, '^.*_([^_]+_[^_]+_[^_]+_[^_]+)$', '\\1') ELSE field END AS metric, value_num AS value FROM telemetry WHERE norad = $norad AND (field = 'battery_v' OR field ~* '(volt|vbat|v_bat|bat[a-z_]*_v$|panel_v$)') AND value_num BETWEEN 0 AND 60 ORDER BY ts"
+          "rawSql": "SELECT ts AS time, CASE WHEN length(field) > 40 THEN regexp_replace(field, '^.*_([^_]+_[^_]+_[^_]+_[^_]+)$', '\\1') ELSE field END AS metric, value_num AS value FROM telemetry WHERE norad = $norad AND (field = 'battery_v' OR field ~* '(volt|vbat|v_bat|bat[a-z_]*_v$|panel_v$)') AND value_num BETWEEN 0 AND 60 ORDER BY ts",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "orbitcache"
+          }
         }
-      ]
+      ],
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "orbitcache"
+      }
     },
     {
       "id": 2,
@@ -91,9 +107,17 @@
       "targets": [
         {
           "format": "time_series",
-          "rawSql": "SELECT ts AS time, CASE WHEN length(field) > 40 THEN regexp_replace(field, '^.*_([^_]+_[^_]+_[^_]+_[^_]+)$', '\\1') ELSE field END AS metric, value_num AS value FROM telemetry WHERE norad = $norad AND field ~* '(temp|bat[a-z_]*_t$)' AND value_num IS NOT NULL ORDER BY ts"
+          "rawSql": "SELECT ts AS time, CASE WHEN length(field) > 40 THEN regexp_replace(field, '^.*_([^_]+_[^_]+_[^_]+_[^_]+)$', '\\1') ELSE field END AS metric, value_num AS value FROM telemetry WHERE norad = $norad AND field ~* '(temp|bat[a-z_]*_t$)' AND value_num IS NOT NULL ORDER BY ts",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "orbitcache"
+          }
         }
-      ]
+      ],
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "orbitcache"
+      }
     },
     {
       "id": 3,
@@ -113,9 +137,17 @@
       "targets": [
         {
           "format": "time_series",
-          "rawSql": "SELECT ts AS time, CASE WHEN length(field) > 40 THEN regexp_replace(field, '^.*_([^_]+_[^_]+_[^_]+_[^_]+)$', '\\1') ELSE field END AS metric, value_num AS value FROM telemetry WHERE norad = $norad AND (field = 'battery_i' OR field ~* '(current|curr|_i_|amp)') AND value_num BETWEEN -20 AND 20 ORDER BY ts"
+          "rawSql": "SELECT ts AS time, CASE WHEN length(field) > 40 THEN regexp_replace(field, '^.*_([^_]+_[^_]+_[^_]+_[^_]+)$', '\\1') ELSE field END AS metric, value_num AS value FROM telemetry WHERE norad = $norad AND (field = 'battery_i' OR field ~* '(current|curr|_i_|amp)') AND value_num BETWEEN -20 AND 20 ORDER BY ts",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "orbitcache"
+          }
         }
-      ]
+      ],
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "orbitcache"
+      }
     },
     {
       "id": 4,
@@ -130,9 +162,17 @@
       "targets": [
         {
           "format": "table",
-          "rawSql": "SELECT DISTINCT ON (field) field, COALESCE(value_num::text, value_txt) AS value, ts FROM telemetry WHERE norad = $norad ORDER BY field, ts DESC"
+          "rawSql": "SELECT DISTINCT ON (field) field, COALESCE(value_num::text, value_txt) AS value, ts FROM telemetry WHERE norad = $norad ORDER BY field, ts DESC",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "orbitcache"
+          }
         }
-      ]
+      ],
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "orbitcache"
+      }
     },
     {
       "id": 6,
@@ -154,13 +194,21 @@
       "targets": [
         {
           "format": "time_series",
-          "rawSql": "SELECT ts AS time, value_num AS value FROM telemetry WHERE norad = $norad AND field = 'battery_pct' ORDER BY ts"
+          "rawSql": "SELECT ts AS time, value_num AS value FROM telemetry WHERE norad = $norad AND field = 'battery_pct' ORDER BY ts",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "orbitcache"
+          }
         }
-      ]
+      ],
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "orbitcache"
+      }
     },
     {
       "id": 8,
-      "title": "Battery vs orbital sunlight — position+telemetry fusion",
+      "title": "Battery vs orbital sunlight \u2014 position+telemetry fusion",
       "type": "timeseries",
       "gridPos": {
         "h": 7,
@@ -222,14 +270,26 @@
         {
           "refId": "A",
           "format": "time_series",
-          "rawSql": "SELECT ts AS time, value_num AS battery_v FROM telemetry WHERE norad = $norad AND field = 'battery_v' ORDER BY ts"
+          "rawSql": "SELECT ts AS time, value_num AS battery_v FROM telemetry WHERE norad = $norad AND field = 'battery_v' ORDER BY ts",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "orbitcache"
+          }
         },
         {
           "refId": "B",
           "format": "time_series",
-          "rawSql": "SELECT ts AS time, (CASE WHEN sunlit THEN 1 ELSE 0 END)::float AS sunlight FROM position WHERE norad = $norad AND sunlit IS NOT NULL ORDER BY ts"
+          "rawSql": "SELECT ts AS time, (CASE WHEN sunlit THEN 1 ELSE 0 END)::float AS sunlight FROM position WHERE norad = $norad AND sunlit IS NOT NULL ORDER BY ts",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "orbitcache"
+          }
         }
-      ]
+      ],
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "orbitcache"
+      }
     },
     {
       "id": 7,
@@ -252,9 +312,17 @@
       "targets": [
         {
           "format": "time_series",
-          "rawSql": "SELECT date_trunc('hour', ts) AS time, count(DISTINCT ts)::float AS frames FROM telemetry WHERE norad = $norad GROUP BY 1 ORDER BY 1"
+          "rawSql": "SELECT date_trunc('hour', ts) AS time, count(DISTINCT ts)::float AS frames FROM telemetry WHERE norad = $norad GROUP BY 1 ORDER BY 1",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "orbitcache"
+          }
         }
-      ]
+      ],
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "orbitcache"
+      }
     },
     {
       "id": 9,
@@ -276,9 +344,17 @@
       "targets": [
         {
           "format": "time_series",
-          "rawSql": "SELECT ts AS time, CASE WHEN length(field) > 40 THEN regexp_replace(field, '^.*_([^_]+_[^_]+_[^_]+_[^_]+)$', '\\1') ELSE field END AS metric, value_num AS value FROM telemetry WHERE norad = $norad AND field ~* '(count|cnt|seqnum|uptime|reset|boot|reboot|packets|errors)' AND value_num IS NOT NULL ORDER BY ts"
+          "rawSql": "SELECT ts AS time, CASE WHEN length(field) > 40 THEN regexp_replace(field, '^.*_([^_]+_[^_]+_[^_]+_[^_]+)$', '\\1') ELSE field END AS metric, value_num AS value FROM telemetry WHERE norad = $norad AND field ~* '(count|cnt|seqnum|uptime|reset|boot|reboot|packets|errors)' AND value_num IS NOT NULL ORDER BY ts",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "orbitcache"
+          }
         }
-      ]
+      ],
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "orbitcache"
+      }
     },
     {
       "id": 10,
@@ -298,9 +374,17 @@
       "targets": [
         {
           "format": "time_series",
-          "rawSql": "SELECT ts AS time, CASE WHEN length(field) > 40 THEN regexp_replace(field, '^.*_([^_]+_[^_]+_[^_]+_[^_]+)$', '\\1') ELSE field END AS metric, value_num AS value FROM telemetry WHERE norad = $norad AND field ~* '(pwr|power|watt|_w$|charge)' AND field <> 'battery_pct' AND value_num IS NOT NULL ORDER BY ts"
+          "rawSql": "SELECT ts AS time, CASE WHEN length(field) > 40 THEN regexp_replace(field, '^.*_([^_]+_[^_]+_[^_]+_[^_]+)$', '\\1') ELSE field END AS metric, value_num AS value FROM telemetry WHERE norad = $norad AND field ~* '(pwr|power|watt|_w$|charge)' AND field <> 'battery_pct' AND value_num IS NOT NULL ORDER BY ts",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "orbitcache"
+          }
         }
-      ]
+      ],
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "orbitcache"
+      }
     },
     {
       "id": 11,
@@ -323,13 +407,21 @@
       "targets": [
         {
           "format": "time_series",
-          "rawSql": "SELECT ts AS time, CASE WHEN length(field) > 40 THEN regexp_replace(field, '^.*_([^_]+_[^_]+_[^_]+_[^_]+)$', '\\1') ELSE field END AS metric, value_num AS value FROM telemetry WHERE norad = $norad AND field ~* '(mode|state|status|flag|enabled|armed|active)' AND value_num IS NOT NULL ORDER BY ts"
+          "rawSql": "SELECT ts AS time, CASE WHEN length(field) > 40 THEN regexp_replace(field, '^.*_([^_]+_[^_]+_[^_]+_[^_]+)$', '\\1') ELSE field END AS metric, value_num AS value FROM telemetry WHERE norad = $norad AND field ~* '(mode|state|status|flag|enabled|armed|active)' AND value_num IS NOT NULL ORDER BY ts",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "orbitcache"
+          }
         }
-      ]
+      ],
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "orbitcache"
+      }
     },
     {
       "id": 13,
-      "title": "Ground stations — frames received (this satellite, selected window)",
+      "title": "Ground stations \u2014 frames received (this satellite, selected window)",
       "type": "bargauge",
       "gridPos": {
         "h": 9,
@@ -359,9 +451,17 @@
       "targets": [
         {
           "format": "table",
-          "rawSql": "SELECT split_part(observer, '-', 1) AS station, count(*) AS frames FROM reception WHERE norad = $norad AND $__timeFilter(ts) GROUP BY 1 ORDER BY frames DESC LIMIT 15"
+          "rawSql": "SELECT split_part(observer, '-', 1) AS station, count(*) AS frames FROM reception WHERE norad = $norad AND $__timeFilter(ts) GROUP BY 1 ORDER BY frames DESC LIMIT 15",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "orbitcache"
+          }
         }
-      ]
+      ],
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "orbitcache"
+      }
     },
     {
       "id": 14,
@@ -387,13 +487,21 @@
       "targets": [
         {
           "format": "table",
-          "rawSql": "SELECT count(*) AS \"Frames received\", count(DISTINCT observer) AS \"Ground stations\", max(ts) AS \"Last heard\" FROM reception WHERE norad = $norad AND $__timeFilter(ts)"
+          "rawSql": "SELECT count(*) AS \"Frames received\", count(DISTINCT observer) AS \"Ground stations\", max(ts) AS \"Last heard\" FROM reception WHERE norad = $norad AND $__timeFilter(ts)",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "orbitcache"
+          }
         }
-      ]
+      ],
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "orbitcache"
+      }
     },
     {
       "id": 12,
-      "title": "Other numeric telemetry (auto — every decoded field not charted above)",
+      "title": "Other numeric telemetry (auto \u2014 every decoded field not charted above)",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
@@ -404,9 +512,17 @@
       "targets": [
         {
           "format": "time_series",
-          "rawSql": "SELECT ts AS time, CASE WHEN length(field) > 40 THEN regexp_replace(field, '^.*_([^_]+_[^_]+_[^_]+_[^_]+)$', '\\1') ELSE field END AS metric, value_num AS value FROM telemetry WHERE norad = $norad AND value_num IS NOT NULL AND field NOT IN ('battery_v','battery_i','battery_pct') AND field !~* '(volt|vbat|v_bat|_v$|temp|current|curr|_i_|amp|count|cnt|seqnum|uptime|reset|boot|reboot|packets|errors|pwr|power|watt|_w$|charge|mode|state|status|flag|enabled|armed|active|pct)' ORDER BY ts"
+          "rawSql": "SELECT ts AS time, CASE WHEN length(field) > 40 THEN regexp_replace(field, '^.*_([^_]+_[^_]+_[^_]+_[^_]+)$', '\\1') ELSE field END AS metric, value_num AS value FROM telemetry WHERE norad = $norad AND value_num IS NOT NULL AND field NOT IN ('battery_v','battery_i','battery_pct') AND field !~* '(volt|vbat|v_bat|_v$|temp|current|curr|_i_|amp|count|cnt|seqnum|uptime|reset|boot|reboot|packets|errors|pwr|power|watt|_w$|charge|mode|state|status|flag|enabled|armed|active|pct)' ORDER BY ts",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "orbitcache"
+          }
         }
-      ]
+      ],
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "orbitcache"
+      }
     }
   ]
 }

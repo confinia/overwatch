@@ -59,7 +59,11 @@
         {
           "format": "table",
           "rawSql": "SELECT count(*) AS value FROM organization WHERE active AND archived_at IS NULL",
-          "refId": "A"
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "orbitcache-ops"
+          }
         }
       ]
     },
@@ -104,7 +108,11 @@
         {
           "format": "table",
           "rawSql": "SELECT count(DISTINCT sub) AS value FROM org_user",
-          "refId": "A"
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "orbitcache-ops"
+          }
         }
       ]
     },
@@ -149,7 +157,11 @@
         {
           "format": "table",
           "rawSql": "SELECT count(*) AS value FROM api_key WHERE active",
-          "refId": "A"
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "orbitcache-ops"
+          }
         }
       ]
     },
@@ -194,7 +206,11 @@
         {
           "format": "table",
           "rawSql": "SELECT count(*) AS value FROM organization WHERE archived_at IS NOT NULL",
-          "refId": "A"
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "orbitcache-ops"
+          }
         }
       ]
     },
@@ -241,7 +257,11 @@
         {
           "format": "time_series",
           "rawSql": "SELECT date_trunc('day', created_at) AS time, count(*) AS \"orgs\" FROM organization GROUP BY 1 ORDER BY 1",
-          "refId": "A"
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "orbitcache-ops"
+          }
         }
       ]
     },
@@ -288,7 +308,11 @@
         {
           "format": "time_series",
           "rawSql": "SELECT date_trunc('day', created_at) AS time, count(*) AS \"accounts\" FROM api_key GROUP BY 1 ORDER BY 1",
-          "refId": "A"
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "orbitcache-ops"
+          }
         }
       ]
     },
@@ -325,7 +349,11 @@
         {
           "format": "table",
           "rawSql": "SELECT o.name AS \"Organization\", o.created_at AS \"Created\", (SELECT count(*) FROM org_user u WHERE u.org = o.id) AS \"Members\", (SELECT count(*) FROM org_token t WHERE t.org = o.id AND NOT t.revoked) AS \"Active tokens\", CASE WHEN o.archived_at IS NOT NULL THEN 'archived' WHEN o.active THEN 'active' ELSE 'inactive' END AS \"Status\" FROM organization o ORDER BY o.created_at DESC",
-          "refId": "A"
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "orbitcache-ops"
+          }
         }
       ]
     }
