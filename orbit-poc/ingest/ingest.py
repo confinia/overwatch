@@ -230,7 +230,15 @@ def _record_lookup(norad, ok, error="", permanent=False):
 
     `permanent` skips the backoff entirely and gives up on the first attempt.
     It is for the case where a provider has answered that the object is not
-    there — a verdict, unlike a timeout, that repetition cannot overturn."""
+    there — a verdict, unlike a timeout, that repetition cannot overturn.
+
+    It is also the ONLY thing that sets gave_up. Counting attempts used to do
+    it too, which meant an outage long enough to burn six of them was filed as
+    "not carried by CelesTrak or SatNOGS" — permanently, with nothing to clear
+    it. Production came out of the 2026-08-20 block with all 23 satellites in
+    that state, the ISS among them, and could not recover on its own. Backoff
+    already caps at 24h, so an object we merely cannot reach costs one request
+    a day and heals by itself the moment the network does."""
     with db() as conn, conn.cursor() as cur:
         if ok:
             cur.execute("DELETE FROM element_fetch WHERE norad = %s", (norad,))
@@ -244,7 +252,7 @@ def _record_lookup(norad, ok, error="", permanent=False):
                              next_attempt = now() +
                                (least(power(2, element_fetch.attempts + 1), 24)
                                 * interval '1 hour'),
-                             gave_up = %s OR element_fetch.attempts + 1 >= 6,
+                             gave_up = %s,
                              last_error = EXCLUDED.last_error""",
                         (norad, permanent, error[:200], permanent))
         conn.commit()
@@ -668,7 +676,33 @@ def fetch_telemetry():
                      n, len(frames), norad)
         except Exception as e:
             log.warning("Telemetry fetch failed for %s: %s", norad, e)
-        time.sleep(5)  # stay well under SatNOGS rate limits
+        # No sleep here: _pace_satnogs() already holds every request to the
+        # published rate, and a second delay on top only slows the cycle.
+
+
+# SatNOGS throttles the telemetry endpoint per user, not per satellite:
+# get_telemetry_user = 6/minute in satnogs-db's db/settings.py (and 1/day for
+# satellites flagged is_frequency_violator). Six a minute is one every ten
+# seconds, so the default leaves a second of margin.
+#
+# This has to be global rather than a sleep in the caller: the limit counts
+# every request we make, so pagination inside one satellite and the move to
+# the next satellite both have to pass through it. The previous sleep(5)
+# between satellites, with three pages fetched back to back inside each, ran
+# at roughly 26 requests a minute while its comment claimed it stayed "well
+# under" the limit.
+SATNOGS_MIN_GAP = float(os.environ.get("SATNOGS_MIN_GAP", 11))
+_satnogs_gate = threading.Lock()
+_satnogs_last = [0.0]
+
+
+def _pace_satnogs():
+    """Block until issuing a SatNOGS request stays inside the published rate."""
+    with _satnogs_gate:
+        wait = SATNOGS_MIN_GAP - (time.time() - _satnogs_last[0])
+        if wait > 0:
+            time.sleep(wait)
+        _satnogs_last[0] = time.time()
 
 
 def _get_frames(sat_id, pages=2, until=None):
@@ -680,6 +714,7 @@ def _get_frames(sat_id, pages=2, until=None):
     frames, url, params = [], f"{SATNOGS_BASE}/telemetry/", {"sat_id": sat_id}
     for _ in range(pages):
         for attempt in range(4):
+            _pace_satnogs()
             r = requests.get(url, params=params, headers=headers, timeout=30)
             if r.status_code == 401:
                 log.warning("SatNOGS 401 -> token invalid/expired; skipping telemetry.")
@@ -705,7 +740,6 @@ def _get_frames(sat_id, pages=2, until=None):
         url, params = (data.get("next"), None) if isinstance(data, dict) else (None, None)
         if not url:
             break
-        time.sleep(1)
     return frames
 
 

@@ -42,7 +42,8 @@ def test_per_object_lookups_are_backed_off_and_can_give_up():
     rec = INGEST[INGEST.index("def _record_lookup("):INGEST.index("def _tle_for(")]
     # exponential, capped, and a permanent stop
     assert "power(2" in rec and "least(" in rec
-    assert "element_fetch.attempts + 1 >= 6" in rec
+    assert "least(power(2, element_fetch.attempts + 1), 24)" in rec, \
+        "the backoff curve must still cap at 24h"
 
 
 def test_the_give_up_survives_a_restart():
@@ -284,5 +285,77 @@ def test_a_found_tle_clears_the_backoff_row():
 def test_the_permanent_flag_reaches_the_give_up_column():
     rec = INGEST[INGEST.index("def _record_lookup("):INGEST.index("def _tle_for(")]
     assert "permanent=False" in rec, "_record_lookup must accept the flag"
-    assert "%s OR element_fetch.attempts + 1 >= 6" in _code(rec), \
-        "permanent must set gave_up directly, not merely count as one attempt"
+    assert "gave_up = %s," in _code(rec), \
+        "permanent must be the only thing that sets gave_up"
+
+
+# ---------------------------------------------------------------------------
+# Staying inside the published rate, and healing from an outage (#311)
+# ---------------------------------------------------------------------------
+def test_unreachability_alone_never_becomes_a_permanent_give_up():
+    """Production came out of the 2026-08-20 block with all 23 satellites
+    flagged "not carried by CelesTrak or SatNOGS" — the ISS among them —
+    because six failed attempts set gave_up regardless of why they failed.
+    Nothing clears that flag, so the fleet could not recover on its own."""
+    rec = _code(INGEST[INGEST.index("def _record_lookup("):INGEST.index("def _tle_for(")])
+    sets = [l for l in rec.splitlines() if "gave_up" in l and "=" in l]
+    for line in sets:
+        assert "attempts" not in line, (
+            "an unreachable provider must not count toward a permanent "
+            "give-up: " + line.strip())
+
+
+def test_every_satnogs_telemetry_request_goes_through_the_pacer():
+    """The limit counts requests, not satellites, so pagination inside one
+    satellite has to be paced too — that is where the old 26/min came from."""
+    body = _code(INGEST[INGEST.index("def _get_frames("):])
+    body = body[:body.index("\ndef ", 10)]
+    for line in body.splitlines():
+        if "requests.get(" in line:
+            before = body[:body.index(line)]
+            assert "_pace_satnogs()" in before.rsplit("for attempt", 1)[-1], \
+                "a telemetry request is issued without pacing: " + line.strip()
+
+
+def test_the_pacer_holds_the_gap_across_separate_calls():
+    """Global, not per-satellite: two consecutive requests must be spaced even
+    when they come from different satellites."""
+    slept = []
+    now = [1000.0]
+
+    class _T:
+        @staticmethod
+        def time():
+            return now[0]
+
+        @staticmethod
+        def sleep(s):
+            slept.append(s)
+            now[0] += s
+
+    class _Lock:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    ns = _lift("_pace_satnogs", time=_T, SATNOGS_MIN_GAP=11,
+               _satnogs_gate=_Lock(), _satnogs_last=[0.0])
+    ns["_pace_satnogs"]()          # first call: nothing to wait for
+    assert slept == []
+    ns["_pace_satnogs"]()          # immediately after: must wait the full gap
+    assert slept and abs(slept[0] - 11) < 0.01, slept
+
+
+def test_the_published_rate_is_not_exceeded_by_the_default():
+    """6/minute is the documented ceiling (get_telemetry_user in satnogs-db).
+    A gap below 10s would exceed it."""
+    gap = float(INGEST.split('SATNOGS_MIN_GAP", ')[1].split(")")[0])
+    assert gap >= 10, f"{gap}s between requests exceeds 6/minute"
+
+
+def test_no_extra_sleep_pretends_to_be_the_rate_limit():
+    """The old sleep(5) claimed to stay "well under SatNOGS rate limits" while
+    running at four times them. A comment is not a rate limiter."""
+    fetch = _code(INGEST[INGEST.index("def fetch_telemetry("):])
+    fetch = fetch[:fetch.index("\ndef ", 10)]
+    assert "time.sleep(" not in fetch, \
+        "pacing belongs in _pace_satnogs, not in an unexplained sleep here"
