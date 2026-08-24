@@ -154,3 +154,43 @@ jobs:
           echo "$body" | grep -q "permission denied" \
             && echo "private data still denied to anonymous callers" \
             || { echo "SECURITY REGRESSION: private table readable"; exit 1; }
+
+  # A skipped deploy is invisible. `stage` is gated on the sandbox run having
+  # concluded 'success', so a cancelled or failed sandbox leaves this whole
+  # workflow skipped: no red check, no notification, nothing retries — while
+  # the change sits merged and green and production quietly runs older code.
+  # That is how #320 stayed undeployed until it was dispatched by hand (#325).
+  #
+  # This job exists to make that state loud. It fires only when the chain was
+  # broken, and fails only when the break actually stalls something: if main
+  # has already moved past the stalled commit, a newer chain is coming and a
+  # failure here would be pure noise.
+  #
+  # Note it cannot cancel a real deploy: a non-success workflow_run is given a
+  # throwaway concurrency group above, precisely so a doomed run cancels
+  # nothing.
+  chain-broken:
+    if: >-
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.conclusion != 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report a production deploy that will never happen
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STALLED: ${{ github.event.workflow_run.head_sha }}
+          WHY: ${{ github.event.workflow_run.conclusion }}
+        run: |
+          set -euo pipefail
+          tip=$(gh api "repos/${{ github.repository }}/commits/main" --jq .sha)
+          if [ "$tip" != "$STALLED" ]; then
+            echo "sandbox run for ${STALLED:0:7} concluded '$WHY', but main is"
+            echo "now at ${tip:0:7} — a newer chain will carry it. Nothing to do."
+            exit 0
+          fi
+          echo "::error title=Production not deployed::The sandbox run for \
+          ${STALLED:0:7} concluded '$WHY', so this deploy skipped — and \
+          ${STALLED:0:7} is still main's tip, so no further chain is coming. \
+          Production is running older code than main. Re-run with: \
+          gh workflow run deploy.yml --ref main"
+          exit 1
