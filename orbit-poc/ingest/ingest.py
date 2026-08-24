@@ -224,25 +224,29 @@ def _due_for_lookup(norad):
     return bool(due) and not gave_up
 
 
-def _record_lookup(norad, ok, error=""):
+def _record_lookup(norad, ok, error="", permanent=False):
     """Exponential backoff, then a permanent give-up. CelesTrak simply does not
-    carry some objects; asking forever is the abusive pattern."""
+    carry some objects; asking forever is the abusive pattern.
+
+    `permanent` skips the backoff entirely and gives up on the first attempt.
+    It is for the case where a provider has answered that the object is not
+    there — a verdict, unlike a timeout, that repetition cannot overturn."""
     with db() as conn, conn.cursor() as cur:
         if ok:
             cur.execute("DELETE FROM element_fetch WHERE norad = %s", (norad,))
         else:
             cur.execute("""INSERT INTO element_fetch (norad, attempts, last_attempt,
                                                       next_attempt, gave_up, last_error)
-                           VALUES (%s, 1, now(), now() + interval '1 hour', false, %s)
+                           VALUES (%s, 1, now(), now() + interval '1 hour', %s, %s)
                            ON CONFLICT (norad) DO UPDATE SET
                              attempts = element_fetch.attempts + 1,
                              last_attempt = now(),
                              next_attempt = now() +
                                (least(power(2, element_fetch.attempts + 1), 24)
                                 * interval '1 hour'),
-                             gave_up = element_fetch.attempts + 1 >= 6,
+                             gave_up = %s OR element_fetch.attempts + 1 >= 6,
                              last_error = EXCLUDED.last_error""",
-                        (norad, error[:200]))
+                        (norad, permanent, error[:200], permanent))
         conn.commit()
 
 
@@ -254,13 +258,23 @@ def _tle_for(norad):
     if not _due_for_lookup(norad):
         return None
     tle = None
+    ct_absent = sn_absent = False
     if not _cooling("celestrak"):
-        tle = _tle_from_celestrak(norad)
+        tle, ct_absent = _tle_from_celestrak(norad)
     if not tle and not _cooling("satnogs"):
-        tle = _tle_from_satnogs(norad)
-    _record_lookup(norad, bool(tle),
-                   "" if tle else "not carried by CelesTrak or SatNOGS")
-    return tle
+        tle, sn_absent = _tle_from_satnogs(norad)
+    if tle:
+        _record_lookup(norad, True)
+        return tle
+    # Both providers ANSWERED that they do not carry it. Five more requests
+    # over the next several days cannot learn anything the first one did not
+    # already tell us, and that is the pattern that got this address
+    # firewalled. Absence is only absence when someone said so: a cooldown, a
+    # timeout or a missing SatNOGS token leaves the ordinary backoff in charge,
+    # because SatNOGS does carry objects CelesTrak has dropped.
+    _record_lookup(norad, False, "not carried by CelesTrak or SatNOGS",
+                   permanent=ct_absent and sn_absent)
+    return None
 
 
 def fetch_elements():
@@ -413,36 +427,59 @@ CELESTRAK_ONE_TIMEOUT = int(os.environ.get("CELESTRAK_ONE_TIMEOUT", 8))
 
 
 def _tle_from_celestrak(norad):
+    """Returns (tle, absent).
+
+    `absent` means CelesTrak ANSWERED that it does not carry this object.
+    Its usage policy is explicit that a 403 or 404 will not change on retry,
+    so the caller must stop asking rather than back off. A timeout or a 5xx
+    is ignorance, not absence, and leaves `absent` false."""
     try:
         r = requests.get(CELESTRAK_BASE,
                          params={"CATNR": norad, "FORMAT": "TLE"},
                          headers=UA, timeout=CELESTRAK_ONE_TIMEOUT)
+        if r.status_code in (403, 429):
+            _cool("celestrak", r)
+            return None, False
+        if r.status_code == 404:
+            return None, True
         r.raise_for_status()
+        # An unknown CATNR answers 200 with this body, not a 404 — so status
+        # alone would send us back for six more tries.
+        if "No GP data found" in r.text:
+            return None, True
         lines = [ln for ln in r.text.strip().splitlines() if ln.strip()]
         if len(lines) >= 2 and lines[-2].startswith("1 "):
-            return lines[-2], lines[-1]
-    except Exception:
-        pass
-    return None
+            return (lines[-2], lines[-1]), False
+    except Exception as e:
+        log.debug("CelesTrak per-object lookup failed for %s: %s", norad, e)
+    return None, False
 
 
 def _tle_from_satnogs(norad):
     """Fallback: SatNOGS keeps TLEs for satellites CelesTrak drops from GP
-    (e.g. LAPAN-A2). Needs the same free token as telemetry."""
+    (e.g. LAPAN-A2). Needs the same free token as telemetry.
+
+    Returns (tle, absent) like its CelesTrak counterpart. Only an answered,
+    empty result counts as absent — no token, a cooldown or a failed request
+    all mean we do not know, which must never be read as "does not exist"."""
     if not SATNOGS_TOKEN:
-        return None
+        return None, False
     try:
         headers = dict(UA); headers["Authorization"] = f"Token {SATNOGS_TOKEN}"
         r = requests.get(f"{SATNOGS_BASE}/tle/",
                          params={"norad_cat_id": norad},
                          headers=headers, timeout=30)
+        if r.status_code in (403, 429):
+            _cool("satnogs", r)
+            return None, False
         r.raise_for_status()
         data = r.json()
         if data:
-            return data[0]["tle1"], data[0]["tle2"]
+            return (data[0]["tle1"], data[0]["tle2"]), False
+        return None, True
     except Exception as e:
         log.debug("SatNOGS TLE fallback failed for %s: %s", norad, e)
-    return None
+    return None, False
 
 
 def _parse_tle_file(text):
