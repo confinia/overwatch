@@ -466,3 +466,60 @@ def test_the_pacer_is_defined_before_its_first_caller():
     """A module-level helper used by resolve_sat_id, which runs during
     seed_satellites at import-time-adjacent startup."""
     assert INGEST.index("def _pace_satnogs(") < INGEST.index("def resolve_sat_id(")
+
+
+# ---------------------------------------------------------------------------
+# Satellites SatNOGS flags get one request a day, not forty-eight (#317)
+# ---------------------------------------------------------------------------
+MAIN = open(os.path.join(HERE, "main.py"), encoding="utf-8").read()
+
+
+def _fn(src, name):
+    start = src.index("def %s(" % name)
+    end = src.find("\ndef ", start + 1)
+    return src[start:end if end != -1 else len(src)]
+
+
+def test_the_violator_flag_is_mirrored_from_the_bulk_list():
+    """It rides along in the payload refresh_catalog already downloads, so
+    honouring it costs no extra request."""
+    fn = _fn(INGEST, "refresh_catalog")
+    assert "is_frequency_violator" in fn, "the flag is not read from the payload"
+    assert "is_violator = EXCLUDED.is_violator" in fn, \
+        "a satellite flagged upstream must update, not just insert"
+
+
+def test_flagged_satellites_are_excluded_from_the_normal_cycle():
+    fn = _code(_fn(INGEST, "fetch_telemetry"))
+    assert "is_violator" in fn and "last_telemetry_fetch" in fn, \
+        "the target query ignores the daily limit"
+    assert "LEFT JOIN catalog" in fn, \
+        "reading the flag from catalog is what makes a newly flagged " \
+        "satellite take effect without migrating our own rows"
+
+
+def test_the_daily_gap_is_longer_than_a_day():
+    """24h exactly lets a drifting cycle land twice inside one window."""
+    gap = INGEST.split('VIOLATOR_GAP", "')[1].split('"')[0]
+    hours = int(gap.split()[0])
+    assert "hour" in gap and hours > 24, f"{gap} leaves no margin over 1/day"
+
+
+def test_the_request_is_stamped_on_the_attempt_not_the_success():
+    """A refused or failed request still spent the satellite's allowance for
+    the day. Stamping only successes would retry it immediately, which is
+    precisely what the limit exists to stop."""
+    fn = _fn(INGEST, "fetch_telemetry")
+    stamp = fn.index("last_telemetry_fetch = now()")
+    assert fn.index("except Exception") < stamp, \
+        "the stamp is inside the success path"
+
+
+def test_the_last_fetch_time_survives_a_restart():
+    """In-process state would let a container recycle re-poll a once-a-day
+    satellite on every boot — the same failure as the give-up state in #311."""
+    assert "ADD COLUMN IF NOT EXISTS last_telemetry_fetch" in MAIN, \
+        "no migration for existing databases"
+    assert "ADD COLUMN IF NOT EXISTS is_violator" in MAIN
+    init = open(os.path.join(HERE, "..", "db", "init.sql"), encoding="utf-8").read()
+    assert "last_telemetry_fetch" in init, "fresh installs would lack the column"

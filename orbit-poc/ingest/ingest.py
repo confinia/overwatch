@@ -115,6 +115,16 @@ _satnogs_gate = threading.Lock()
 _satnogs_last = [0.0]
 
 
+# SatNOGS allows one telemetry request A DAY for satellites it flags as
+# violating frequency regulations (get_telemetry_violator = 1/day, and the
+# spectrum policy states it as one request per day per satellite). Our normal
+# cycle is 30 minutes, which for a flagged satellite would be 48 requests
+# against a limit of one — 47 guaranteed refusals a day, each one evidence
+# against us. The extra hour is margin: a cycle that drifts must not be able
+# to land twice inside one 24h window.
+VIOLATOR_GAP = os.environ.get("VIOLATOR_GAP", "25 hours")
+
+
 def _pace_satnogs():
     """Block until issuing a SatNOGS request stays inside the published rate."""
     with _satnogs_gate:
@@ -453,15 +463,18 @@ def refresh_catalog():
             name = (sat.get("name") or "").strip()
             if not norad or not name:
                 continue            # objects without a catalogue number cannot be propagated
-            batch.append((norad, name, sat.get("sat_id"), sat.get("status")))
+            batch.append((norad, name, sat.get("sat_id"), sat.get("status"),
+                          bool(sat.get("is_frequency_violator"))))
         if batch:
             with db() as conn, conn.cursor() as cur:
                 execute_values(cur,
-                    """INSERT INTO catalog (norad, name, sat_id, status)
+                    """INSERT INTO catalog (norad, name, sat_id, status, is_violator)
                        VALUES %s
                        ON CONFLICT (norad) DO UPDATE SET
                          name = EXCLUDED.name, sat_id = EXCLUDED.sat_id,
-                         status = EXCLUDED.status, updated_at = now()""", batch)
+                         status = EXCLUDED.status,
+                         is_violator = EXCLUDED.is_violator,
+                         updated_at = now()""", batch)
                 conn.commit()
             rows += len(batch)
         url = data.get("next") if isinstance(data, dict) else None
@@ -709,9 +722,28 @@ def fetch_telemetry():
         return
 
     with db() as conn, conn.cursor() as cur:
-        cur.execute("SELECT norad, sat_id, decoder FROM satellite "
-                    "WHERE has_telemetry AND sat_id IS NOT NULL")
+        # The flag is read from `catalog` rather than copied onto `satellite`,
+        # so a satellite flagged upstream starts being honoured at the next
+        # daily catalogue refresh without migrating anything of ours.
+        cur.execute("""SELECT s.norad, s.sat_id, s.decoder
+                       FROM satellite s
+                       LEFT JOIN catalog c USING (norad)
+                       WHERE s.has_telemetry AND s.sat_id IS NOT NULL
+                         AND (NOT coalesce(c.is_violator, false)
+                              OR s.last_telemetry_fetch IS NULL
+                              OR s.last_telemetry_fetch < now() - %s::interval)
+                    """, (VIOLATOR_GAP,))
         targets = cur.fetchall()
+        cur.execute("""SELECT count(*) FROM satellite s
+                       JOIN catalog c USING (norad)
+                       WHERE s.has_telemetry AND s.sat_id IS NOT NULL
+                         AND c.is_violator
+                         AND s.last_telemetry_fetch >= now() - %s::interval
+                    """, (VIOLATOR_GAP,))
+        held = cur.fetchone()[0]
+    if held:
+        log.info("Telemetry: %d flagged satellite(s) held to one request a day",
+                 held)
 
     for norad, sat_id, decoder in targets:
         try:
@@ -729,6 +761,13 @@ def fetch_telemetry():
                      n, len(frames), norad)
         except Exception as e:
             log.warning("Telemetry fetch failed for %s: %s", norad, e)
+        # Stamped on the ATTEMPT, not on success: a request that failed or was
+        # refused still spent the satellite's daily allowance, and retrying it
+        # sooner is exactly what the limit exists to prevent.
+        with db() as conn, conn.cursor() as cur:
+            cur.execute("UPDATE satellite SET last_telemetry_fetch = now() "
+                        "WHERE norad = %s", (norad,))
+            conn.commit()
         # No sleep here: _pace_satnogs() already holds every request to the
         # published rate, and a second delay on top only slows the cycle.
 
