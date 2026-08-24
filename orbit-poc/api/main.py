@@ -127,10 +127,20 @@ CREATE TABLE IF NOT EXISTS catalog (
     name       TEXT NOT NULL,
     sat_id     TEXT,
     status     TEXT,                       -- alive | dead | re-entered | future
+    is_violator BOOLEAN NOT NULL DEFAULT false,   -- SatNOGS: telemetry 1/day
     decoder    TEXT,                       -- satnogs-decoders module, when known
     updated_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS catalog_name_idx ON catalog (lower(name));
+-- SatNOGS throttles telemetry for satellites it flags as violating frequency
+-- regulations to one request per day, against six a minute for everything
+-- else. Mirrored from the bulk list so a satellite flagged upstream is
+-- honoured from the next daily refresh, with no migration of our own rows.
+ALTER TABLE catalog ADD COLUMN IF NOT EXISTS is_violator BOOLEAN NOT NULL DEFAULT false;
+-- When we last ASKED for a satellite's telemetry (not when its newest frame
+-- is from). In the database rather than in memory because a restart loop must
+-- not be able to re-poll a once-a-day satellite on every boot.
+ALTER TABLE satellite ADD COLUMN IF NOT EXISTS last_telemetry_fetch timestamptz;
 CREATE TABLE IF NOT EXISTS tenant (
     key        uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     name       text NOT NULL,

@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS satellite (
 );
 -- migration for pre-existing databases (init.sql only runs on first boot)
 ALTER TABLE satellite ADD COLUMN IF NOT EXISTS decoder TEXT;
+ALTER TABLE satellite ADD COLUMN IF NOT EXISTS last_telemetry_fetch TIMESTAMPTZ;
 
 -- Latest orbital elements (OMM/JSON from CelesTrak). We keep the raw TLE lines
 -- because SGP4 libraries consume them directly.
