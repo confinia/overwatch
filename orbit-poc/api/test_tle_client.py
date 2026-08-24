@@ -359,3 +359,74 @@ def test_no_extra_sleep_pretends_to_be_the_rate_limit():
     fetch = fetch[:fetch.index("\ndef ", 10)]
     assert "time.sleep(" not in fetch, \
         "pacing belongs in _pace_satnogs, not in an unexplained sleep here"
+
+
+# ---------------------------------------------------------------------------
+# An unreachable provider must go quiet, not be retried per satellite (#313)
+# ---------------------------------------------------------------------------
+def test_the_bulk_fetch_bounds_its_connect_separately_from_its_read():
+    """One scalar timeout cannot serve both: the `active` file is large and
+    needs a long read, but a handshake with a host that is dropping our
+    packets must fail in seconds. A single 120s value cost 120s per satellite
+    inside fetch_elements and froze the globe for ~50 minutes per restart."""
+    bulk = _code(INGEST[INGEST.index("def _refresh_bulk_tles("):])
+    bulk = bulk[:bulk.index("\ndef ", 10)]
+    assert "timeout=(CONNECT_TIMEOUT, 120)" in bulk, \
+        "the bulk fetch must bound its connect separately from its read"
+    connect = int(INGEST.split('CONNECT_TIMEOUT", ')[1].split(")")[0])
+    assert connect <= 10, f"{connect}s to open a socket is not a bounded connect"
+
+
+def test_an_unreachable_provider_is_put_on_cooldown():
+    """Only 403/429 used to cool us down, so a blackholed host was retried by
+    every caller: ~700 connection attempts a day at a provider that is
+    firewalling us, while an unblock request is open with them."""
+    cooled = []
+
+    class _Exc(Exception):
+        pass
+
+    class _Requests:
+        class exceptions:
+            RequestException = _Exc
+
+        @staticmethod
+        def get(*a, **k):
+            raise _Exc("connection timed out")
+
+    ns = _lift("_refresh_bulk_tles",
+               requests=_Requests, log=_Log(), time=_FakeTime(), UA={},
+               CELESTRAK_BASE="x", CONNECT_TIMEOUT=8, ELEMENTS_INTERVAL=21600,
+               CELESTRAK_LOOKUP_GROUPS=["active", "amateur", "stations"],
+               _bulk_tles={"ts": 0.0, "by_norad": {}},
+               _parse_tle_file=lambda t: [],
+               _cooling=lambda src: False,
+               _cool=lambda src, *a, **k: cooled.append(src))
+    ns["_refresh_bulk_tles"]()
+    assert cooled == ["celestrak"], \
+        f"an unreachable provider must be cooled down exactly once, got {cooled}"
+
+
+class _FakeTime:
+    @staticmethod
+    def time():
+        return 0.0
+
+    @staticmethod
+    def sleep(_):
+        pass
+
+
+def test_a_cooldown_short_circuits_the_per_satellite_path():
+    """With CelesTrak cooling, _tle_for must not call it at all — that is what
+    turns 23 x 120s of startup into nothing."""
+    calls = []
+    ns = _lift("_tle_for",
+               _refresh_bulk_tles=lambda: {},
+               _due_for_lookup=lambda n: True,
+               _cooling=lambda src: src == "celestrak",
+               _tle_from_celestrak=lambda n: calls.append(n) or (None, False),
+               _tle_from_satnogs=lambda n: (None, False),
+               _record_lookup=lambda *a, **k: None)
+    ns["_tle_for"](25544)
+    assert calls == [], "CelesTrak was asked while on cooldown"
