@@ -15,8 +15,24 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: sandbox-deploy       # one sandbox, one deploy at a time
-  cancel-in-progress: true    # a newer commit supersedes the one in flight
+  # There is ONE sandbox, so the group stays constant and every ref serialises
+  # on it — that is deliberate: two walkers racing created organizations in the
+  # same Keycloak realm and failed each other with an opaque 400.
+  #
+  # What must NOT be constant is who gets to cancel. With a plain `true`, a run
+  # from ANY branch cancelled whatever was in flight — so opening a pull request
+  # killed main's sandbox run, and deploy.yml (chained on this workflow
+  # concluding 'success') then SKIPPED. A skip is not a failure: nothing goes
+  # red, nothing retries, and a merged, green change silently never reaches
+  # production. #320 sat undeployed that way until it was dispatched by hand,
+  # and #324 needed the next chain to carry it (#325).
+  #
+  # So: only main may cancel. A push to main supersedes whatever is running and
+  # keeps its own deploy chain intact; a pull-request run waits its turn instead
+  # of taking production's chain down with it. GitHub keeps only the newest
+  # pending run per group, so PR runs still coalesce rather than pile up.
+  group: sandbox-deploy
+  cancel-in-progress: ${{ github.ref == 'refs/heads/main' }}
 
 jobs:
   deploy:

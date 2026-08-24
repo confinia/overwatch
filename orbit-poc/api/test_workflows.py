@@ -244,3 +244,39 @@ def test_grafana_provisioning_is_polled_not_asked_once():   # #321
     assert "retries=1" in block, \
         "fetch() already retries internally; nesting both makes the wait minutes"
     assert "TIMEOUT" in block, "exhaustion must not read as a verdict on the stack"
+
+
+def test_a_pull_request_cannot_cancel_mains_sandbox_run():   # #325
+    """There is one sandbox, so every ref serialises on one concurrency group —
+    that part is deliberate. But with a bare `cancel-in-progress: true`, a run
+    from ANY branch cancelled whatever was in flight, so opening a PR killed
+    main's sandbox run and deploy.yml (chained on it concluding 'success')
+    skipped. A skip is not a failure: nothing red, nothing retried, and a
+    merged change silently never reached production."""
+    s = _wf("sandbox.yml")
+    assert "group: sandbox-deploy" in s, "the single sandbox must still serialise"
+    cancel = next(l for l in s.splitlines() if "cancel-in-progress:" in l)
+    assert "${{" in cancel, \
+        "an unconditional cancel lets a PR take main's deploy chain down"
+    assert "refs/heads/main" in cancel, "only main may cancel the shared group"
+
+
+def test_a_broken_deploy_chain_is_reported():   # #325
+    """`stage` is gated on the sandbox run succeeding, so a broken chain leaves
+    the whole workflow skipped — invisible. Something must go red, or
+    production runs older code than main with every check green."""
+    d = _wf("deploy.yml")
+    assert "chain-broken:" in d, "a skipped production deploy reports nothing"
+    job = d[d.index("chain-broken:"):]
+    assert "conclusion != 'success'" in job, \
+        "the report must fire exactly when the chain was broken"
+    assert "exit 1" in job, "it has to actually fail, not just log"
+
+
+def test_the_broken_chain_report_stays_quiet_when_a_newer_commit_is_coming():
+    """A cancelled run whose commit main has already moved past is superseded,
+    not stalled. Failing on it would train the founder to ignore the alert."""
+    d = _wf("deploy.yml")
+    job = d[d.index("chain-broken:"):]
+    assert "commits/main" in job, "it must compare against main's tip"
+    assert "exit 0" in job, "a superseded commit is not a stall"
