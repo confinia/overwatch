@@ -318,6 +318,51 @@ def _record_lookup(norad, ok, error="", permanent=False):
         conn.commit()
 
 
+# How far back to re-aggregate on each pass. Frames arrive late — a station
+# uploads a pass hours after it happened — so yesterday's total is not final
+# when yesterday ends. Recomputing a trailing window is cheaper than being
+# wrong, and the upsert makes it idempotent.
+STATION_ROLLUP_DAYS = int(os.environ.get("STATION_ROLLUP_DAYS", 3))
+
+
+def roll_up_stations(days=None):
+    """Per-station daily activity, derived from `reception` (#337).
+
+    The baseline a degradation detector needs: to say a station has gone quiet
+    you must know what it was like when it was working. Purely a local
+    aggregation — it issues NO provider request, which is what makes it safe
+    to run often and safe to backfill in full.
+
+    `days=None` rebuilds everything, for the one-time backfill; otherwise it
+    recomputes a trailing window.
+    """
+    where = ""
+    params = ()
+    if days is not None:
+        where = "WHERE ts >= current_date - %s::integer"
+        params = (days,)
+    with db() as conn, conn.cursor() as cur:
+        cur.execute(f"""
+            INSERT INTO station_daily
+                   (observer, day, frames, satellites_heard, first_ts, last_ts)
+            SELECT observer, ts::date, count(*), count(DISTINCT norad),
+                   min(ts), max(ts)
+            FROM reception
+            {where}
+            GROUP BY observer, ts::date
+            ON CONFLICT (observer, day) DO UPDATE SET
+              frames = EXCLUDED.frames,
+              satellites_heard = EXCLUDED.satellites_heard,
+              first_ts = EXCLUDED.first_ts,
+              last_ts = EXCLUDED.last_ts
+        """, params)
+        n = cur.rowcount
+        conn.commit()
+    log.info("Station rollup: %d station-days%s", n,
+             "" if days is None else f" (last {days}d)")
+    return n
+
+
 def _tle_for(norad):
     """Bulk cache first, per-object only as a rare, backed-off fallback."""
     bulk = _refresh_bulk_tles()
@@ -982,6 +1027,12 @@ def main():
     # SatNOGS per object (#335).
     refresh_catalog()
     seed_satellites()
+    # One full pass over whatever history we already hold, so the baseline
+    # starts from everything rather than from today. Idempotent, local, cheap.
+    try:
+        roll_up_stations()
+    except Exception as e:                      # never block startup on it
+        log.warning("Station rollup backfill failed: %s", e)
     fetch_elements()  # prime once before propagating
 
     threading.Thread(target=loop, args=(fetch_elements, ELEMENTS_INTERVAL, "elements"),
@@ -997,6 +1048,12 @@ def main():
     threading.Thread(target=loop,
                      args=(refresh_catalog, CATALOG_INTERVAL, "catalog"),
                      daemon=True).start()
+    threading.Thread(
+        target=loop,
+        args=(lambda: roll_up_stations(STATION_ROLLUP_DAYS),
+              int(os.environ.get("STATION_ROLLUP_INTERVAL", 3600)),
+              "station-rollup"),
+        daemon=True).start()
     # positions LAST and in the main thread: loop() never returns, so anything
     # called after it is dead code. Adding a loop above this line instead of a
     # thread silently stops the globe (#230 did exactly that).

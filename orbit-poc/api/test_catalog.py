@@ -267,3 +267,78 @@ def test_the_bulk_pass_is_not_repeated_on_every_deploy():
     fn = INGEST_SRC[INGEST_SRC.index("def refresh_catalog("):]
     fn = fn[:fn.index("\ndef ", 10)]
     assert "CATALOG_INTERVAL" in fn and "max(updated_at)" in fn
+
+
+# ---------------------------------------------------------------------------
+# Per-station daily baseline (#337)
+# ---------------------------------------------------------------------------
+def _rollup_sql():
+    """The aggregation, lifted from the source so the test cannot drift."""
+    fn = INGEST_SRC[INGEST_SRC.index("def roll_up_stations("):]
+    body = fn[:fn.index("\ndef ", 10)]
+    sql = body[body.index("INSERT INTO station_daily"):body.index('""", params)')]
+    return sql.replace("{where}", "").replace("f\"\"\"", "")
+
+
+def _seed_reception(cur, observer="TEST-OBS"):
+    """Three frames from two satellites, today. Self-contained: creates the
+    satellite rows reception references, so the test does not depend on
+    another suite having run first."""
+    cur.execute("DELETE FROM station_daily WHERE observer = %s", (observer,))
+    cur.execute("DELETE FROM reception WHERE observer = %s", (observer,))
+    for norad in (999001, 999002):
+        cur.execute("INSERT INTO satellite (norad, name, has_telemetry) "
+                    "VALUES (%s, 'ROLLUP TEST', false) "
+                    "ON CONFLICT (norad) DO NOTHING", (norad,))
+    for norad, hour in ((999001, 1), (999001, 2), (999002, 3)):
+        cur.execute("INSERT INTO reception (norad, ts, observer, lat, lon) "
+                    "VALUES (%s, date_trunc('day', now()) + %s * interval '1 hour',"
+                    " %s, 0, 0)", (norad, hour, observer))
+
+
+def _clean_reception(cur, observer="TEST-OBS"):
+    cur.execute("DELETE FROM station_daily WHERE observer = %s", (observer,))
+    cur.execute("DELETE FROM reception WHERE observer = %s", (observer,))
+    cur.execute("DELETE FROM satellite WHERE norad IN (999001, 999002)")
+
+
+def test_the_rollup_matches_a_direct_count(db):
+    with db, db.cursor() as cur:
+        _seed_reception(cur, "TEST-OBS-A")
+        cur.execute(_rollup_sql())
+        cur.execute("SELECT frames, satellites_heard FROM station_daily "
+                    "WHERE observer='TEST-OBS-A' AND day = current_date")
+        assert cur.fetchone() == (3, 2)
+        _clean_reception(cur, "TEST-OBS-A")
+
+
+def test_the_rollup_is_idempotent(db):
+    """Frames arrive late, so a day is recomputed repeatedly. Running it twice
+    must not double a station's count — that would read as a surge, and a
+    detector calibrated on phantom surges is worse than none."""
+    with db, db.cursor() as cur:
+        _seed_reception(cur, "TEST-OBS-B")
+        cur.execute(_rollup_sql())
+        cur.execute(_rollup_sql())
+        cur.execute("SELECT frames FROM station_daily "
+                    "WHERE observer='TEST-OBS-B' AND day = current_date")
+        assert cur.fetchone()[0] == 3
+        _clean_reception(cur, "TEST-OBS-B")
+
+
+def test_the_rollup_makes_no_outbound_request():
+    """The whole point: a baseline we can build and rebuild freely, because it
+    costs a provider nothing. If this ever calls out, backfilling becomes the
+    scraping pattern LSF blocked us for."""
+    fn = INGEST_SRC[INGEST_SRC.index("def roll_up_stations("):]
+    fn = fn[:fn.index("\ndef ", 10)]
+    code = "\n".join(l.split("#", 1)[0] for l in fn.splitlines())
+    for forbidden in ("requests.", "SATNOGS_BASE", "CELESTRAK_BASE", "_pace_satnogs"):
+        assert forbidden not in code, f"the rollup must stay local: {forbidden}"
+
+
+def test_a_trailing_window_is_recomputed_not_just_today():
+    """A station uploads a pass hours after it happened, so yesterday's total
+    is not final when yesterday ends."""
+    days = int(INGEST_SRC.split('STATION_ROLLUP_DAYS", ')[1].split(")")[0])
+    assert days >= 2, f"{days}d does not cover late-arriving frames"
