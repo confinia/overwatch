@@ -1117,7 +1117,7 @@ def _ops_alert_rules() -> list:
             for r in _ops_alert_spec()["rules"]]
 
 
-def _gf_ok(resp, what: str) -> bool:
+def _gf_ok(resp, what: str, also_ok: tuple = ()) -> bool:
     """Report a Grafana provisioning call that did not take.
 
     Every call site here was fire-and-forget, which is exactly how #328 stayed
@@ -1126,8 +1126,14 @@ def _gf_ok(resp, what: str) -> bool:
     existed. Provisioning that silently no-ops is worse than provisioning that
     crashes — the dashboard looks configured and is not. 409 is success: it
     means the object is already there.
+
+    `also_ok` is for calls with their own idea of "already fine": Grafana 11
+    answers 412 version-mismatch when a folder already exists, which is a
+    no-op, not a failure. Per call rather than globally — 412 means something
+    real elsewhere, and a checker that cries wolf on every boot is precisely
+    what trains people to stop reading it (#332).
     """
-    if resp.status_code in (200, 201, 202, 409):
+    if resp.status_code in (200, 201, 202, 409) or resp.status_code in also_ok:
         return True
     print(f"GRAFANA PROVISIONING FAILED [{what}]: "
           f"{resp.status_code} {resp.text[:200]}", flush=True)
@@ -1186,6 +1192,14 @@ def _drop_placeholder_contact_point(gorg: int) -> None:
         return
     for c in cps.json():
         addr = (c.get("settings") or {}).get("addresses", "")
+        # Grafana's built-in default has NO uid: it lives in the default
+        # alertmanager configuration rather than as a provisioned object, so
+        # this endpoint has nothing to address and 404s every time. Removing
+        # it would mean rewriting the whole alertmanager config — out of
+        # proportion for a contact point nothing routes to. Skipped, with this
+        # comment so it is not attempted again (#332).
+        if not c.get("uid"):
+            continue
         if c.get("name") == "email receiver" and addr in PLACEHOLDER_ADDRESSES:
             _gf_ok(_gf("DELETE",
                        f"/v1/provisioning/contact-points/{c.get('uid')}",
@@ -1214,8 +1228,10 @@ def _provision_ops_alerts(gorg: int) -> None:
                "contact-point")
     _gf_ok(_gf("PUT", "/v1/provisioning/policies", spec["policy"], gorg=gorg),
            "notification-policy")
+    # 409 and 412 both mean the folder is already there: Grafana 11 answers
+    # 412 "the folder has been changed by someone else" to a repeat create.
     _gf_ok(_gf("POST", "/folders", {"title": "alerts", "uid": "ops-alerts"},
-               gorg=gorg), "alerts-folder")       # 409 = already there
+               gorg=gorg), "alerts-folder", also_ok=(412,))
     for r in _ops_alert_rules():
         resp = _gf("POST", "/v1/provisioning/alert-rules", r, gorg=gorg)
         if resp.status_code not in (200, 201):    # exists (or shape drift)

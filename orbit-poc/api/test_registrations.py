@@ -317,6 +317,8 @@ def test_the_placeholder_contact_point_is_dropped_only_while_placeholder():
     assert "PLACEHOLDER_ADDRESSES" in fn
     assert 'c.get("name") == "email receiver"' in fn, \
         "only the built-in default is a candidate"
+    assert 'if not c.get("uid"):' in fn, \
+        "the built-in default has no uid and cannot be deleted here (#332)"
     assert "example@email.com" in src
 
 
@@ -336,3 +338,26 @@ def test_cleanup_failures_are_reported():
         fn = src[src.index(f"def {name}("):]
         fn = fn[:fn.index("\ndef ", 10)]
         assert "_gf_ok(" in fn, f"{name} discards failures"
+
+
+def test_an_existing_folder_is_not_reported_as_a_failure():   # #332
+    """Grafana 11 answers 412 version-mismatch to a repeat folder create. That
+    is a no-op, and it was logging GRAFANA PROVISIONING FAILED on every single
+    api start — the fastest way to make a real failure unreadable."""
+    src = open(os.path.join(HERE, "main.py"), encoding="utf-8").read()
+    body = src[src.index("def _provision_ops_alerts("):]
+    body = body[:body.index("\ndef ", 10)]
+    folder = body[body.index("alerts-folder") - 200:body.index("alerts-folder") + 40]
+    assert "also_ok=(412,)" in folder, "the folder call must tolerate 412"
+
+
+def test_the_412_tolerance_is_not_global():   # #332
+    """412 means something real on other endpoints; only the folder call gets
+    to ignore it."""
+    src = open(os.path.join(HERE, "main.py"), encoding="utf-8").read()
+    fn = src[src.index("def _gf_ok("):]
+    fn = fn[:fn.index("\ndef ", 10)]
+    assert "412" not in fn.split('"""')[-1], \
+        "412 must come from the caller, not be baked into _gf_ok"
+    assert src.count("also_ok=(412,)") == 1, \
+        "exactly one call may tolerate 412"
