@@ -1134,6 +1134,64 @@ def _gf_ok(resp, what: str) -> bool:
     return False
 
 
+PLACEHOLDER_ADDRESSES = ("<example@email.com>", "example@email.com")
+
+
+def _prune_alerts_outside_ops(gorg: int) -> None:
+    """Our alert rules belong in the ops org and nowhere else.
+
+    The signup rules had also accumulated in org 1 — Grafana's Main Org, the
+    one that serves the public dashboards with anonymous viewer access — from
+    calls made before the ops org existed, or without an org header, which
+    defaults to the admin's current org. Both orgs routed to the same mailbox,
+    so every signup sent two identical e-mails.
+
+    Deleting them by hand would fix today and drift again, so provisioning is
+    authoritative instead of additive: the uids come from ops-alerts.json, so
+    what we clean up cannot diverge from what we declare. Rules belonging to
+    anyone else are left strictly alone.
+    """
+    ours = {r["uid"] for r in _ops_alert_spec()["rules"]}
+    orgs = _gf("GET", "/orgs")
+    if orgs.status_code != 200:
+        _gf_ok(orgs, "list-orgs")
+        return
+    for org in orgs.json():
+        oid = org.get("id")
+        if oid == gorg:
+            continue
+        existing = _gf("GET", "/v1/provisioning/alert-rules", gorg=oid)
+        if existing.status_code != 200:
+            continue                      # not ours to read: leave it be
+        for rule in existing.json():
+            if rule.get("uid") in ours:
+                print(f"removing stray alert rule {rule['uid']} from Grafana "
+                      f"org {oid} ({org.get('name')!r})", flush=True)
+                _gf_ok(_gf("DELETE",
+                           f"/v1/provisioning/alert-rules/{rule['uid']}",
+                           gorg=oid), f"delete-stray {rule['uid']}")
+
+
+def _drop_placeholder_contact_point(gorg: int) -> None:
+    """Remove Grafana's built-in contact point while it still points at the
+    placeholder address.
+
+    Nothing routes to it — the root policy names ops-email — but a live e-mail
+    contact point aimed at <example@email.com> is one routing mistake away from
+    sending our ops mail to a stranger. Only ever removed while it carries the
+    placeholder: once someone has put a real address there it is theirs.
+    """
+    cps = _gf("GET", "/v1/provisioning/contact-points", gorg=gorg)
+    if cps.status_code != 200:
+        return
+    for c in cps.json():
+        addr = (c.get("settings") or {}).get("addresses", "")
+        if c.get("name") == "email receiver" and addr in PLACEHOLDER_ADDRESSES:
+            _gf_ok(_gf("DELETE",
+                       f"/v1/provisioning/contact-points/{c.get('uid')}",
+                       gorg=gorg), "drop-placeholder-contact-point")
+
+
 def _provision_ops_alerts(gorg: int) -> None:
     """Contact point, root policy and the signup alert rules in the ops org
     (#172) — API-provisioned like the org itself. E-mails to OPS_ALERT_EMAIL
@@ -1164,6 +1222,10 @@ def _provision_ops_alerts(gorg: int) -> None:
             resp = _gf("PUT", f"/v1/provisioning/alert-rules/{r['uid']}", r,
                        gorg=gorg)
         _gf_ok(resp, f"alert-rule {r['uid']}")
+    # Authoritative, not additive: what we declare is what exists, and only
+    # where it belongs (#330).
+    _prune_alerts_outside_ops(gorg)
+    _drop_placeholder_contact_point(gorg)
 
 
 def _provision_ops_org_async() -> None:
