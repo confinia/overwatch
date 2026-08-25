@@ -323,6 +323,27 @@ def _record_lookup(norad, ok, error="", permanent=False):
 # when yesterday ends. Recomputing a trailing window is cheaper than being
 # wrong, and the upsert makes it idempotent.
 STATION_ROLLUP_DAYS = int(os.environ.get("STATION_ROLLUP_DAYS", 3))
+_rollup_backfilled = [False]
+
+
+def rollup_tick():
+    """One full pass over all history, then trailing windows.
+
+    The full pass used to run from main(), where it lost a race: station_daily
+    is created by the API's startup DDL, and the ingest often starts first, so
+    it raised "relation does not exist", was caught so it could not block
+    startup, and was never retried. Every month of history we already held
+    stayed out of the baseline (#339).
+
+    Doing it on the first SUCCESSFUL tick removes the ordering dependency
+    between the two services: if the table is not there yet the tick fails, the
+    flag stays unset, and the next hour tries again.
+    """
+    if not _rollup_backfilled[0]:
+        n = roll_up_stations()              # everything we hold
+        _rollup_backfilled[0] = True        # only on success — an exception
+        return n                            # propagates and we retry next tick
+    return roll_up_stations(STATION_ROLLUP_DAYS)
 
 
 def roll_up_stations(days=None):
@@ -1027,12 +1048,6 @@ def main():
     # SatNOGS per object (#335).
     refresh_catalog()
     seed_satellites()
-    # One full pass over whatever history we already hold, so the baseline
-    # starts from everything rather than from today. Idempotent, local, cheap.
-    try:
-        roll_up_stations()
-    except Exception as e:                      # never block startup on it
-        log.warning("Station rollup backfill failed: %s", e)
     fetch_elements()  # prime once before propagating
 
     threading.Thread(target=loop, args=(fetch_elements, ELEMENTS_INTERVAL, "elements"),
@@ -1050,7 +1065,7 @@ def main():
                      daemon=True).start()
     threading.Thread(
         target=loop,
-        args=(lambda: roll_up_stations(STATION_ROLLUP_DAYS),
+        args=(rollup_tick,
               int(os.environ.get("STATION_ROLLUP_INTERVAL", 3600)),
               "station-rollup"),
         daemon=True).start()
