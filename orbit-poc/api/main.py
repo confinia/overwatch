@@ -915,8 +915,13 @@ OPS_ROLE = "ops_ro"
 # SELECT on satellite/telemetry/reception and showed "No data" (seen on sandbox;
 # prod was one api restart away from the same outage).
 OPS_DS_UID = "orbitcache-ops"
+# Account/metering tables, plus the three the freshness alerts read (#303).
+# Those three are PUBLIC open data — grafana_ro already serves them to
+# anonymous viewers — so ops seeing them widens nothing. tenant_telemetry
+# stays out, which is the boundary that actually matters here.
 OPS_TABLES = ("organization", "org_user", "org_token", "api_key",
-              "api_usage", "visitor_daily", "registered_user")
+              "api_usage", "visitor_daily", "registered_user",
+              "telemetry", "position", "elements")
 OPS_ALERT_EMAIL = os.environ.get("OPS_ALERT_EMAIL", "contact@confinia.io")
 OPS_GF_ORG = "Overwatch Ops"
 OPS_DASHBOARDS_DIR = os.environ.get("OPS_DASHBOARDS_DIR", "/ops-dashboards")
@@ -939,8 +944,14 @@ def _ops_alert_spec() -> dict:
 
 def _provision_ops_role(cur) -> None:
     """Idempotently create the read-only role the ops-org datasource uses:
-    SELECT on the account/metering tables and nothing else — in particular
-    never tenant_telemetry (tenant payloads stay out of ops)."""
+    SELECT on OPS_TABLES and nothing else — in particular never
+    tenant_telemetry (tenant payloads stay out of ops).
+
+    The alert rules run through this role, so a table the alerts read has to
+    be listed: a rule whose SQL is denied evaluates to no data, and with
+    noDataState OK that is indistinguishable from healthy. An alert that
+    cannot read its own table is worse than no alert, because it looks like
+    one."""
     pw = os.environ.get("OPS_DB_PASSWORD", "")
     if not pw:
         return                                    # not configured: leave as is
@@ -1078,10 +1089,10 @@ def _ops_alert_rules() -> list:
     host = PUBLIC_BASE.split("://")[-1].split("/")[0].split(".")[0]
     env = host if host in ("staging", "sandbox") else "production"
 
-    def rule(uid, title, sql, summary=None):
+    def rule(uid, title, sql, summary=None, group="signups"):
         return {
             "uid": uid, "title": title, "condition": "C",
-            "folderUID": "ops-alerts", "ruleGroup": "signups",
+            "folderUID": "ops-alerts", "ruleGroup": group,
             "for": "0s", "noDataState": "OK", "execErrState": "OK",
             "labels": {"env": env},
             "annotations": {"summary": f"[{env}] " + (summary or title)},
@@ -1101,7 +1112,8 @@ def _ops_alert_rules() -> list:
                                                          "type": "gt"}}]}},
             ],
         }
-    return [rule(r["uid"], r["title"], r["sql"], r.get("summary"))
+    return [rule(r["uid"], r["title"], r["sql"], r.get("summary"),
+                 r.get("group", "signups"))
             for r in _ops_alert_spec()["rules"]]
 
 

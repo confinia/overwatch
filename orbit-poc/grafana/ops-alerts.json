@@ -1,5 +1,5 @@
 {
-  "_comment": "Ops signup alerts as code (#201). The api applies these to the 'Overwatch Ops' Grafana org at startup (_provision_ops_alerts). Only the variable parts live here — the contact point, the root notification policy and each rule's SQL/summary. The mechanical reduce->threshold(>0) pipeline, the folder and the per-env `env` label + '[env]' summary prefix are assembled in main.py so the same file serves sandbox/staging/prod. addresses come from OPS_ALERT_EMAIL (.env). See #172/#185/#187 for how this evolved.",
+  "_comment": "Ops alerts as code (#201). The api applies these to the 'Overwatch Ops' Grafana org at startup (_provision_ops_alerts). Only the variable parts live here \u2014 the contact point, the root notification policy and each rule's SQL/summary. The mechanical reduce->threshold(>0) pipeline, the folder and the per-env `env` label + '[env]' summary prefix are assembled in main.py so the same file serves sandbox/staging/prod. addresses come from OPS_ALERT_EMAIL (.env). See #172/#185/#187 for how this evolved. Freshness rules (#303) use HAVING so a healthy system returns NO ROWS: the threshold is >0, and noDataState is OK, so silence means fresh. Each returns text columns alongside `value`, which Grafana turns into labels, so the e-mail says HOW stale rather than merely that something is. Adding a fourth freshness check is mechanical \u2014 copy one, change the table, the column and the interval.",
   "contactPoint": {
     "name": "ops-email",
     "type": "email",
@@ -20,6 +20,30 @@
       "uid": "new-api-key",
       "title": "New API key requested",
       "sql": "SELECT count(*) AS value FROM api_key WHERE created_at > now() - interval '15 minutes'"
+    },
+    {
+      "uid": "telemetry-stalled",
+      "title": "Telemetry ingestion has stalled",
+      "_sql_comment": "The 2026-08-20 outage: ingestion stopped and every other check stayed green for four days. In aggregate the fleet is heard several times an hour, so a 90-minute gap is already abnormal. HAVING returns no row while fresh.",
+      "sql": "SELECT 1 AS value, COALESCE(to_char(max(ts) AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI'), 'never') AS newest, COALESCE(round(extract(epoch FROM now() - max(ts)) / 60)::text, 'no rows at all') AS minutes_stale FROM telemetry HAVING max(ts) IS NULL OR max(ts) < now() - interval '90 minutes'",
+      "summary": "No telemetry stored for {{ $labels.minutes_stale }} minutes (newest: {{ $labels.newest }} UTC). The control room is up but blind.",
+      "group": "freshness"
+    },
+    {
+      "uid": "positions-stalled",
+      "title": "Position propagation has stalled",
+      "_sql_comment": "Positions are computed locally by SGP4 from cached elements and depend on NOTHING external, so a gap here means the ingest itself is wedged rather than a provider being unreachable. #230 made propagate_positions dead code and the globe stopped entirely, unnoticed.",
+      "sql": "SELECT 1 AS value, COALESCE(to_char(max(ts) AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI'), 'never') AS newest, COALESCE(round(extract(epoch FROM now() - max(ts)) / 60)::text, 'no rows at all') AS minutes_stale FROM position HAVING max(ts) IS NULL OR max(ts) < now() - interval '5 minutes'",
+      "summary": "No positions propagated for {{ $labels.minutes_stale }} minutes (newest: {{ $labels.newest }} UTC). This is local SGP4 \u2014 the ingest is wedged, not a provider.",
+      "group": "freshness"
+    },
+    {
+      "uid": "elements-stale",
+      "title": "Orbital elements are stale",
+      "_sql_comment": "Invisible by construction without an alert: positions keep being produced from old TLEs and drift quietly, so the globe looks alive while it is increasingly wrong. Epoch, not fetched_at \u2014 re-fetching the same old element set is not freshness.",
+      "sql": "SELECT 1 AS value, COALESCE(to_char(max(epoch) AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI'), 'never') AS newest, COALESCE(round(extract(epoch FROM now() - max(epoch)) / 3600)::text, 'no rows at all') AS hours_stale FROM elements HAVING max(epoch) IS NULL OR max(epoch) < now() - interval '24 hours'",
+      "summary": "Newest orbital element set is {{ $labels.hours_stale }}h old (epoch: {{ $labels.newest }} UTC). Positions are still being drawn, and drifting.",
+      "group": "freshness"
     }
   ]
 }
