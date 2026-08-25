@@ -50,16 +50,13 @@ jobs:
 
       - name: Run the suites
         working-directory: orbit-poc/api
-        # Same list as deploy/run-tests.sh, minus test_polar.py: that one calls
-        # the live Polar API and needs a token, so it stays on the VM gate.
+        # Auto-discovery, matching deploy/run-tests.sh. Both entrypoints used
+        # to name every file by hand, in two formats, with nothing failing if
+        # you forgot one — so eight suites guarded nothing and two more raised
+        # collection errors that aborted the run while the gate reported green
+        # (#286). The only way to skip a test now is to say so, here.
+        #   test_polar.py  live Polar API, needs POLAR_ACCESS_TOKEN. Polar is
+        #                  the fallback provider since Creem became the MoR
+        #                  (#269/#270); it runs on the VM gate, not here.
         run: |
-          python -m pytest -q \
-            test_subscription.py test_rls.py test_frontend.py test_selfhost.py \
-            test_faq.py test_backup.py test_fields.py test_dashboards.py \
-            test_spacecraft.py test_calibration.py test_metering.py \
-            test_billing.py test_sandbox_ports.py test_env_headers.py \
-            test_sandbox_deploy.py test_account_ui.py test_sandbox_auth.py \
-            test_grafana_role.py test_api_hostnames.py test_org_grafana.py \
-            test_auth_header.py test_deploy_target.py test_workflows.py \
-            test_maplibre.py test_self_serve_access.py test_app_role.py \
-            test_ops_role.py test_registrations.py test_oem.py test_ephemeris.py test_passes.py test_favorites.py test_decoder_flatten.py test_shell_pipefail.py test_catalog.py test_tle_client.py test_telemetry_guide.py
+          python -m pytest -q --ignore=test_polar.py

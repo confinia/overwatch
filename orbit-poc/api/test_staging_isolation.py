@@ -21,11 +21,21 @@ def test_staging_has_its_own_database():
 
 
 def test_staging_owns_its_port_band():
+    """1PESI (#213): 12 · environment · service. Staging is 123xx.
+
+    This asserted the pre-#213 band 8200-8209 until 2026-08-25. The scheme
+    changed deliberately and the assertion was never updated, because this
+    suite raised a collection error in the gate and therefore never ran
+    (#286) — the drift the auto-discovery switch exists to prevent."""
     ports = [int(p) for p in re.findall(r'127\.0\.0\.1:(\d+):\d+', COMPOSE)]
     assert ports, "no published port"
     for p in ports:
-        assert 8200 <= p <= 8209, f"{p} outside the staging band 8200-8209"
-    assert 8190 not in ports and 8090 not in ports   # not the sandbox nor prod
+        assert 12300 <= p <= 12399, f"{p} outside the staging band 123xx"
+    # and never another environment's band: blue 121xx, green 122xx,
+    # sandbox 124xx
+    for base in (12100, 12200, 12400):
+        assert not [p for p in ports if base <= p <= base + 99], \
+            f"staging publishes into the {base} band"
 
 
 def test_staging_uses_its_own_keycloak_realm():
@@ -51,8 +61,18 @@ def test_staging_caddy_trusts_edge_proxy():
 
 
 def test_production_caddy_no_longer_serves_staging():
-    assert "http://staging.overwatch.confinia.io" not in TMPL
-    assert "%CANDIDATE%_web_1" not in TMPL           # nothing routes to it now
+    """#154: staging runs its own stack, so no staging hostname is served by
+    the production caddy.
+
+    It used to also assert %CANDIDATE%_web_1 was absent — true when staging WAS
+    the candidate colour, but blue/green failover (lb_policy first + health
+    checks) has since made the candidate a legitimate second upstream for
+    PRODUCTION traffic. The hostname is the thing that matters."""
+    # code only: the template CARRIES a comment explaining that staging is not
+    # served here, and a guard that trips on its own documentation is a guard
+    # nobody keeps.
+    code = "\n".join(l.split("#", 1)[0] for l in TMPL.splitlines())
+    assert "staging.overwatch.confinia.io" not in code
 
 
 def test_pipeline_deploys_the_staging_stack():

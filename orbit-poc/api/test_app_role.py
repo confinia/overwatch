@@ -31,6 +31,12 @@ def app_conn():
     su = psycopg2.connect(DSN)
     su.autocommit = True
     with su.cursor() as cur:
+        # The application schema — tenant_telemetry and friends live in
+        # KEYS_SQL, not db/init.sql. This suite used to inherit them from
+        # whichever suite happened to run first, an ordering dependency that
+        # only surfaced when the gate switched to auto-discovery (#286). A
+        # suite that needs a table should create it.
+        cur.execute(main.KEYS_SQL)
         # grafana_ro must pre-exist so provisioning below takes the ALTER path
         main._provision_grafana_role(cur)
         migration = pg_app_role.SQL.format(role=APP_ROLE, pw=APP_PW)
