@@ -22,22 +22,34 @@ podman run -d --rm --name "$PG" --network "$NET" \
 for _ in $(seq 1 30); do
   podman exec "$PG" pg_isready -U orbit >/dev/null 2>&1 && break; sleep 1; done
 
+# The WHOLE repo goes in, not a hand-picked list of directories. The old cp
+# list omitted staging/, .github/ and README.md while the test list named
+# suites that read them, so those suites raised collection errors — and a
+# collection error aborts the entire run. The gate was executing one skipped
+# test and reporting green (#286).
 OUT=$(podman run --rm --network "$NET" \
   -e "DB_DSN=dbname=orbit user=orbit password=orbit host=$PG port=5432" \
   -e "POLAR_ACCESS_TOKEN=$POLAR_TOKEN" \
   -e "ORG_DB_SECRET=ci-org-db-secret" \
-  -v "$PWD/orbit-poc:/src:ro" -v "$PWD/FAQ.md:/faq/FAQ.md:ro" \
-  -v "$PWD/deploy/backup.sh:/dr/backup.sh:ro" -v "$PWD/deploy/restore.sh:/dr/restore.sh:ro" \
-  -v "$PWD/Makefile:/mk/Makefile:ro" \
+  -v "$PWD:/repo:ro" \
   docker.io/library/python:3.12-slim bash -c '
 set -e
-cd /tmp && cp -r /src/api . && cp -r /src/db . && cp -r /src/web . && cp -r /src/grafana . && cp -r /src/ingest . && cp -r /src/sandbox . && cp /src/docker-compose.selfhost.yml . && cp /faq/FAQ.md . && mkdir -p deploy/caddy && cp /src/deploy/caddy/Caddyfile.selfhost /src/deploy/caddy/Caddyfile.tmpl deploy/caddy/ && cp /dr/backup.sh /dr/restore.sh deploy/ && cp /mk/Makefile .
+mkdir -p /tmp/work
+tar -C /repo --exclude=.git --exclude=node_modules -cf - . | tar -C /tmp/work -xf -
+cd /tmp/work/orbit-poc
 pip install -q -r api/requirements.txt pytest httpx requests >/dev/null 2>&1
 apt-get -qq update >/dev/null 2>&1 && apt-get -qq install -y postgresql-client >/dev/null 2>&1
 PGPASSWORD=orbit psql -h "$(echo $DB_DSN | sed -E "s/.*host=([^ ]+).*/\1/")" -U orbit -d orbit -f db/init.sql >/dev/null 2>&1
 cd api
-python -m pytest test_subscription.py test_rls.py test_frontend.py test_selfhost.py test_faq.py test_backup.py test_fields.py test_dashboards.py test_spacecraft.py test_calibration.py test_metering.py test_billing.py test_sandbox_ports.py test_env_headers.py test_sandbox_deploy.py test_account_ui.py test_sandbox_auth.py test_grafana_role.py test_api_hostnames.py test_org_grafana.py test_auth_header.py test_deploy_target.py test_workflows.py test_maplibre.py test_self_serve_access.py test_staging_isolation.py test_app_role.py test_ops_role.py test_registrations.py test_oem.py test_ephemeris.py test_passes.py test_favorites.py test_decoder_flatten.py test_shell_pipefail.py test_catalog.py test_tle_client.py test_telemetry_guide.py -q 2>&1 | tail -1
-python -m pytest test_polar.py -q 2>&1 | tail -1
+# Auto-discovery, so a new suite is covered the moment it is written. Every
+# exclusion is explicit and carries its reason — the only way to leave a test
+# out is to say so here, in the open.
+#   test_polar.py  live Polar API, needs POLAR_ACCESS_TOKEN. Polar is the
+#                  fallback provider since Creem became the MoR (#269/#270),
+#                  so it is run separately and never gates a deploy.
+python -m pytest -q -p no:cacheprovider --ignore=test_polar.py 2>&1 | tail -30
+echo "MAIN_EXIT=${PIPESTATUS[0]}"
+python -m pytest test_polar.py -q -p no:cacheprovider 2>&1 | tail -3
 ' 2>&1)
 
 # `head -2` closes the pipe early, upstream takes SIGPIPE and — under
@@ -46,7 +58,11 @@ python -m pytest test_polar.py -q 2>&1 | tail -1
 SUB=$(echo "$OUT" | grep -oE '[0-9]+ passed|[0-9]+ failed' | sed -n '1,2p' | paste -sd' ' -)
 POL=$(echo "$OUT" | grep -oE '[0-9]+ passed|[0-9]+ failed|[0-9]+ skipped' | tail -2 | paste -sd' ' -)
 STAMP=$(date -u +"%Y-%m-%d %H:%M UTC")
-FAILED=$(echo "$OUT" | grep -c "failed")
+# pytest's EXIT CODE, not the word "failed" in its summary. A run that dies
+# during collection ends "N errors in ...", which contains no "failed" — so
+# the old grep scored a suite that never ran as a pass (#286).
+MAIN_EXIT=$(echo "$OUT" | sed -n 's/^MAIN_EXIT=//p' | tail -1)
+FAILED=${MAIN_EXIT:-1}
 
 cat > TEST_RESULTS.md <<EOF
 # Latest test results
@@ -59,7 +75,7 @@ Do not edit by hand.
 | subscription | $(echo "$OUT" | grep -oE '[0-9]+ passed.*' | sed -n 1p) | signup, org isolation, service tokens, quotas |
 | polar | $(echo "$OUT" | grep -oE '[0-9]+ passed.*' | tail -1) | pro-account product, trial, discount codes |
 
-**Run:** $STAMP · host: VM (podman) · $([ "$FAILED" -eq 0 ] && echo "ALL GREEN ✅" || echo "FAILURES ❌")
+**Run:** $STAMP · host: VM (podman) · $([ "$FAILED" -eq 0 ] && echo "ALL GREEN ✅" || echo "FAILURES ❌ (pytest exit $FAILED)")
 
 <details><summary>raw</summary>
 

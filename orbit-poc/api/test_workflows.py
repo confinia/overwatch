@@ -280,3 +280,61 @@ def test_the_broken_chain_report_stays_quiet_when_a_newer_commit_is_coming():
     job = d[d.index("chain-broken:"):]
     assert "commits/main" in job, "it must compare against main's tip"
     assert "exit 0" in job, "a superseded commit is not a stall"
+
+
+# ---------------------------------------------------------------------------
+# No suite may be silently excluded (#286)
+# ---------------------------------------------------------------------------
+API = os.path.dirname(os.path.abspath(__file__))
+
+
+def _ignored(text):
+    """The suites an entrypoint deliberately skips."""
+    return {a.split("=", 1)[1].strip()
+            for a in re.findall(r"--ignore=\S+", text)}
+
+
+def test_both_entrypoints_auto_discover():
+    """They named every file by hand, in two formats, and nothing failed if you
+    forgot one. Eight suites guarded nothing that way, and two more raised
+    collection errors that aborted the whole run while the gate still reported
+    green — it was executing a single skipped test."""
+    ci = _wf("ci.yml")
+    gate = open(os.path.join(ROOT, "deploy", "run-tests.sh"), encoding="utf-8").read()
+    for name, text in (("ci.yml", ci), ("run-tests.sh", gate)):
+        assert "python -m pytest -q" in text, name
+        # a hand-maintained list is exactly what we are removing
+        assert "test_subscription.py test_rls.py" not in text, \
+            f"{name} still enumerates suites by hand"
+
+
+def test_every_exclusion_is_the_same_in_both_and_justified():
+    ci = _wf("ci.yml")
+    gate = open(os.path.join(ROOT, "deploy", "run-tests.sh"), encoding="utf-8").read()
+    assert _ignored(ci) == _ignored(gate) == {"test_polar.py"}, \
+        "the two entrypoints must skip the same suites, and only known ones"
+    for text in (ci, gate):
+        assert "POLAR_ACCESS_TOKEN" in text, \
+            "an exclusion must carry its reason where it is written"
+
+
+def test_no_suite_is_excluded_without_being_named():
+    """Auto-discovery means a new test file is covered the moment it is
+    written. This asserts the excluded set stays deliberate and tiny — if it
+    grows, someone has to justify it here."""
+    on_disk = {f for f in os.listdir(API)
+               if f.startswith("test_") and f.endswith(".py")}
+    excluded = _ignored(_wf("ci.yml"))
+    assert excluded <= on_disk, f"ignoring files that do not exist: {excluded - on_disk}"
+    assert len(excluded) <= 1, \
+        f"{len(excluded)} suites excluded — each one is a guard nobody runs"
+
+
+def test_the_gate_trusts_pytest_not_prose():
+    """A run that dies during collection ends `N errors in ...`, which contains
+    no "failed" — so grepping the summary scored a suite that never ran as a
+    pass. The verdict has to be pytest's exit code."""
+    gate = open(os.path.join(ROOT, "deploy", "run-tests.sh"), encoding="utf-8").read()
+    assert 'grep -c "failed"' not in gate, \
+        "the verdict must not come from grepping pytest's prose"
+    assert "MAIN_EXIT" in gate and "PIPESTATUS" in gate
