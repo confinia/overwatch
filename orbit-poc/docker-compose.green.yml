@@ -28,6 +28,14 @@ services:
       # day billing goes live. See ENVIRONMENTS.md.
       # our stack: the paid edition. Self-host defaults to "selfhost" (#276).
       OVERWATCH_EDITION: "cloud"
+      # Project-qualified, NOT the bare `grafana` alias (#328). This container
+      # joins ovw2_default for the Keycloak path, and the sandbox and staging
+      # Grafanas are attached there too — each registering the alias `grafana`.
+      # It resolved to one of THEM, so every provisioning call authenticated
+      # against another environment's Grafana, got 401, and was discarded
+      # without a log line: ops alerts never arrived and per-org dashboards
+      # would have been created in the sandbox.
+      GF_URL: "http://orbit-poc_grafana_1:3000"
       POLAR_ENV: "off"
     env_file:
       - .env

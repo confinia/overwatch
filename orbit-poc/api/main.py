@@ -1117,6 +1117,23 @@ def _ops_alert_rules() -> list:
             for r in _ops_alert_spec()["rules"]]
 
 
+def _gf_ok(resp, what: str) -> bool:
+    """Report a Grafana provisioning call that did not take.
+
+    Every call site here was fire-and-forget, which is exactly how #328 stayed
+    invisible: the api was resolving `grafana` to another environment's
+    instance, so every write 401'd and the ops alert rules simply never
+    existed. Provisioning that silently no-ops is worse than provisioning that
+    crashes — the dashboard looks configured and is not. 409 is success: it
+    means the object is already there.
+    """
+    if resp.status_code in (200, 201, 202, 409):
+        return True
+    print(f"GRAFANA PROVISIONING FAILED [{what}]: "
+          f"{resp.status_code} {resp.text[:200]}", flush=True)
+    return False
+
+
 def _provision_ops_alerts(gorg: int) -> None:
     """Contact point, root policy and the signup alert rules in the ops org
     (#172) — API-provisioned like the org itself. E-mails to OPS_ALERT_EMAIL
@@ -1131,18 +1148,22 @@ def _provision_ops_alerts(gorg: int) -> None:
     cp = {**spec["contactPoint"],
           "settings": {"addresses": OPS_ALERT_EMAIL}}
     if cp["name"] in existing:
-        _gf("PUT", f"/v1/provisioning/contact-points/{existing[cp['name']]}",
-            cp, gorg=gorg)
+        _gf_ok(_gf("PUT",
+                   f"/v1/provisioning/contact-points/{existing[cp['name']]}",
+                   cp, gorg=gorg), "contact-point")
     else:
-        _gf("POST", "/v1/provisioning/contact-points", cp, gorg=gorg)
-    _gf("PUT", "/v1/provisioning/policies", spec["policy"], gorg=gorg)
-    _gf("POST", "/folders", {"title": "alerts", "uid": "ops-alerts"},
-        gorg=gorg)                                # 409 = already there
+        _gf_ok(_gf("POST", "/v1/provisioning/contact-points", cp, gorg=gorg),
+               "contact-point")
+    _gf_ok(_gf("PUT", "/v1/provisioning/policies", spec["policy"], gorg=gorg),
+           "notification-policy")
+    _gf_ok(_gf("POST", "/folders", {"title": "alerts", "uid": "ops-alerts"},
+               gorg=gorg), "alerts-folder")       # 409 = already there
     for r in _ops_alert_rules():
         resp = _gf("POST", "/v1/provisioning/alert-rules", r, gorg=gorg)
         if resp.status_code not in (200, 201):    # exists (or shape drift)
-            _gf("PUT", f"/v1/provisioning/alert-rules/{r['uid']}", r,
-                gorg=gorg)
+            resp = _gf("PUT", f"/v1/provisioning/alert-rules/{r['uid']}", r,
+                       gorg=gorg)
+        _gf_ok(resp, f"alert-rule {r['uid']}")
 
 
 def _provision_ops_org_async() -> None:
