@@ -49,6 +49,7 @@ SATNOGS_BASE      = "https://db.satnogs.org/api"
 ELEMENTS_INTERVAL  = int(os.environ.get("ELEMENTS_INTERVAL",  6 * 3600))
 POSITION_INTERVAL  = int(os.environ.get("POSITION_INTERVAL",  15))
 TELEMETRY_INTERVAL = int(os.environ.get("TELEMETRY_INTERVAL", 30 * 60))
+CATALOG_INTERVAL   = int(os.environ.get("CATALOG_INTERVAL",   86400))
 # Next-pass prediction (#217): heavy-ish forward scan, so run it a few times a
 # day. Bounded to the most-active stations x the fleet, 7-day horizon at 60 s.
 PASSES_INTERVAL     = int(os.environ.get("PASSES_INTERVAL",     6 * 3600))
@@ -82,11 +83,22 @@ def seed_satellites():
                 """INSERT INTO satellite (norad, name, sat_id, has_telemetry, decoder, note)
                    VALUES (%s,%s,%s,%s,%s,%s)
                    ON CONFLICT (norad) DO UPDATE SET
-                     name=EXCLUDED.name, sat_id=EXCLUDED.sat_id,
-                     has_telemetry=EXCLUDED.has_telemetry,
+                     name=EXCLUDED.name,
+                     -- Not knowing a sat_id today is not evidence there is
+                     -- none. This used to overwrite unconditionally, so a
+                     -- deploy during a provider outage replaced every known
+                     -- row with sat_id=NULL / has_telemetry=false — and since
+                     -- nothing re-resolves outside startup, the fleet could
+                     -- not recover. The 2026-08-20 block lasted hours; the
+                     -- outage lasted four days, and this is why (#335).
+                     sat_id=COALESCE(EXCLUDED.sat_id, satellite.sat_id),
+                     has_telemetry=
+                       COALESCE(EXCLUDED.sat_id, satellite.sat_id) IS NOT NULL
+                       AND %s,
                      decoder=EXCLUDED.decoder, note=EXCLUDED.note""",
                 (s["norad"], s["name"], sat_id,
-                 bool(sat_id) and s["telemetry"], s.get("decoder"), s["note"]))
+                 bool(sat_id) and s["telemetry"], s.get("decoder"), s["note"],
+                 bool(s["telemetry"])))
         conn.commit()
     log.info("Seeded %d showcase satellites.", len(SHOWCASE))
 
@@ -156,27 +168,14 @@ def resolve_sat_id(norad):
             return row[0]
         cur.execute("SELECT count(*) FROM catalog")
         catalogued = cur.fetchone()[0]
-    if catalogued:
-        # The catalogue exists and does not carry this object — asking the
-        # network per object will not change that.
-        return None
-    if _cooling("satnogs") or not _due_for_lookup(norad):
-        return None
-    try:
-        _pace_satnogs()
-        r = requests.get(f"{SATNOGS_BASE}/satellites/",
-                         params={"norad_cat_id": norad}, headers=UA, timeout=20)
-        if r.status_code in (403, 429):
-            _cool("satnogs", r)
-            return None
-        r.raise_for_status()
-        data = r.json()
-        if data:
-            _record_lookup(norad, True)
-            return data[0].get("sat_id")
-    except Exception as e:
-        log.warning("sat_id lookup failed for %s: %s", norad, e)
-    _record_lookup(norad, False, "no sat_id from SatNOGS")
+    # No per-object query, ever. main() builds the catalogue before seeding,
+    # so an empty catalogue means SatNOGS was unreachable at startup — asking
+    # again per satellite would be the pattern LSF blocked us for, and the
+    # bulk list carries the same data anyway (their words). Callers preserve
+    # whatever sat_id they already had, so an outage costs us nothing.
+    if not catalogued:
+        log.warning("Catalogue is empty — no sat_id for %s until the bulk "
+                    "pass succeeds", norad)
     return None
 
 
@@ -440,6 +439,17 @@ def refresh_catalog():
     from (#230). A lookup table only: choosing an entry copies it into
     `satellite`, which is what actually gets tracked. Paginated, ~1700 rows,
     refreshed daily; SatNOGS needs no key for this endpoint."""
+    # We deploy several times a day and this runs at every startup, so without
+    # a freshness guard "one bulk pass per day" — what we told LSF — would be
+    # one per deploy.
+    with db() as conn, conn.cursor() as cur:
+        cur.execute("SELECT max(updated_at) > now() - %s::interval FROM catalog",
+                    (f"{CATALOG_INTERVAL} seconds",))
+        row = cur.fetchone()
+    if row and row[0]:
+        log.info("Catalog: refreshed within the last %.1fh, skipping",
+                 CATALOG_INTERVAL / 3600)
+        return
     url, page, rows = f"{SATNOGS_BASE}/satellites/", 0, 0
     headers = dict(UA)
     if SATNOGS_TOKEN:
@@ -967,6 +977,10 @@ def loop(fn, interval, name):
 
 def main():
     _wait_for_db()
+    # Before seeding, not after: seed_satellites resolves sat_ids from this
+    # table, and an empty catalogue was the only remaining reason to query
+    # SatNOGS per object (#335).
+    refresh_catalog()
     seed_satellites()
     fetch_elements()  # prime once before propagating
 
@@ -981,8 +995,7 @@ def main():
                            int(os.environ.get("FILL_INTERVAL", 600)), "elements-fill"),
                      daemon=True).start()
     threading.Thread(target=loop,
-                     args=(refresh_catalog,
-                           int(os.environ.get("CATALOG_INTERVAL", 86400)), "catalog"),
+                     args=(refresh_catalog, CATALOG_INTERVAL, "catalog"),
                      daemon=True).start()
     # positions LAST and in the main thread: loop() never returns, so anything
     # called after it is dead code. Adding a loop above this line instead of a

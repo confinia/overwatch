@@ -185,3 +185,85 @@ def test_a_dead_tle_source_cannot_stall_startup():   # #230 follow-up
     assert "CELESTRAK_ONE_TIMEOUT" in one
     default = int(src.split('CELESTRAK_ONE_TIMEOUT", ')[1].split(")")[0])
     assert default <= 10, f"{default}s is too slow for a fallback lookup"
+
+
+# ---------------------------------------------------------------------------
+# A failed lookup must not erase working state (#335)
+# ---------------------------------------------------------------------------
+INGEST_SRC = open(os.path.join(os.path.dirname(__file__), "..", "ingest",
+                               "ingest.py"), encoding="utf-8").read()
+
+
+def _seed_upsert(cur, norad, name, sat_id, telemetry):
+    """The exact upsert seed_satellites runs, lifted from the source so the
+    test cannot drift from it."""
+    body = INGEST_SRC[INGEST_SRC.index("INSERT INTO satellite (norad, name, sat_id"):]
+    sql = body[:body.index('"""')]
+    cur.execute(sql, (norad, name, sat_id, bool(sat_id) and telemetry,
+                      None, "test", bool(telemetry)))
+
+
+def test_a_failed_lookup_keeps_the_sat_id_we_already_had(db):
+    """A deploy during a provider outage used to overwrite every known row
+    with sat_id=NULL / has_telemetry=false. Nothing re-resolves outside
+    startup, so the fleet could not recover: the 2026-08-20 block lasted
+    hours, the outage lasted four days."""
+    with db, db.cursor() as cur:
+        cur.execute("DELETE FROM satellite WHERE norad = 999001")
+        _seed_upsert(cur, 999001, "TESTSAT", "ABCD-1234", True)
+        cur.execute("SELECT sat_id, has_telemetry FROM satellite WHERE norad=999001")
+        assert cur.fetchone() == ("ABCD-1234", True)
+
+        _seed_upsert(cur, 999001, "TESTSAT", None, True)      # lookup failed
+        cur.execute("SELECT sat_id, has_telemetry FROM satellite WHERE norad=999001")
+        assert cur.fetchone() == ("ABCD-1234", True), \
+            "a failed lookup erased a known sat_id"
+        cur.execute("DELETE FROM satellite WHERE norad = 999001")
+
+
+def test_a_successful_lookup_still_updates(db):
+    with db, db.cursor() as cur:
+        cur.execute("DELETE FROM satellite WHERE norad = 999002")
+        _seed_upsert(cur, 999002, "TESTSAT2", "OLD-0001", True)
+        _seed_upsert(cur, 999002, "TESTSAT2", "NEW-0002", True)
+        cur.execute("SELECT sat_id FROM satellite WHERE norad=999002")
+        assert cur.fetchone()[0] == "NEW-0002"
+        cur.execute("DELETE FROM satellite WHERE norad = 999002")
+
+
+def test_a_position_only_satellite_never_gets_telemetry(db):
+    """has_telemetry is derived from the coalesced sat_id AND the showcase
+    flag — a satellite we do not decode must not acquire telemetry just
+    because a sat_id exists."""
+    with db, db.cursor() as cur:
+        cur.execute("DELETE FROM satellite WHERE norad = 999003")
+        _seed_upsert(cur, 999003, "TESTSAT3", "SOME-0003", False)
+        cur.execute("SELECT has_telemetry FROM satellite WHERE norad=999003")
+        assert cur.fetchone()[0] is False
+        cur.execute("DELETE FROM satellite WHERE norad = 999003")
+
+
+def test_no_per_object_satellites_query_remains():
+    """LSF: the bulk list carries the same data. We have said in public that
+    every lookup is answered from our own copy."""
+    code = "\n".join(l.split("#", 1)[0] for l in INGEST_SRC.splitlines())
+    assert "SATNOGS_BASE}/satellites/\",\n" not in code
+    resolve = code[code.index("def resolve_sat_id("):]
+    resolve = resolve[:resolve.index("\ndef ", 10)]
+    assert "requests.get" not in resolve, \
+        "resolve_sat_id must answer from the catalogue, never the network"
+
+
+def test_the_catalogue_is_built_before_the_first_seed():
+    """seed_satellites resolves from `catalog`; an empty one was the only
+    remaining reason to query per object."""
+    body = INGEST_SRC[INGEST_SRC.index("def main():"):INGEST_SRC.index("def _wait_for_db(")]
+    assert body.index("refresh_catalog()") < body.index("seed_satellites()")
+
+
+def test_the_bulk_pass_is_not_repeated_on_every_deploy():
+    """It runs at startup now, and we deploy several times a day — without a
+    freshness guard 'one bulk pass per day' would be one per deploy."""
+    fn = INGEST_SRC[INGEST_SRC.index("def refresh_catalog("):]
+    fn = fn[:fn.index("\ndef ", 10)]
+    assert "CATALOG_INTERVAL" in fn and "max(updated_at)" in fn

@@ -99,16 +99,18 @@ def test_sat_id_resolution_reads_our_catalogue_not_the_network():
     that grows as it fails, against the provider already blocking us.
 
     The catalogue table holds sat_id for the whole network from one paginated
-    bulk pass per day; read it from there."""
+    bulk pass per day; read it from there.
+
+    The guarantee is stronger than when this was written. main() now builds
+    the catalogue BEFORE seeding (#335), so the "catalogue is empty" window
+    that justified a live fallback cannot occur, and the fallback is gone:
+    resolve_sat_id issues no request at all.
+    """
     fn = INGEST[INGEST.index("def resolve_sat_id("):]
     fn = _code(fn[:fn.index("\ndef ", 10)])
     assert "FROM catalog WHERE norad" in fn, "must read the catalogue first"
-    # a live query only when the catalogue does not exist yet
-    assert "if catalogued:" in fn and "return None" in fn
-    # and even then, backed off and silent while cooling down
-    assert "_cooling(\"satnogs\")" in fn and "_due_for_lookup" in fn
-    assert "_record_lookup" in fn
-    assert "403, 429" in fn or "(403, 429)" in fn
+    assert "requests.get" not in fn and "SATNOGS_BASE" not in fn, \
+        "resolve_sat_id must answer from our own copy, never the network"
 
 
 def test_no_unbounded_per_object_loop_remains():
