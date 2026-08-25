@@ -342,3 +342,56 @@ def test_a_trailing_window_is_recomputed_not_just_today():
     is not final when yesterday ends."""
     days = int(INGEST_SRC.split('STATION_ROLLUP_DAYS", ')[1].split(")")[0])
     assert days >= 2, f"{days}d does not cover late-arriving frames"
+
+
+def _ingest_fn(name, **stubs):
+    """Lift one top-level function out of ingest.py and run it against stubs —
+    ingest.py imports psycopg2/sgp4/numpy and reads DB_DSN at import, so it
+    cannot be imported here."""
+    start = INGEST_SRC.index(f"def {name}(")
+    end = INGEST_SRC.find("\ndef ", start + 1)
+    ns = dict(stubs)
+    exec(compile(INGEST_SRC[start:end if end != -1 else len(INGEST_SRC)],
+                 "ingest.py", "exec"), ns)
+    return ns
+
+
+def test_the_backfill_is_not_called_from_startup():   # #339
+    """It used to run in main(), where it lost a race with the API's startup
+    DDL: station_daily did not exist yet, the call raised, was caught so it
+    could not block startup, and was never retried."""
+    body = INGEST_SRC[INGEST_SRC.index("def main():"):INGEST_SRC.index("def _wait_for_db(")]
+    assert "roll_up_stations()" not in body, \
+        "the full pass must not depend on another service's schema being ready"
+
+
+def test_the_backfill_runs_once_then_trailing_windows(db):
+    calls = []
+    ns = _ingest_fn("rollup_tick",
+                    roll_up_stations=lambda days=None: calls.append(days),
+                    STATION_ROLLUP_DAYS=3,
+                    _rollup_backfilled=[False])
+    for _ in range(3):
+        ns["rollup_tick"]()
+    assert calls == [None, 3, 3], f"expected one full pass then windows: {calls}"
+
+
+def test_a_failed_backfill_is_retried_not_marked_done(db):
+    """If the table is not there yet the tick fails and the next one must try
+    the FULL pass again — otherwise the history is lost for good."""
+    calls = []
+
+    def flaky(days=None):
+        calls.append(days)
+        if len(calls) == 1:
+            raise RuntimeError("relation \"station_daily\" does not exist")
+
+    ns = _ingest_fn("rollup_tick", roll_up_stations=flaky,
+                    STATION_ROLLUP_DAYS=3, _rollup_backfilled=[False])
+    try:
+        ns["rollup_tick"]()          # raises; loop() logs and retries
+    except RuntimeError:
+        pass
+    ns["rollup_tick"]()
+    assert calls == [None, None], \
+        f"a failed backfill must be retried in full, got {calls}"
