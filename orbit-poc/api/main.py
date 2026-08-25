@@ -132,6 +132,20 @@ CREATE TABLE IF NOT EXISTS catalog (
     updated_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS catalog_name_idx ON catalog (lower(name));
+-- Per-station daily activity (#337): the baseline a degradation detector needs.
+-- Derived entirely from `reception`, which we already ingest, so filling it
+-- costs no provider request. Its value accrues with time, which is why it
+-- exists before the detector that will read it.
+CREATE TABLE IF NOT EXISTS station_daily (
+    observer         TEXT NOT NULL,
+    day              DATE NOT NULL,
+    frames           INTEGER NOT NULL,
+    satellites_heard INTEGER NOT NULL,
+    first_ts         timestamptz,
+    last_ts          timestamptz,
+    PRIMARY KEY (observer, day)
+);
+CREATE INDEX IF NOT EXISTS station_daily_day_idx ON station_daily (day);
 -- SatNOGS throttles telemetry for satellites it flags as violating frequency
 -- regulations to one request per day, against six a minute for everything
 -- else. Mirrored from the bulk list so a satellite flagged upstream is
