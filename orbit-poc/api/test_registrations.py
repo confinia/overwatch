@@ -277,3 +277,62 @@ def test_a_failed_grafana_provision_is_reported():
     body = body[:body.index("\ndef ", 10)]
     assert body.count("_gf_ok(") >= 4, \
         "contact point, policy, folder and each rule must all be checked"
+
+
+# ---------------------------------------------------------------------------
+# Ops alerting is authoritative, not additive (#330)
+# ---------------------------------------------------------------------------
+def test_our_rules_are_pruned_from_other_orgs():
+    """The signup rules had accumulated in org 1 as well — Grafana's Main Org,
+    which serves the public dashboards anonymously — and both orgs routed to
+    contact@confinia.io, so every signup sent two identical e-mails."""
+    src = open(os.path.join(HERE, "main.py"), encoding="utf-8").read()
+    assert "def _prune_alerts_outside_ops(" in src
+    fn = src[src.index("def _prune_alerts_outside_ops("):
+             src.index("def _drop_placeholder_contact_point(")]
+    assert "_ops_alert_spec()" in fn, \
+        "the uids to clean up must come from the file, not a second list"
+    assert "if oid == gorg:" in fn and "continue" in fn, \
+        "the ops org itself must never be pruned"
+    assert "DELETE" in fn
+
+
+def test_pruning_never_touches_another_owners_rules():
+    """We delete only uids we declare. Anything else in another org belongs to
+    someone else."""
+    src = open(os.path.join(HERE, "main.py"), encoding="utf-8").read()
+    fn = src[src.index("def _prune_alerts_outside_ops("):
+             src.index("def _drop_placeholder_contact_point(")]
+    assert 'rule.get("uid") in ours' in fn, \
+        "deletion must be gated on the uid being one of ours"
+
+
+def test_the_placeholder_contact_point_is_dropped_only_while_placeholder():
+    """A live e-mail contact point aimed at <example@email.com> is one routing
+    mistake from mailing a stranger. But once somebody puts a real address
+    there it is theirs, not ours to delete."""
+    src = open(os.path.join(HERE, "main.py"), encoding="utf-8").read()
+    fn = src[src.index("def _drop_placeholder_contact_point("):
+             src.index("def _provision_ops_alerts(")]
+    assert "PLACEHOLDER_ADDRESSES" in fn
+    assert 'c.get("name") == "email receiver"' in fn, \
+        "only the built-in default is a candidate"
+    assert "example@email.com" in src
+
+
+def test_cleanup_runs_as_part_of_provisioning():
+    src = open(os.path.join(HERE, "main.py"), encoding="utf-8").read()
+    body = src[src.index("def _provision_ops_alerts("):]
+    body = body[:body.index("\ndef ", 10)]
+    assert "_prune_alerts_outside_ops(gorg)" in body
+    assert "_drop_placeholder_contact_point(gorg)" in body
+
+
+def test_cleanup_failures_are_reported():
+    """Same rule as #328: a cleanup that silently fails leaves duplicate mail
+    flowing while the code claims to have stopped it."""
+    src = open(os.path.join(HERE, "main.py"), encoding="utf-8").read()
+    for name in ("_prune_alerts_outside_ops", "_drop_placeholder_contact_point"):
+        fn = src[src.index(f"def {name}("):]
+        fn = fn[:fn.index("\ndef ", 10)]
+        assert "_gf_ok(" in fn, f"{name} discards failures"
