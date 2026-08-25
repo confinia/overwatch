@@ -241,3 +241,39 @@ def test_freshness_rules_fire_only_when_stale():
             c.commit()
     finally:
         c.close()
+
+
+# ---------------------------------------------------------------------------
+# The api must talk to ITS OWN Grafana, and say so when it cannot (#328)
+# ---------------------------------------------------------------------------
+def test_colour_stacks_pin_the_production_grafana():
+    """`grafana` is not a unique name. The colour stacks join ovw2_default for
+    the Keycloak path, and the sandbox and staging Grafanas are attached there
+    too — each registering that same alias. Production resolved to one of THEM,
+    so every provisioning write authenticated against another environment,
+    got 401, and was thrown away. Pin the project-qualified name."""
+    for colour in ("blue", "green"):
+        f = os.path.join(HERE, "..", f"docker-compose.{colour}.yml")
+        body = open(f, encoding="utf-8").read()
+        line = next((l for l in body.splitlines() if "GF_URL:" in l), None)
+        assert line, f"{colour} does not pin GF_URL"
+        assert "orbit-poc_grafana_1" in line, \
+            f"{colour} GF_URL must name the production Grafana: {line.strip()}"
+        assert "//grafana:" not in line, \
+            f"{colour} still uses the ambiguous alias: {line.strip()}"
+
+
+def test_a_failed_grafana_provision_is_reported():
+    """The 401s produced no log line at all, so alerting looked configured for
+    as long as nobody checked Grafana itself. 409 stays quiet: it means the
+    object is already there."""
+    src = open(os.path.join(HERE, "main.py"), encoding="utf-8").read()
+    assert "def _gf_ok(" in src
+    fn = src[src.index("def _gf_ok("):src.index("def _provision_ops_alerts(")]
+    assert "409" in fn, "an existing object is not a failure"
+    for code in ("200", "201"):
+        assert code in fn
+    body = src[src.index("def _provision_ops_alerts("):]
+    body = body[:body.index("\ndef ", 10)]
+    assert body.count("_gf_ok(") >= 4, \
+        "contact point, policy, folder and each rule must all be checked"
