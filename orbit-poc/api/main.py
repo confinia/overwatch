@@ -1572,7 +1572,13 @@ WITH rate AS (
     FROM station_opportunity o
     LEFT JOIN station_daily d
            ON d.observer = o.observer AND d.day = o.day
-    WHERE o.day > %(as_of)s::date - %(window)s::integer
+    WHERE o.day >  %(as_of)s::date - %(window)s::integer
+      -- and never PAST the as-of date: without this a replay sees days after
+      -- the moment it is meant to stand at. Replaying 2026-08-23 pulled in the
+      -- 24th and 25th — the recovery — which lifted the fleet average from
+      -- 0.0020 to 0.0354 and quietly weakened the very clause under test
+      -- (#351). A replay that can see the future proves nothing.
+      AND o.day <= %(as_of)s::date
     GROUP BY o.observer, o.day
 ), fleet AS (
     -- the whole network's rate that day: the denominator for "was it us?"

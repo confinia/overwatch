@@ -599,3 +599,33 @@ def test_replay_defaults_to_today():
     assert 'as_of or _dt.datetime.now' in fn
     assert "current_date" not in main.STATION_HEALTH_SQL, \
         "the SQL must take the date as a parameter, never hardcode it"
+
+
+def test_a_replay_cannot_see_past_its_own_as_of_date(db):
+    """The rate CTE had no upper bound, so replaying a past date pulled in
+    everything after it. Replaying 2026-08-23 across our own outage included
+    the 24th and 25th — the recovery — lifting the fleet average from 0.0020 to
+    0.0354 and diluting the clause being tested (#351).
+
+    Here: a station that collapsed and then RECOVERED. Standing at the
+    collapse, the recovery must be invisible, so it is still flagged."""
+    with db, db.cursor() as cur:
+        _wipe_health(cur)
+        # days 21..38 baseline, 19..20 collapse, 1..2 recovered (the "future")
+        for good in ("HT-GOOD-1", "HT-GOOD-2"):
+            _seed_station(cur, good, 0.60, 0.60,
+                          base=tuple(range(21, 39)), recent=(19, 20))
+            _seed_station(cur, good, 0.60, 0.60, base=(3, 4), recent=(1, 2))
+        _seed_station(cur, "HT-RECOVERED", 0.60, 0.00,
+                      base=tuple(range(21, 39)), recent=(19, 20))
+        _seed_station(cur, "HT-RECOVERED", 0.60, 0.60, base=(3, 4), recent=(1, 2))
+        cur.execute("SELECT (current_date - 18)::text")
+        at_collapse = cur.fetchone()[0]
+        assert "HT-RECOVERED" in _degraded(cur, at_collapse), \
+            "the replay saw the recovery it should not have been able to see"
+        _wipe_health(cur)
+
+
+def test_the_rate_window_is_bounded_at_both_ends():
+    assert "o.day <= %(as_of)s::date" in main.STATION_HEALTH_SQL, \
+        "a replay must not read days after the date it stands at"
