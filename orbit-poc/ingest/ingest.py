@@ -1166,7 +1166,21 @@ def main():
     # SatNOGS per object (#335).
     refresh_catalog()
     seed_satellites()
-    fetch_elements()  # prime once before propagating
+    # Prime ONLY a genuinely empty database. The prime exists so positions have
+    # elements to propagate, which is true on a fresh install and false on
+    # every other one: the cache is already minutes-to-hours old and the
+    # elements loop refreshes it seconds after the threads start. Priming
+    # synchronously costs ~4.5 min — 8s of CelesTrak connect timeout plus 11s
+    # per satellite through our own SatNOGS pacer — and NOTHING propagates
+    # meanwhile. Measured 2026-08-26: started 10:47:41, first thread 10:52:04.
+    # A dark globe after every deploy, and it tripped positions-stalled on
+    # every environment (#352).
+    with db() as conn, conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM elements")
+        have_elements = cur.fetchone()[0]
+    if not have_elements:
+        log.info("No cached elements — priming before positions start")
+        fetch_elements()
 
     threading.Thread(target=loop, args=(fetch_elements, ELEMENTS_INTERVAL, "elements"),
                      daemon=True).start()

@@ -366,6 +366,17 @@ def test_the_412_tolerance_is_not_global():   # #332
 # ---------------------------------------------------------------------------
 # An alert that mails every hour is an alert nobody reads (#341)
 # ---------------------------------------------------------------------------
+def test_a_freshness_rule_returns_value_and_nothing_else():   # #352
+    """A rule's returned columns ARE its alert identity. #341 dropped the age
+    columns but kept `newest` — which still moves when the system is SLOW
+    rather than STOPPED: positions kept trickling, `newest` advanced, and every
+    evaluation became a brand-new alert. Detail belongs on the dashboard."""
+    for r in _freshness_rules():
+        select = r["sql"][:r["sql"].index(" FROM ")]
+        assert select.strip() == "SELECT 1 AS value", (
+            f"{r['uid']} returns more than a constant: {select.strip()!r}")
+
+
 def test_no_freshness_rule_returns_a_moving_column():
     """Labels are an alert instance's identity. `hours_stale` incremented on
     every evaluation, so each hour was a NEW alert and notified immediately —
