@@ -361,3 +361,48 @@ def test_the_412_tolerance_is_not_global():   # #332
         "412 must come from the caller, not be baked into _gf_ok"
     assert src.count("also_ok=(412,)") == 1, \
         "exactly one call may tolerate 412"
+
+
+# ---------------------------------------------------------------------------
+# An alert that mails every hour is an alert nobody reads (#341)
+# ---------------------------------------------------------------------------
+def test_no_freshness_rule_returns_a_moving_column():
+    """Labels are an alert instance's identity. `hours_stale` incremented on
+    every evaluation, so each hour was a NEW alert and notified immediately —
+    ~50 e-mails a day, and no repeat interval could have suppressed it,
+    because nothing was repeating. Subjects read "...stale staging alerts 144",
+    then 143, then 142: that number was the label."""
+    for r in _freshness_rules():
+        for moving in ("minutes_stale", "hours_stale", "AS age", "now() - max"):
+            if moving in ("now() - max",):
+                continue                       # fine inside the HAVING clause
+            assert moving not in r["sql"].split("HAVING")[0], (
+                f"{r['uid']} returns {moving}, which changes while the "
+                f"condition holds and so churns the alert identity")
+
+
+def test_the_policy_states_a_repeat_interval():
+    assert main._ops_alert_spec()["policy"].get("repeat_interval"), \
+        "a persistent condition must mail on a stated cadence, not a default"
+
+
+def test_legacy_give_ups_are_repaired():
+    """A code fix that stops bad state being WRITTEN does not repair state
+    already written. #312 removed the attempts-based give-up, but staging and
+    sandbox kept 23/23 and 24/24 flagged rows and stopped fetching elements
+    entirely — for six days, while production looked fine because it had been
+    repaired by hand during the incident."""
+    src = open(os.path.join(HERE, "main.py"), encoding="utf-8").read()
+    assert "DELETE FROM element_fetch WHERE gave_up AND attempts >= 6" in src
+
+
+def test_the_repair_cannot_match_a_current_row():
+    """gave_up is now set only through an answered 'not carried', which fires
+    on the first attempt — so attempts >= 6 identifies legacy rows exactly,
+    and the repair is idempotent."""
+    src = open(os.path.join(HERE, "..", "ingest", "ingest.py"), encoding="utf-8").read()
+    rec = src[src.index("def _record_lookup("):src.index("def _tle_for(")]
+    sets = [l for l in rec.splitlines() if "gave_up" in l and "=" in l]
+    for line in sets:
+        assert "attempts" not in line, \
+            "if attempts can set gave_up again, the repair would delete live rows"
