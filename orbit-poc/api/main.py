@@ -953,6 +953,9 @@ OPS_TABLES = ("organization", "org_user", "org_token", "api_key",
               "api_usage", "visitor_daily", "registered_user",
               "telemetry", "position", "elements")
 OPS_ALERT_EMAIL = os.environ.get("OPS_ALERT_EMAIL", "contact@confinia.io")
+# How long the OIDC CSRF nonce stays valid. Must outlive a registration with
+# e-mail verification, not merely a login (#343).
+AUTH_STATE_TTL = int(os.environ.get("AUTH_STATE_TTL", 3600))
 OPS_GF_ORG = "Overwatch Ops"
 OPS_DASHBOARDS_DIR = os.environ.get("OPS_DASHBOARDS_DIR", "/ops-dashboards")
 # Alerting as code (#201): the contact point, root policy and each rule's
@@ -1391,7 +1394,12 @@ def auth_login(request: Request):
            f"&redirect_uri={_base_of(request)}/api/v1/auth/callback"
            f"&state={state}")
     resp = RedirectResponse(url)
-    resp.set_cookie("ovw_state", state, max_age=600, httponly=True,
+    # Ten minutes covered a LOGIN but not a REGISTRATION: the realm verifies
+    # e-mail, so a new user leaves for their inbox and comes back — routinely
+    # well past ten minutes, and our first real signup took over two hours.
+    # The cookie is a CSRF nonce, not a session; outliving the round trip
+    # costs nothing and is the difference between signing up and giving up.
+    resp.set_cookie("ovw_state", state, max_age=AUTH_STATE_TTL, httponly=True,
                     secure=True, samesite="lax")
     return resp
 
@@ -1400,7 +1408,26 @@ def auth_login(request: Request):
 def auth_callback(request: Request, code: str = "", state: str = ""):
     from fastapi.responses import RedirectResponse
     if not code or state != request.cookies.get("ovw_state"):
-        raise HTTPException(400, "Invalid login state — retry /api/v1/auth/login")
+        # Don't hand a first-time visitor a raw JSON error naming an API path.
+        # The state is a CSRF nonce: a mismatch means we cannot trust THIS
+        # callback, so throw it away and start a fresh login. That accepts
+        # nothing unverified and is invisible to the user, who simply arrives
+        # signed in (#343).
+        #
+        # One shot only: if the retry ALSO arrives without the cookie, the
+        # browser is refusing cookies and redirecting again would loop, so we
+        # say so in words instead. The marker is a cookie rather than a query
+        # parameter because redirect_uri must match the value registered in
+        # Keycloak exactly, and decorating it risks invalid_redirect_uri.
+        if not request.cookies.get("ovw_authretry"):
+            r = RedirectResponse(f"{_base_of(request)}/api/v1/auth/login")
+            r.set_cookie("ovw_authretry", "1", max_age=120, httponly=True,
+                         secure=True, samesite="lax")
+            return r
+        raise HTTPException(400, "Your browser did not keep the sign-in "
+                                 "cookie, so the login could not be "
+                                 "completed. Enable cookies for this site and "
+                                 "try again.")
     r = _rq.post(f"{KC_INTERNAL}/protocol/openid-connect/token",
                  data={"grant_type": "authorization_code", "code": code,
                        "client_id": KC_CLIENT_ID, "client_secret": KC_CLIENT_SECRET,
@@ -1427,6 +1454,7 @@ def auth_callback(request: Request, code: str = "", state: str = ""):
         resp.set_cookie(ID_COOKIE, id_tok, max_age=1740,
                         httponly=True, secure=True, samesite="lax", path="/")
     resp.delete_cookie("ovw_state")
+    resp.delete_cookie("ovw_authretry")   # a later failure gets its own retry
     return resp
 
 

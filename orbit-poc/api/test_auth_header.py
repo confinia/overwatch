@@ -117,3 +117,61 @@ def test_callback_keeps_the_id_token_for_logout():   # #223
     src = inspect.getsource(main.auth_callback)
     assert "id_token" in src and "ID_COOKIE" in src
     assert "httponly=True" in src                    # never readable from JS
+
+
+# ---------------------------------------------------------------------------
+# Signing in must survive an e-mail-verification round trip (#343)
+# ---------------------------------------------------------------------------
+SRC = open(os.path.join(os.path.dirname(__file__), "main.py"),
+           encoding="utf-8").read()
+
+
+def test_the_state_cookie_outlives_email_verification():
+    """Ten minutes covers a login, not a registration: the realm verifies
+    e-mail, so a new user leaves for their inbox and comes back. Our first
+    real signup took over two hours, and two of six callbacks in that window
+    failed on a state mismatch."""
+    ttl = int(SRC.split('AUTH_STATE_TTL", ')[1].split(")")[0])
+    assert ttl >= 1800, f"{ttl}s cannot survive an e-mail round trip"
+    assert "max_age=AUTH_STATE_TTL" in SRC, \
+        "the login cookie must use the configured lifetime"
+
+
+def test_a_state_mismatch_restarts_the_login_instead_of_erroring():
+    """A first-time visitor handed a raw JSON error naming an API path does
+    not recover — they close the tab. The state is a CSRF nonce: discarding
+    the untrusted callback and starting fresh accepts nothing unverified."""
+    fn = SRC[SRC.index("def auth_callback("):]
+    fn = fn[:fn.index("\n@app.")]
+    assert "RedirectResponse" in fn and "/api/v1/auth/login" in fn, \
+        "a mismatch must restart the flow"
+    head = fn[:fn.index("_rq.post")]
+    assert "ovw_authretry" in head, "the restart needs a loop guard"
+
+
+def test_the_restart_cannot_loop_forever():
+    """If the retry also arrives without a cookie the browser is refusing
+    them, and redirecting again would spin."""
+    fn = SRC[SRC.index("def auth_callback("):]
+    head = fn[:fn.index("_rq.post")]
+    assert 'if not request.cookies.get("ovw_authretry"):' in head
+    assert "HTTPException(400" in head, \
+        "the second failure must explain itself, not redirect again"
+
+
+def test_the_redirect_uri_is_never_decorated():
+    """It must match the value registered in Keycloak exactly — a query
+    parameter on it risks invalid_redirect_uri, which is why the retry marker
+    is a cookie."""
+    fn = SRC[SRC.index("def auth_login("):]
+    fn = fn[:fn.index("\n@app.")]
+    uri_lines = [l for l in fn.splitlines() if "redirect_uri" in l]
+    for l in uri_lines:
+        assert "retry" not in l, f"redirect_uri carries a parameter: {l.strip()}"
+
+
+def test_a_successful_login_clears_the_retry_marker():
+    """Otherwise the next genuine failure gets no retry at all."""
+    fn = SRC[SRC.index("def auth_callback("):]
+    fn = fn[:fn.index("\n@app.")]
+    assert 'delete_cookie("ovw_authretry")' in fn
