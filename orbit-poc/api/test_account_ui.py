@@ -89,3 +89,26 @@ def test_creating_one_explains_the_re_login():
     signup having failed."""
     html = open(ACCOUNT, encoding="utf-8").read()
     assert "Signing you in again so it takes effect" in html
+
+
+def test_the_token_flow_uses_forms_not_prompts():   # #355
+    """Minting a service token is the FIRST thing a DevSat user does — the
+    telemetry guide sends them straight here. On the mobile browsers and
+    webviews that suppress prompt(), that button did nothing at all and left
+    no request to log."""
+    html = open(ACCOUNT, encoding="utf-8").read()
+    code = "\n".join(l.split("//", 1)[0] for l in html.splitlines())
+    assert "prompt(" not in code, "the token flow still asks via window.prompt()"
+    assert 'id="key-label"' in html and 'onsubmit="return mintKey(event)"' in html
+    assert 'id="revoke-key"' in html and "confirmRevoke" in html
+
+
+def test_revoking_still_requires_the_full_key():
+    """The list shows only a masked prefix, so pasting the whole key is the
+    confirmation. That friction is deliberate and must survive the change of
+    container — only the prompt goes, not the check."""
+    html = open(ACCOUNT, encoding="utf-8").read()
+    fn = html[html.index("function revokeKey("):]
+    fn = fn[:fn.index("async function confirmRevoke")]
+    assert "full key" in fn, "the confirmation wording is gone"
+    assert "required" in fn, "the field must be required"

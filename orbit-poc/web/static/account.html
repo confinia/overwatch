@@ -51,7 +51,13 @@
   <p class="dim">A key identifies your organization when you push data. It is
   shown once, at creation — store it like a password.</p>
   <div id="keylist" class="card"><span class="dim">Loading…</span></div>
-  <button class="cta" onclick="mintKey()">Create a key</button>
+  <form class="orgform" id="mint-form" onsubmit="return mintKey(event)">
+    <label for="key-label">Name this key</label>
+    <input id="key-label" name="key-label" type="text" maxlength="60"
+           value="ground-segment" autocomplete="off">
+    <button class="cta" type="submit">Create a key</button>
+  </form>
+  <div id="revoke" style="display:none"></div>
   <div id="fresh" style="display:none"></div>
 </div>
 <footer><a href="/">← Back to the control room</a> ·
@@ -114,9 +120,14 @@ async function renderKeys(){
   }
 }
 
-async function mintKey(){
-  const label = prompt("Name this key (e.g. ground-segment):", "ground-segment");
-  if (label === null) return;
+async function mintKey(ev){
+  // A field, not window.prompt(). Minting a service token is the FIRST thing a
+  // DevSat user does — the telemetry guide sends them straight here — and on
+  // the mobile browsers and webviews that suppress prompt() this button did
+  // nothing at all, leaving no request to log (#355).
+  if (ev) ev.preventDefault();
+  const field = $("key-label");
+  const label = field ? field.value.trim() : "";
   try {
     const d = await post("/api/v1/org/tokens", { label: label || "key" });
     $("fresh").style.display = "block";
@@ -130,16 +141,38 @@ async function mintKey(){
       `organization only.</span></div>`;
     renderKeys();
   } catch (e) { alert(e.message); }
+  return false;
 }
 
-async function revokeKey(prefix){
-  // the list only exposes a masked prefix; ask for the full key to revoke
-  const full = prompt(`Paste the full key starting with ${prefix.replace("…","")} to revoke it:`);
-  if (!full) return;
-  const r = await fetch(`/api/v1/org/tokens/${encodeURIComponent(full.trim())}`,
+function revokeKey(prefix){
+  // The list shows only a masked prefix, so pasting the full key IS the
+  // confirmation — deliberate friction, kept. Only the container changes: a
+  // prompt() is suppressed on exactly the devices an operator uses at the
+  // antenna, and a revoke that silently does nothing is worse than a fiddly
+  // one (#355).
+  const box = $("revoke");
+  box.style.display = "block";
+  box.innerHTML =
+    `<form class="orgform" onsubmit="return confirmRevoke(event)">` +
+      `<label for="revoke-key">Paste the full key starting with ` +
+      `<code>${esc(prefix.replace("…", ""))}</code> to revoke it</label>` +
+      `<input id="revoke-key" name="revoke-key" type="text" required autocomplete="off">` +
+      `<button class="cta" type="submit">Revoke</button>` +
+      `<button class="link" type="button" onclick="$('revoke').style.display='none'">cancel</button>` +
+    `</form>`;
+  $("revoke-key").focus();
+  return false;
+}
+
+async function confirmRevoke(ev){
+  if (ev) ev.preventDefault();
+  const full = ($("revoke-key").value || "").trim();
+  if (!full) return false;
+  const r = await fetch(`/api/v1/org/tokens/${encodeURIComponent(full)}`,
                         { method: "DELETE" });
-  if (r.ok || r.status === 204) renderKeys();
+  if (r.ok || r.status === 204){ $("revoke").style.display = "none"; renderKeys(); }
   else alert((await r.json().catch(()=>({}))).detail || "Could not revoke that key.");
+  return false;
 }
 
 async function createOrg(ev){
