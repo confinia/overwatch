@@ -34,6 +34,13 @@
   .revoked { opacity:.45; text-decoration:line-through; }
   button.link { background:none; border:0; color:#7ab8ff; cursor:pointer;
                 font:inherit; padding:0; text-decoration:underline; }
+  .orgform { display:flex; flex-wrap:wrap; gap:.5rem; align-items:center;
+             margin-top:.9rem; }
+  .orgform label { flex:1 0 100%; font-size:.85rem; opacity:.8; }
+  .orgform input { flex:1 1 16rem; padding:.5rem .6rem; border-radius:6px;
+                   border:1px solid #2c3b57; background:#0f1622; color:inherit;
+                   font:inherit; }
+  .orgform input:focus-visible { outline:2px solid #7ab8ff; outline-offset:1px; }
 </style></head><body><main>
 <h1><span>Overwatch</span> — your account</h1>
 <div id="banner">Payment received — thank you. Your subscription is active below.</div>
@@ -135,27 +142,36 @@ async function revokeKey(prefix){
   else alert((await r.json().catch(()=>({}))).detail || "Could not revoke that key.");
 }
 
-async function createOrg(){
-  // A double-fired click sends two concurrent creates; the second races the
+async function createOrg(ev){
+  // Takes the name from a real form field. It used to be window.prompt(),
+  // which several mobile browsers and embedded webviews suppress: the call
+  // returned null, this function returned silently, and the button did
+  // nothing — with no request to log, so we could not even see it happening.
+  if (ev) ev.preventDefault();
+  // A double-fired submit sends two concurrent creates; the second races the
   // first inside Keycloak and surfaces a scary failure for an org that
   // exists. One in-flight create at a time.
   const btn = document.getElementById("act-create-org");
-  if (btn){ if (btn.disabled) return; btn.disabled = true; }
-  const name = prompt("Name your organization:");
-  if (!name){ if (btn) btn.disabled = false; return; }
+  if (btn){ if (btn.disabled) return false; btn.disabled = true; }
+  const field = document.getElementById("org-name");
+  const name = field ? field.value.trim() : "";
+  if (!name){ if (btn) btn.disabled = false; return false; }
   try {
     await post("/api/v1/orgs", { name });
   } catch (e) {
     if (!/already belong/i.test(e.message)) {
       alert(e.message);
       if (btn) btn.disabled = false;
-      return;
+      return false;
     }
   }
   // Keycloak puts the organization in the token at login, so sign in again for
-  // the new membership to take effect (#157).
-  alert("Organization created — signing you in again to activate it.");
+  // the new membership to take effect (#157). Say what is about to happen:
+  // being bounced to a login screen straight after signing up reads as the
+  // signup having failed.
+  alert("Organization created. Signing you in again so it takes effect.");
   location.href = "/api/v1/auth/login";
+  return false;
 }
 
 async function load(){
@@ -175,11 +191,25 @@ async function load(){
     return;
   }
   if (!me.organization){
+    // No organization required to look around: the fleet, ground stations and
+    // passes are open data, and every /v1/org/* route is about YOUR OWN
+    // private telemetry. Demanding an org up front put our data model in
+    // front of the product, and the ask was a window.prompt() that several
+    // mobile browsers suppress outright — a button that silently did nothing.
+    // Offer it here, in the one place it means something, as a real form.
     $("content").innerHTML =
       `<div class="row"><span>Signed in as</span><b>${esc(me.email || me.name || me.sub)}</b></div>` +
-      `<div class="row"><span class="dim">No organization yet — create yours from the control room.</span></div>`;
+      `<div class="row"><span class="dim">The control room is open data — you do not need an ` +
+      `organization to use it. You need one only to push your own satellite's telemetry ` +
+      `and get private dashboards.</span></div>` +
+      `<form id="org-form" class="orgform" onsubmit="return createOrg(event)">` +
+        `<label for="org-name">Name your organization</label>` +
+        `<input id="org-name" name="org-name" type="text" required maxlength="60" ` +
+               `autocomplete="organization" placeholder="e.g. Bali Ground Station">` +
+        `<button class="cta" id="act-create-org" type="submit">Create</button>` +
+      `</form>`;
     $("actions").innerHTML =
-      `<button class="cta" id="act-create-org" onclick="createOrg()">Create your organization</button>` +
+      `<a class="cta secondary" href="/">Back to the control room</a>` +
       `<a class="cta secondary" href="/api/v1/auth/logout" onclick="return confirm('Sign out of Overwatch?')">Sign out</a>`;
     return;
   }
