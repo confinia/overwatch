@@ -489,8 +489,9 @@ def _wipe_health(cur):
     cur.execute("DELETE FROM station_daily WHERE observer LIKE 'HT-%'")
 
 
-def _degraded(cur):
+def _degraded(cur, as_of="today"):
     cur.execute(main.STATION_HEALTH_SQL, {
+        "as_of": as_of,
         "window": main.HEALTH_RECENT_DAYS + main.HEALTH_BASELINE_DAYS,
         "recent": main.HEALTH_RECENT_DAYS,
         "min_days": main.HEALTH_MIN_DAYS,
@@ -566,3 +567,35 @@ def test_a_mild_dip_is_not_a_collapse(db):
         found = _degraded(cur)
         assert "HT-DIP" not in found, "a mild dip was reported as a collapse"
         _wipe_health(cur)
+
+
+def test_the_detector_can_be_replayed_against_a_past_date(db):
+    """It hardcoded current_date, so it could never be run against a real
+    failure — only argued about. Replay is the whole methodology: find a
+    collapse, wind back, check the rule would have called it (#350)."""
+    with db, db.cursor() as cur:
+        _wipe_health(cur)
+        # A station that broke 10 days ago and has been dead since. Anchored
+        # to a fixed offset so "now" sees a long-dead station, while a replay
+        # positioned at the break sees the collapse itself.
+        for good in ("HT-GOOD-1", "HT-GOOD-2"):
+            _seed_station(cur, good, 0.60, 0.60,
+                          base=tuple(range(13, 31)), recent=(11, 12))
+        _seed_station(cur, "HT-OLDBREAK", 0.60, 0.00,
+                      base=tuple(range(13, 31)), recent=(11, 12))
+        cur.execute("SELECT (current_date - 10)::text")
+        as_of = cur.fetchone()[0]
+        assert "HT-OLDBREAK" in _degraded(cur, as_of), \
+            "replaying at the break did not surface the collapse"
+        _wipe_health(cur)
+
+
+def test_replay_defaults_to_today():
+    """An empty as_of must mean now, not an error or an epoch."""
+    src = open(os.path.join(os.path.dirname(__file__), "main.py"),
+               encoding="utf-8").read()
+    fn = src[src.index("def station_health("):]
+    fn = fn[:fn.index("cols = ")]
+    assert 'as_of or _dt.datetime.now' in fn
+    assert "current_date" not in main.STATION_HEALTH_SQL, \
+        "the SQL must take the date as a parameter, never hardcode it"
