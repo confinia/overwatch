@@ -629,3 +629,16 @@ def test_a_replay_cannot_see_past_its_own_as_of_date(db):
 def test_the_rate_window_is_bounded_at_both_ends():
     assert "o.day <= %(as_of)s::date" in main.STATION_HEALTH_SQL, \
         "a replay must not read days after the date it stands at"
+
+
+def test_startup_does_not_prime_elements_it_already_has():   # #352
+    """The synchronous prime cost ~4.5 minutes with nothing propagating —
+    8s of CelesTrak timeout plus 11s per satellite through our own pacer.
+    Measured: started 10:47:41, first thread 10:52:04. A dark globe after
+    every deploy, and it tripped positions-stalled everywhere."""
+    body = INGEST_SRC[INGEST_SRC.index("def main():"):INGEST_SRC.index("def _wait_for_db(")]
+    assert "if not have_elements:" in body, \
+        "elements must be primed only when there are none"
+    prime = body[body.index("have_elements"):]
+    assert "fetch_elements()" in prime.split("threading.Thread")[0], \
+        "the prime must sit inside the empty-database guard"
