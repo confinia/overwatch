@@ -395,3 +395,67 @@ def test_a_failed_backfill_is_retried_not_marked_done(db):
     ns["rollup_tick"]()
     assert calls == [None, None], \
         f"a failed backfill must be retried in full, got {calls}"
+
+
+# ---------------------------------------------------------------------------
+# The denominator: passes available per station per day (#346)
+# ---------------------------------------------------------------------------
+def _opportunity_upsert(cur, observer, day_expr, norad, passes, el):
+    sql = INGEST_SRC[INGEST_SRC.index("INSERT INTO station_opportunity"):]
+    sql = sql[:sql.index('""", rows)')].replace("VALUES %s", "VALUES (%s,"
+                                                + day_expr + ",%s,%s,%s)")
+    cur.execute(sql, (observer, norad, passes, el))
+
+
+def test_the_opportunity_upsert_is_idempotent(db):
+    """A day gets recomputed whenever elements improve. Double-counting the
+    denominator would deflate every hit rate derived from it."""
+    with db, db.cursor() as cur:
+        cur.execute("DELETE FROM station_opportunity WHERE observer='OPP-TEST'")
+        for _ in range(2):
+            _opportunity_upsert(cur, "OPP-TEST", "current_date", 25544, 5, 61.2)
+        cur.execute("SELECT count(*), max(passes) FROM station_opportunity "
+                    "WHERE observer='OPP-TEST'")
+        assert cur.fetchone() == (1, 5)
+        cur.execute("DELETE FROM station_opportunity WHERE observer='OPP-TEST'")
+
+
+def test_the_scan_makes_no_outbound_request():
+    """Local geometry only — coordinates from reception, elements from
+    elements. That is what makes a 40-day backfill safe to run at all."""
+    for name in ("compute_opportunities", "opportunities_tick"):
+        fn = INGEST_SRC[INGEST_SRC.index(f"def {name}("):]
+        fn = fn[:fn.index("\ndef ", 10)]
+        code = "\n".join(l.split("#", 1)[0] for l in fn.splitlines())
+        for forbidden in ("requests.", "SATNOGS_BASE", "CELESTRAK_BASE"):
+            assert forbidden not in code, f"{name} must stay local: {forbidden}"
+
+
+def test_elements_are_chosen_by_nearest_epoch():
+    """Propagating a TLE far from its epoch produces confident nonsense, so a
+    past day must use the element set closest to it — not the newest."""
+    fn = INGEST_SRC[INGEST_SRC.index("def _tle_nearest("):]
+    fn = fn[:fn.index("\ndef ", 10)]
+    assert "abs(extract(epoch FROM epoch - %s))" in fn and "LIMIT 1" in fn
+
+
+def test_the_backfill_never_reaches_past_the_elements():
+    """SGP4 has no honest answer before our earliest TLE, and OPPORTUNITY_DAYS
+    caps it further. A day with nothing to propagate must be skipped, not
+    written as zero passes — zero is a claim, and a wrong one."""
+    fn = INGEST_SRC[INGEST_SRC.index("def opportunities_tick("):]
+    fn = fn[:fn.index("\ndef ", 10)]
+    assert "min(epoch)" in fn and "OPPORTUNITY_DAYS" in fn and "max(" in fn
+    scan = INGEST_SRC[INGEST_SRC.index("def compute_opportunities("):]
+    scan = scan[:scan.index("\ndef ", 10)]
+    assert "no stations or no elements" in scan, \
+        "an empty scan must be skipped explicitly"
+
+
+def test_one_day_per_tick():
+    """A full reconstruction is minutes of arithmetic; doing it in one call
+    would stall the loop and restart from nothing on a redeploy."""
+    fn = INGEST_SRC[INGEST_SRC.index("def opportunities_tick("):]
+    fn = fn[:fn.index("\ndef ", 10)]
+    assert "LIMIT 1" in fn and "ORDER BY d DESC" in fn, \
+        "newest missing day first, one at a time"

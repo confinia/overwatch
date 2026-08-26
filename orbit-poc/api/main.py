@@ -146,6 +146,20 @@ CREATE TABLE IF NOT EXISTS station_daily (
     PRIMARY KEY (observer, day)
 );
 CREATE INDEX IF NOT EXISTS station_daily_day_idx ON station_daily (day);
+-- The denominator (#346): how many passes were geometrically AVAILABLE to a
+-- station on a day. station_daily counts what was heard; without this, a
+-- station under a quiet sky is indistinguishable from a broken one.
+-- Derived from coordinates in `reception` and TLEs in `elements` — no
+-- provider request.
+CREATE TABLE IF NOT EXISTS station_opportunity (
+    observer    TEXT NOT NULL,
+    day         DATE NOT NULL,
+    norad       INTEGER NOT NULL,
+    passes      INTEGER NOT NULL,
+    best_max_el DOUBLE PRECISION,
+    PRIMARY KEY (observer, day, norad)
+);
+CREATE INDEX IF NOT EXISTS station_opportunity_day_idx ON station_opportunity (day);
 -- SatNOGS throttles telemetry for satellites it flags as violating frequency
 -- regulations to one request per day, against six a minute for everything
 -- else. Mirrored from the bulk list so a satellite flagged upstream is
