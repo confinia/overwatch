@@ -384,6 +384,124 @@ def roll_up_stations(days=None):
     return n
 
 
+# Opportunity scan (#346). 60s catches every LEO pass above 10 deg — they
+# last minutes — while keeping the grid cheap. OPPORTUNITY_DAYS bounds how far
+# back we will reconstruct: SGP4 degrades away from a TLE's epoch, so there is
+# no honest answer beyond the element history we actually hold.
+OPPORTUNITY_STEP_S = int(os.environ.get("OPPORTUNITY_STEP_S", 60))
+OPPORTUNITY_MIN_EL = float(os.environ.get("OPPORTUNITY_MIN_EL", 10.0))
+OPPORTUNITY_DAYS = int(os.environ.get("OPPORTUNITY_DAYS", 40))
+
+
+def _tle_nearest(cur, norad, when):
+    """The element set closest in epoch to `when` — propagating a TLE far from
+    its epoch is how you get confident nonsense."""
+    cur.execute("""SELECT tle1, tle2 FROM elements WHERE norad = %s
+                   ORDER BY abs(extract(epoch FROM epoch - %s)) LIMIT 1""",
+                (norad, when))
+    return cur.fetchone()
+
+
+def compute_opportunities(day):
+    """How many passes each station COULD have heard on `day`.
+
+    The loops are inverted deliberately. The obvious shape — for each station,
+    for each satellite, scan the day — costs 360 x 23 x 1440 SGP4 evaluations,
+    which is hours of Python. Propagating each satellite ONCE per timestep and
+    then testing every station against that single position costs 23 SGP4 calls
+    per step instead of 8280, leaving only arithmetic in the inner loop. Same
+    answer, ~3 orders of magnitude less work.
+
+    Local geometry only: coordinates from `reception`, elements from
+    `elements`. No provider request, which is what makes backfilling safe.
+    """
+    import passes as _p
+    from sgp4.api import Satrec, jday
+
+    start = datetime(day.year, day.month, day.day, tzinfo=timezone.utc)
+    mid = start + timedelta(hours=12)
+    with db() as conn, conn.cursor() as cur:
+        cur.execute("""SELECT observer, max(lat), max(lon) FROM reception
+                       WHERE lat IS NOT NULL GROUP BY observer""")
+        stations = [(o, _p.station_ecef(la, lo)) for o, la, lo in cur.fetchall()]
+        cur.execute("SELECT DISTINCT norad FROM satellite")
+        sats = []
+        for (norad,) in cur.fetchall():
+            row = _tle_nearest(cur, norad, mid)
+            if row:
+                sats.append((norad, Satrec.twoline2rv(row[0], row[1])))
+    if not stations or not sats:
+        log.info("Opportunities %s: no stations or no elements — skipped", day)
+        return 0
+
+    # (observer, norad) -> [passes, best_el]; peak carries the in-flight pass
+    tally, peak = {}, {}
+    steps = 86400 // OPPORTUNITY_STEP_S
+    for i in range(steps + 1):
+        t = start + timedelta(seconds=i * OPPORTUNITY_STEP_S)
+        jd, fr = jday(t.year, t.month, t.day, t.hour, t.minute,
+                      t.second + t.microsecond * 1e-6)
+        for norad, sat in sats:
+            e, r, _v = sat.sgp4(jd, fr)
+            if e != 0:
+                continue
+            ecef = _p.teme_to_ecef(r[0], r[1], r[2], jd, fr)
+            for observer, secef in stations:
+                el = _p.elevation_deg(ecef, secef)
+                key = (observer, norad)
+                if el >= OPPORTUNITY_MIN_EL:
+                    peak[key] = max(peak.get(key, -90.0), el)
+                elif key in peak:                       # pass just ended
+                    slot = tally.setdefault(key, [0, -90.0])
+                    slot[0] += 1
+                    slot[1] = max(slot[1], peak.pop(key))
+    for key, pk in peak.items():                        # still up at midnight
+        slot = tally.setdefault(key, [0, -90.0])
+        slot[0] += 1
+        slot[1] = max(slot[1], pk)
+
+    rows = [(o, day, n, v[0], round(v[1], 1)) for (o, n), v in tally.items()]
+    if rows:
+        with db() as conn, conn.cursor() as cur:
+            execute_values(cur, """
+                INSERT INTO station_opportunity
+                       (observer, day, norad, passes, best_max_el)
+                VALUES %s
+                ON CONFLICT (observer, day, norad) DO UPDATE SET
+                  passes = EXCLUDED.passes,
+                  best_max_el = EXCLUDED.best_max_el""", rows)
+            conn.commit()
+    log.info("Opportunities %s: %d station-satellite rows over %d stations",
+             day, len(rows), len(stations))
+    return len(rows)
+
+
+def opportunities_tick():
+    """Compute ONE missing day per tick — never the whole backlog at once.
+
+    Measured at ~15s for a day across 360 stations x 25 satellites, so a tick
+    is short and a 40-day reconstruction is ~10 minutes of compute spread over
+    a few hours. Doing it in one call would stall the loop it runs in and, on
+    a restart, begin again from nothing; one day per tick makes progress
+    durable and every tick bounded.
+    """
+    today = datetime.now(timezone.utc).date()
+    with db() as conn, conn.cursor() as cur:
+        cur.execute("SELECT min(epoch)::date FROM elements")
+        row = cur.fetchone()
+        oldest_tle = row[0] if row and row[0] else today
+        floor = max(oldest_tle, today - timedelta(days=OPPORTUNITY_DAYS))
+        cur.execute("""SELECT d::date FROM generate_series(%s, %s, '1 day') d
+                       WHERE NOT EXISTS (SELECT 1 FROM station_opportunity o
+                                         WHERE o.day = d::date)
+                       ORDER BY d DESC LIMIT 1""",
+                    (floor, today - timedelta(days=1)))
+        due = cur.fetchone()
+    if not due:
+        return 0
+    return compute_opportunities(due[0])
+
+
 def _tle_for(norad):
     """Bulk cache first, per-object only as a rare, backed-off fallback."""
     bulk = _refresh_bulk_tles()
@@ -1063,6 +1181,12 @@ def main():
     threading.Thread(target=loop,
                      args=(refresh_catalog, CATALOG_INTERVAL, "catalog"),
                      daemon=True).start()
+    threading.Thread(
+        target=loop,
+        args=(opportunities_tick,
+              int(os.environ.get("OPPORTUNITY_INTERVAL", 300)),
+              "opportunities"),
+        daemon=True).start()
     threading.Thread(
         target=loop,
         args=(rollup_tick,
