@@ -1572,7 +1572,7 @@ WITH rate AS (
     FROM station_opportunity o
     LEFT JOIN station_daily d
            ON d.observer = o.observer AND d.day = o.day
-    WHERE o.day > current_date - %(window)s::integer
+    WHERE o.day > %(as_of)s::date - %(window)s::integer
     GROUP BY o.observer, o.day
 ), fleet AS (
     -- the whole network's rate that day: the denominator for "was it us?"
@@ -1581,17 +1581,17 @@ WITH rate AS (
 ), split AS (
     SELECT r.observer,
            avg(r.hit_rate) FILTER (
-             WHERE r.day > current_date - %(recent)s::integer)      AS recent_rate,
+             WHERE r.day > %(as_of)s::date - %(recent)s::integer)      AS recent_rate,
            avg(r.hit_rate) FILTER (
-             WHERE r.day <= current_date - %(recent)s::integer)     AS base_rate,
+             WHERE r.day <= %(as_of)s::date - %(recent)s::integer)     AS base_rate,
            count(*)        FILTER (
-             WHERE r.day <= current_date - %(recent)s::integer)     AS base_days,
+             WHERE r.day <= %(as_of)s::date - %(recent)s::integer)     AS base_days,
            avg(f.fleet_rate) FILTER (
-             WHERE r.day > current_date - %(recent)s::integer)      AS fleet_recent,
+             WHERE r.day > %(as_of)s::date - %(recent)s::integer)      AS fleet_recent,
            avg(f.fleet_rate) FILTER (
-             WHERE r.day <= current_date - %(recent)s::integer)     AS fleet_base,
+             WHERE r.day <= %(as_of)s::date - %(recent)s::integer)     AS fleet_base,
            sum(r.passes)   FILTER (
-             WHERE r.day > current_date - %(recent)s::integer)      AS recent_passes
+             WHERE r.day > %(as_of)s::date - %(recent)s::integer)      AS recent_passes
     FROM rate r JOIN fleet f ON f.day = r.day
     GROUP BY r.observer
 )
@@ -1613,14 +1613,21 @@ ORDER BY base_rate - recent_rate DESC
 
 
 @app.get("/v1/stations/health")
-def station_health():
+def station_health(as_of: str = ""):
     """Ground stations whose reception has collapsed against their own history.
 
     Open data: this is what a station operator wants to know and cannot easily
     find out — whether a silent antenna is theirs or the sky's.
     """
+    # `as_of` replays the detector against a past date. Without it the rule
+    # could only ever be argued about, never tested against a real failure —
+    # and the one failure we have precise ground truth for is our own
+    # 2026-08-20 outage (#350).
+    import datetime as _dt
     with cursor() as cur:
         cur.execute(STATION_HEALTH_SQL, {
+            "as_of": as_of or _dt.datetime.now(_dt.timezone.utc)
+                                 .date().isoformat(),
             "window": HEALTH_RECENT_DAYS + HEALTH_BASELINE_DAYS,
             "recent": HEALTH_RECENT_DAYS,
             "min_days": HEALTH_MIN_DAYS,
@@ -1631,6 +1638,7 @@ def station_health():
         cols = [c.name for c in cur.description]
         degraded = [dict(zip(cols, r)) for r in cur.fetchall()]
     return {"degraded": degraded,
+            "as_of": as_of or "today",
             "window": {"recent_days": HEALTH_RECENT_DAYS,
                        "baseline_days": HEALTH_BASELINE_DAYS},
             "note": ("A station is listed only when its own hit rate collapsed "
