@@ -1542,6 +1542,102 @@ class SatAdd(BaseModel):
 TRACK_CAP = int(os.environ.get("TRACK_CAP", "250"))
 
 
+# --- Station degradation (#348) --------------------------------------------
+# A station is degraded when its OWN hit rate collapses while the fleet's does
+# not. Both halves are load-bearing.
+#
+# Against itself, because an absolute rate says nothing: on 2026-08-25 Neumayer
+# ran 110/178 = 62% and SPUTNIX-Murmansk 0/163 = 0%, and the second is not a
+# fault — a station that never tracked our 23 satellites looks exactly like a
+# dead one. Only a station that used to hear us and stopped has degraded.
+#
+# Against the fleet, because when everything drops at once the fault is ours.
+# Our own 2026-08-20 outage took telemetry down for four days, so every
+# station's rate went to zero; without this clause the detector would have
+# accused all 360 of breaking simultaneously.
+HEALTH_RECENT_DAYS   = int(os.environ.get("HEALTH_RECENT_DAYS", 3))
+HEALTH_BASELINE_DAYS = int(os.environ.get("HEALTH_BASELINE_DAYS", 21))
+HEALTH_MIN_DAYS      = int(os.environ.get("HEALTH_MIN_DAYS", 7))
+HEALTH_MIN_BASELINE  = float(os.environ.get("HEALTH_MIN_BASELINE", 0.05))
+HEALTH_COLLAPSE      = float(os.environ.get("HEALTH_COLLAPSE", 0.25))
+HEALTH_FLEET_OK      = float(os.environ.get("HEALTH_FLEET_OK", 0.5))
+
+STATION_HEALTH_SQL = """
+WITH rate AS (
+    SELECT o.observer, o.day,
+           sum(o.passes)                       AS passes,
+           coalesce(max(d.frames), 0)          AS frames,
+           coalesce(max(d.frames), 0)::float
+             / nullif(sum(o.passes), 0)        AS hit_rate
+    FROM station_opportunity o
+    LEFT JOIN station_daily d
+           ON d.observer = o.observer AND d.day = o.day
+    WHERE o.day > current_date - %(window)s::integer
+    GROUP BY o.observer, o.day
+), fleet AS (
+    -- the whole network's rate that day: the denominator for "was it us?"
+    SELECT day, avg(hit_rate) AS fleet_rate
+    FROM rate WHERE hit_rate IS NOT NULL GROUP BY day
+), split AS (
+    SELECT r.observer,
+           avg(r.hit_rate) FILTER (
+             WHERE r.day > current_date - %(recent)s::integer)      AS recent_rate,
+           avg(r.hit_rate) FILTER (
+             WHERE r.day <= current_date - %(recent)s::integer)     AS base_rate,
+           count(*)        FILTER (
+             WHERE r.day <= current_date - %(recent)s::integer)     AS base_days,
+           avg(f.fleet_rate) FILTER (
+             WHERE r.day > current_date - %(recent)s::integer)      AS fleet_recent,
+           avg(f.fleet_rate) FILTER (
+             WHERE r.day <= current_date - %(recent)s::integer)     AS fleet_base,
+           sum(r.passes)   FILTER (
+             WHERE r.day > current_date - %(recent)s::integer)      AS recent_passes
+    FROM rate r JOIN fleet f ON f.day = r.day
+    GROUP BY r.observer
+)
+SELECT observer,
+       round(base_rate::numeric, 4)    AS baseline_rate,
+       round(recent_rate::numeric, 4)  AS recent_rate,
+       base_days, recent_passes,
+       round(fleet_base::numeric, 4)   AS fleet_baseline,
+       round(fleet_recent::numeric, 4) AS fleet_recent
+FROM split
+WHERE base_days >= %(min_days)s
+  AND base_rate >= %(min_base)s
+  AND recent_passes > 0
+  AND recent_rate <= base_rate * %(collapse)s
+  -- and only when the FLEET did not fall with it: otherwise this is ours
+  AND fleet_recent >= fleet_base * %(fleet_ok)s
+ORDER BY base_rate - recent_rate DESC
+"""
+
+
+@app.get("/v1/stations/health")
+def station_health():
+    """Ground stations whose reception has collapsed against their own history.
+
+    Open data: this is what a station operator wants to know and cannot easily
+    find out — whether a silent antenna is theirs or the sky's.
+    """
+    with cursor() as cur:
+        cur.execute(STATION_HEALTH_SQL, {
+            "window": HEALTH_RECENT_DAYS + HEALTH_BASELINE_DAYS,
+            "recent": HEALTH_RECENT_DAYS,
+            "min_days": HEALTH_MIN_DAYS,
+            "min_base": HEALTH_MIN_BASELINE,
+            "collapse": HEALTH_COLLAPSE,
+            "fleet_ok": HEALTH_FLEET_OK,
+        })
+        cols = [c.name for c in cur.description]
+        degraded = [dict(zip(cols, r)) for r in cur.fetchall()]
+    return {"degraded": degraded,
+            "window": {"recent_days": HEALTH_RECENT_DAYS,
+                       "baseline_days": HEALTH_BASELINE_DAYS},
+            "note": ("A station is listed only when its own hit rate collapsed "
+                     "while the fleet's held. If everything drops together the "
+                     "fault is ours, not the station's.")}
+
+
 @app.get("/v1/catalog/search")
 def catalog_search(q: str = Query("", max_length=60),
                    limit: int = Query(20, ge=1, le=50)):
