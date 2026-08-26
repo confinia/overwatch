@@ -155,6 +155,22 @@ ALTER TABLE catalog ADD COLUMN IF NOT EXISTS is_violator BOOLEAN NOT NULL DEFAUL
 -- is from). In the database rather than in memory because a restart loop must
 -- not be able to re-poll a once-a-day satellite on every boot.
 ALTER TABLE satellite ADD COLUMN IF NOT EXISTS last_telemetry_fetch timestamptz;
+-- One-time repair (#341). Before #312, six failed attempts set gave_up
+-- regardless of WHY they failed, so a provider outage was recorded as a
+-- permanent "not carried by CelesTrak or SatNOGS" — for every satellite,
+-- the ISS included. Nothing clears that flag, so those environments never
+-- fetch elements again: staging and sandbox sat frozen at the hour of the
+-- 2026-08-20 block while production, repaired by hand during the incident,
+-- looked fine.
+--
+-- attempts >= 6 identifies the legacy rows exactly: the current code sets
+-- gave_up only through an answered "not carried", which fires on the FIRST
+-- attempt. A row that reached six attempts and is flagged cannot have been
+-- written by it, so this is idempotent — it can never match a current row.
+--
+-- The lesson worth keeping: preventing bad state from being written does not
+-- repair state already written.
+DELETE FROM element_fetch WHERE gave_up AND attempts >= 6;
 CREATE TABLE IF NOT EXISTS tenant (
     key        uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     name       text NOT NULL,
