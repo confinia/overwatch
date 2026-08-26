@@ -459,3 +459,110 @@ def test_one_day_per_tick():
     fn = fn[:fn.index("\ndef ", 10)]
     assert "LIMIT 1" in fn and "ORDER BY d DESC" in fn, \
         "newest missing day first, one at a time"
+
+
+# ---------------------------------------------------------------------------
+# Station degradation detector (#348)
+# ---------------------------------------------------------------------------
+RECENT_OFFSETS = (1, 2)                 # inside `day > current_date - 3`
+BASE_OFFSETS = tuple(range(3, 21))      # 18 days of baseline, >= HEALTH_MIN_DAYS
+
+
+def _seed_station(cur, observer, base_rate, recent_rate, base=BASE_OFFSETS,
+                  recent=RECENT_OFFSETS, passes=100):
+    for offsets, rate in ((base, base_rate), (recent, recent_rate)):
+        for off in offsets:
+            cur.execute(
+                "INSERT INTO station_opportunity (observer, day, norad, passes,"
+                " best_max_el) VALUES (%s, current_date - %s::integer, 1, %s, 45)"
+                " ON CONFLICT (observer, day, norad) DO UPDATE SET passes=EXCLUDED.passes",
+                (observer, off, passes))
+            cur.execute(
+                "INSERT INTO station_daily (observer, day, frames,"
+                " satellites_heard) VALUES (%s, current_date - %s::integer, %s, 1)"
+                " ON CONFLICT (observer, day) DO UPDATE SET frames=EXCLUDED.frames",
+                (observer, off, int(round(passes * rate))))
+
+
+def _wipe_health(cur):
+    cur.execute("DELETE FROM station_opportunity WHERE observer LIKE 'HT-%'")
+    cur.execute("DELETE FROM station_daily WHERE observer LIKE 'HT-%'")
+
+
+def _degraded(cur):
+    cur.execute(main.STATION_HEALTH_SQL, {
+        "window": main.HEALTH_RECENT_DAYS + main.HEALTH_BASELINE_DAYS,
+        "recent": main.HEALTH_RECENT_DAYS,
+        "min_days": main.HEALTH_MIN_DAYS,
+        "min_base": main.HEALTH_MIN_BASELINE,
+        "collapse": main.HEALTH_COLLAPSE,
+        "fleet_ok": main.HEALTH_FLEET_OK,
+    })
+    return {r[0] for r in cur.fetchall()}
+
+
+def test_a_station_that_stops_hearing_while_the_fleet_does_not_is_flagged(db):
+    with db, db.cursor() as cur:
+        _wipe_health(cur)
+        for good in ("HT-GOOD-1", "HT-GOOD-2", "HT-GOOD-3"):
+            _seed_station(cur, good, 0.60, 0.60)
+        _seed_station(cur, "HT-BROKE", 0.60, 0.00)
+        found = _degraded(cur)
+        assert "HT-BROKE" in found, "a collapsed station was not flagged"
+        assert not any(o.startswith("HT-GOOD") for o in found), \
+            f"healthy stations flagged: {found}"
+        _wipe_health(cur)
+
+
+def test_our_own_outage_does_not_accuse_every_station(db):
+    """The 2026-08-20 block stopped telemetry for four days, so EVERY station's
+    hit rate went to zero. A detector without the fleet clause would have
+    reported 360 simultaneous antenna failures. This is the most valuable test
+    we have, and it needs no third-party data."""
+    with db, db.cursor() as cur:
+        _wipe_health(cur)
+        for obs in ("HT-A", "HT-B", "HT-C", "HT-D"):
+            _seed_station(cur, obs, 0.60, 0.00)     # all collapse together
+        found = _degraded(cur)
+        assert found == set(), \
+            f"blamed stations for our own outage: {found}"
+        _wipe_health(cur)
+
+
+def test_a_station_that_never_heard_us_is_not_a_failure(db):
+    """SPUTNIX-Murmansk ran 0/163 on 2026-08-25. That is not a fault: a station
+    which never tracked our 23 satellites is indistinguishable from a dead one
+    by absolute rate. Only a fall from its OWN history counts."""
+    with db, db.cursor() as cur:
+        _wipe_health(cur)
+        for good in ("HT-GOOD-1", "HT-GOOD-2"):
+            _seed_station(cur, good, 0.60, 0.60)
+        _seed_station(cur, "HT-ZERO", 0.00, 0.00)
+        found = _degraded(cur)
+        assert "HT-ZERO" not in found, "a never-listening station was flagged"
+        _wipe_health(cur)
+
+
+def test_a_station_without_enough_history_cannot_degrade(db):
+    """No baseline, no verdict — otherwise every new station is born broken."""
+    with db, db.cursor() as cur:
+        _wipe_health(cur)
+        for good in ("HT-GOOD-1", "HT-GOOD-2"):
+            _seed_station(cur, good, 0.60, 0.60)
+        _seed_station(cur, "HT-NEW", 0.60, 0.00, base=(3, 4))   # 2 days only
+        found = _degraded(cur)
+        assert "HT-NEW" not in found, "flagged a station with no baseline"
+        _wipe_health(cur)
+
+
+def test_a_mild_dip_is_not_a_collapse(db):
+    """One quiet spell is weather or maintenance. Only a collapse past the
+    threshold counts, or the alert becomes noise nobody reads."""
+    with db, db.cursor() as cur:
+        _wipe_health(cur)
+        for good in ("HT-GOOD-1", "HT-GOOD-2"):
+            _seed_station(cur, good, 0.60, 0.60)
+        _seed_station(cur, "HT-DIP", 0.60, 0.45)
+        found = _degraded(cur)
+        assert "HT-DIP" not in found, "a mild dip was reported as a collapse"
+        _wipe_health(cur)
