@@ -43,3 +43,49 @@ def test_header_links_to_account():
 def test_checkout_success_lands_on_account():
     src = open(MAIN, encoding="utf-8").read()
     assert "/w/account?upgraded=1" in src
+
+
+# ---------------------------------------------------------------------------
+# An organization is not the price of a first look (#345)
+# ---------------------------------------------------------------------------
+APP_JS = os.path.join(STATIC, "app.js")
+
+
+def test_org_creation_is_a_form_not_a_browser_prompt():
+    """window.prompt() is suppressed by several mobile browsers and embedded
+    webviews — the kind a forum link opens. It returned null, the handler
+    returned silently, and the button did nothing, with no request to log. The
+    access log for our first real signup showed zero POST /v1/orgs: nobody
+    ever reached org creation."""
+    html = open(ACCOUNT, encoding="utf-8").read()
+    fn = html[html.index("async function createOrg("):]
+    fn = fn[:fn.index("\nasync function", 10)]
+    # code only — the comment explaining what this replaced names prompt(),
+    # and a guard that trips on its own documentation is a guard nobody keeps
+    code = "\n".join(l.split("//", 1)[0] for l in fn.splitlines())
+    assert "prompt(" not in code, "org creation still asks via window.prompt()"
+    assert 'id="org-name"' in html and "<form" in html, \
+        "there must be a real form field, which is visible when it fails"
+    assert 'onsubmit="return createOrg(event)"' in html
+
+
+def test_the_control_room_does_not_push_an_organization():
+    """The fleet, ground stations and passes are open data. Presenting an
+    organization as the next step after signing in put our data model in front
+    of the product."""
+    js = open(APP_JS, encoding="utf-8").read()
+    assert "createOrg" not in js, \
+        "the globe header still sells an organization to a signed-in visitor"
+
+
+def test_the_account_page_says_an_organization_is_optional():
+    html = open(ACCOUNT, encoding="utf-8").read()
+    assert "do not need an" in html and "open data" in html, \
+        "a signed-in visitor must be told an organization is not required"
+
+
+def test_creating_one_explains_the_re_login():
+    """Being bounced to a login screen straight after signing up reads as the
+    signup having failed."""
+    html = open(ACCOUNT, encoding="utf-8").read()
+    assert "Signing you in again so it takes effect" in html

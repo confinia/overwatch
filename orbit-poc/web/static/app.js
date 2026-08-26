@@ -129,9 +129,12 @@ async function loadAccount(){
                   sats: Object.entries(by).map(([sat, f]) => ({ satellite: sat, fields: f })) };
       showOpen = localStorage.getItem("ovw_showOpen") === "1";   // default: private only
     } else {
+      // No organization needed to look around — the fleet, stations and passes
+      // are open data. Pushing an org on someone who just signed in put our
+      // data model in front of the product; the account page offers it where
+      // it actually means something (#345).
       el.innerHTML = ` · ${me.email || "signed in"} — ` +
-        `<a class="action" href="#" onclick="createOrg();return false">Create your organization</a> · ` +
-        `<a href="/w/account" style="color:var(--dim)">account</a> · ` +
+        `<a class="action" href="/w/account">account</a> · ` +
         `<a href="#" onclick="signOut();return false" style="color:var(--dim)">sign out</a>`;
       orgInfo = null;
     }
@@ -179,16 +182,6 @@ async function deleteOrg(id, name){
   const r = await fetch(`${API_BASE}/api/v1/orgs/${id}`, { method: "DELETE" });
   if (r.ok) { alert("Organization deleted."); location.href = `${API_BASE}/api/v1/auth/logout`; }
   else alert((await r.json().catch(()=>({}))).detail || "Could not delete the organization.");
-}
-async function createOrg(){
-  const name = prompt("Organization name:");
-  if (!name) return;
-  const r = await fetch(`${API_BASE}/api/v1/orgs`, { method: "POST",
-    headers: { "content-type": "application/json" }, body: JSON.stringify({ name }) });
-  const d = await r.json().catch(() => ({}));
-  if (r.ok) { alert("Organization created — signing in again to activate it.");
-              location.href = `${API_BASE}/api/v1/auth/login`; }
-  else alert(d.detail || "Could not create the organization.");
 }
 function selectOrgSat(s){
   // Private org satellite: keep the selection in the URL as #org:<name> so the
