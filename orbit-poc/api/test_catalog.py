@@ -684,3 +684,43 @@ def test_catalogue_status_is_not_confused_with_link_status():
     fn = js[js.index("async function renderCatalog("):]
     fn = fn[:fn.index("\n}", 10)]
     assert "catalogue:" in fn, "the picker must name which kind of status it shows"
+
+
+# ---------------------------------------------------------------------------
+# The station API the mobile app stands on (#363)
+# ---------------------------------------------------------------------------
+def test_the_health_route_is_registered_before_the_callsign_route():
+    """FastAPI matches in registration order. /{callsign} was registered first,
+    so GET /v1/stations/health returned "No receptions by 'health'" — the
+    detector endpoint was NEVER reachable over HTTP, and nothing noticed
+    because its validation ran the SQL directly."""
+    src = open(os.path.join(os.path.dirname(__file__), "main.py"),
+               encoding="utf-8").read()
+    assert src.index('@app.get("/v1/stations/health")') \
+         < src.index('@app.get("/v1/stations/{callsign}")'), \
+        "the literal route must be registered before the parameter route"
+
+
+def test_per_station_health_returns_days_and_a_caveat(db):
+    # seed and COMMIT first: the endpoint reads through its own pool
+    # connection and cannot see this transaction's uncommitted rows
+    with db, db.cursor() as cur:
+        _wipe_health(cur)
+        _seed_station(cur, "HT-MOB-JN97", 0.60, 0.60)
+    out = main.station_health_one("HT-MOB-JN97")
+    with db, db.cursor() as cur:
+        assert out["observer"] == "HT-MOB-JN97"
+        assert out["days"] and all("hit_rate" in d for d in out["days"])
+        # the satellite-centric blindfold must be stated to the caller, not
+        # discovered by them: a low absolute rate is not a verdict
+        assert "own baseline" in out["note"]
+        _wipe_health(cur)
+        return
+
+
+def test_per_station_health_404s_an_unknown_callsign(db):
+    import pytest as _pt
+    from fastapi import HTTPException as _He
+    with db:
+        with _pt.raises(_He):
+            main.station_health_one("HT-NOSUCH-XX00")

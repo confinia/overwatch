@@ -694,6 +694,89 @@ def stations_list():
                 for o, la, lo, f, s, t in cur.fetchall()]
 
 
+@app.get("/v1/stations/health")
+def station_health(as_of: str = ""):
+    """Ground stations whose reception has collapsed against their own history.
+
+    Open data: this is what a station operator wants to know and cannot easily
+    find out — whether a silent antenna is theirs or the sky's.
+    """
+    # `as_of` replays the detector against a past date. Without it the rule
+    # could only ever be argued about, never tested against a real failure —
+    # and the one failure we have precise ground truth for is our own
+    # 2026-08-20 outage (#350).
+    import datetime as _dt
+    with cursor() as cur:
+        cur.execute(STATION_HEALTH_SQL, {
+            "as_of": as_of or _dt.datetime.now(_dt.timezone.utc)
+                                 .date().isoformat(),
+            "window": HEALTH_RECENT_DAYS + HEALTH_BASELINE_DAYS,
+            "recent": HEALTH_RECENT_DAYS,
+            "min_days": HEALTH_MIN_DAYS,
+            "min_base": HEALTH_MIN_BASELINE,
+            "collapse": HEALTH_COLLAPSE,
+            "fleet_ok": HEALTH_FLEET_OK,
+        })
+        cols = [c.name for c in cur.description]
+        degraded = [dict(zip(cols, r)) for r in cur.fetchall()]
+    return {"degraded": degraded,
+            "as_of": as_of or "today",
+            "window": {"recent_days": HEALTH_RECENT_DAYS,
+                       "baseline_days": HEALTH_BASELINE_DAYS},
+            "note": ("A station is listed only when its own hit rate collapsed "
+                     "while the fleet's held. If everything drops together the "
+                     "fault is ours, not the station's.")}
+
+
+@app.get("/v1/stations/{callsign}/health")
+def station_health_one(callsign: str):
+    """One station's own health: daily hit rate, baseline vs recent, and next
+    passes. The question a station operator actually has is "is MY station
+    okay" — the fleet-wide degraded list cannot answer it for a healthy
+    station (#363). Open data, like everything station-facing."""
+    with cursor() as cur:
+        # Resolve the callsign to the busiest matching observer, same match
+        # rule as the receptions route below.
+        cur.execute("""SELECT observer FROM station_daily
+                       WHERE split_part(observer, '-', 1) ILIKE %s
+                          OR observer = %s
+                       GROUP BY observer ORDER BY sum(frames) DESC LIMIT 1""",
+                    (callsign, callsign))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, f"No station matching '{callsign}' in the "
+                                     "history (tracked fleet only).")
+        observer = row[0]
+        cur.execute("""
+            SELECT o.day, coalesce(max(d.frames), 0) AS frames,
+                   sum(o.passes) AS passes
+            FROM station_opportunity o
+            LEFT JOIN station_daily d
+                   ON d.observer = o.observer AND d.day = o.day
+            WHERE o.observer = %s AND o.day > current_date - 30
+            GROUP BY o.day ORDER BY o.day""", (observer,))
+        days = [{"day": d.isoformat(), "frames": f, "passes": p,
+                 "hit_rate": round(f / p, 4) if p else None}
+                for d, f, p in cur.fetchall()]
+        cur.execute("""SELECT p.norad, s.name, p.aos, p.los, p.max_el_deg
+                       FROM pass p JOIN satellite s USING (norad)
+                       WHERE p.observer = %s AND p.aos > now()
+                       ORDER BY p.aos LIMIT 10""", (observer,))
+        nxt = [{"norad": n, "satellite": nm, "aos": a.isoformat(),
+                "los": l.isoformat(), "max_el_deg": e}
+               for n, nm, a, l, e in cur.fetchall()]
+    rated = [d["hit_rate"] for d in days if d["hit_rate"] is not None]
+    recent = rated[-3:] if rated else []
+    base = rated[:-3] if len(rated) > 3 else []
+    return {"observer": observer, "days": days, "next_passes": nxt,
+            "recent_rate": round(sum(recent) / len(recent), 4) if recent else None,
+            "baseline_rate": round(sum(base) / len(base), 4) if base else None,
+            "note": ("hit_rate = frames heard / passes geometrically available. "
+                     "We see this station only through the satellites we track, "
+                     "so a low absolute rate is not a verdict — compare against "
+                     "the station's own baseline.")}
+
+
 @app.get("/v1/stations/{callsign}")
 def station_receptions(callsign: str):
     """One station's receptions across the fleet (7 days). The callsign
@@ -1628,40 +1711,6 @@ WHERE base_days >= %(min_days)s
   AND fleet_recent >= fleet_base * %(fleet_ok)s
 ORDER BY base_rate - recent_rate DESC
 """
-
-
-@app.get("/v1/stations/health")
-def station_health(as_of: str = ""):
-    """Ground stations whose reception has collapsed against their own history.
-
-    Open data: this is what a station operator wants to know and cannot easily
-    find out — whether a silent antenna is theirs or the sky's.
-    """
-    # `as_of` replays the detector against a past date. Without it the rule
-    # could only ever be argued about, never tested against a real failure —
-    # and the one failure we have precise ground truth for is our own
-    # 2026-08-20 outage (#350).
-    import datetime as _dt
-    with cursor() as cur:
-        cur.execute(STATION_HEALTH_SQL, {
-            "as_of": as_of or _dt.datetime.now(_dt.timezone.utc)
-                                 .date().isoformat(),
-            "window": HEALTH_RECENT_DAYS + HEALTH_BASELINE_DAYS,
-            "recent": HEALTH_RECENT_DAYS,
-            "min_days": HEALTH_MIN_DAYS,
-            "min_base": HEALTH_MIN_BASELINE,
-            "collapse": HEALTH_COLLAPSE,
-            "fleet_ok": HEALTH_FLEET_OK,
-        })
-        cols = [c.name for c in cur.description]
-        degraded = [dict(zip(cols, r)) for r in cur.fetchall()]
-    return {"degraded": degraded,
-            "as_of": as_of or "today",
-            "window": {"recent_days": HEALTH_RECENT_DAYS,
-                       "baseline_days": HEALTH_BASELINE_DAYS},
-            "note": ("A station is listed only when its own hit rate collapsed "
-                     "while the fleet's held. If everything drops together the "
-                     "fault is ours, not the station's.")}
 
 
 @app.get("/v1/catalog/search")
