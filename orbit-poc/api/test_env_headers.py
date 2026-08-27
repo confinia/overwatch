@@ -55,3 +55,21 @@ def test_single_instance_environments_claim_no_colour():   # #323
     for f in (STAGING_CADDY, SANDBOX_CADDY):
         assert "X-Active-Colour" not in open(f).read(), \
             f"{f} is not blue/green and must not claim a colour"
+
+
+def test_the_proxy_adds_no_cors_header_of_its_own():   # #365
+    """The api's CORSMiddleware already answers Access-Control-Allow-Origin.
+    A second copy added at the proxy is not merged by browsers — it makes the
+    whole response FAIL the CORS check, which broke the mobile app in exactly
+    the cross-origin case it exists for. One owner for that header: the api."""
+    body = open(TMPL, encoding="utf-8").read()
+    code = "\n".join(l.split("#", 1)[0] for l in body.splitlines())
+    # Only the handlers that proxy to the API: the /api/* -> web handler sets
+    # a CORS header legitimately, because the static web upstream sends none.
+    import re as _re
+    api_blocks = _re.findall(r"handle /api/v1\*.*?\n\t\}", code, _re.S)
+    assert len(api_blocks) >= 2, "expected the api handler on both hostnames"
+    for block in api_blocks:
+        assert "Access-Control-Allow-Origin" not in block, \
+            "the api handler sets CORS at the proxy — the api already does, " \
+            "and duplicate ACAO makes browsers reject the response"
