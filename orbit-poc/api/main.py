@@ -765,10 +765,28 @@ def station_health_one(callsign: str):
         nxt = [{"norad": n, "satellite": nm, "aos": a.isoformat(),
                 "los": l.isoformat(), "max_el_deg": e}
                for n, nm, a, l, e in cur.fetchall()]
+        # Past passes WITH what came down during each (#366): the per-pass
+        # version of "was it me, or was it quiet?". frames counts receptions
+        # inside the window, padded 2 minutes each side — stations decode a
+        # little outside the 10-degree geometry, and a pass that heard
+        # something must never show 0 on a boundary rounding.
+        cur.execute("""
+            SELECT p.norad, s.name, p.aos, p.los, p.max_el_deg,
+                   (SELECT count(*) FROM reception r
+                     WHERE r.observer = p.observer AND r.norad = p.norad
+                       AND r.ts BETWEEN p.aos - interval '2 minutes'
+                                    AND p.los + interval '2 minutes') AS frames
+            FROM pass p JOIN satellite s USING (norad)
+            WHERE p.observer = %s AND p.los < now()
+            ORDER BY p.aos DESC LIMIT 10""", (observer,))
+        past = [{"norad": n, "satellite": nm, "aos": a.isoformat(),
+                 "los": l.isoformat(), "max_el_deg": e, "frames": f}
+                for n, nm, a, l, e, f in cur.fetchall()]
     rated = [d["hit_rate"] for d in days if d["hit_rate"] is not None]
     recent = rated[-3:] if rated else []
     base = rated[:-3] if len(rated) > 3 else []
     return {"observer": observer, "days": days, "next_passes": nxt,
+            "past_passes": past,
             "recent_rate": round(sum(recent) / len(recent), 4) if recent else None,
             "baseline_rate": round(sum(base) / len(base), 4) if base else None,
             "note": ("hit_rate = frames heard / passes geometrically available. "
