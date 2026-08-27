@@ -101,6 +101,13 @@
   .sat.active { background:#0e1a2e; box-shadow: inset 3px 0 0 var(--accent); }
   .sat .row { display:flex; justify-content:space-between; align-items:baseline; }
   .sat .name { font-size:13px; font-weight:600; }
+  /* #302: in the open-network picker, a satellite whose CATALOGUE status is
+     not "alive" is dimmed — adding one gives a dot that never moves and no
+     telemetry, which reads as a broken app rather than a dead satellite. It
+     stays selectable: someone may legitimately want a re-entered object's
+     last known orbit. Uses the existing --dim token, not a new colour. */
+  .sat.inactive .name, .sat.inactive .meta { color:var(--dim); }
+  .sat.inactive .link { color:var(--dim); }
   /* #221: favourite (★) toggle on each fleet row (signed-in only). */
   .fav { cursor:pointer; color:var(--dim); font-size:14px; line-height:1; padding:0 2px; flex:0 0 auto; }
   .fav:hover, .fav.on { color:#ffd54a; }

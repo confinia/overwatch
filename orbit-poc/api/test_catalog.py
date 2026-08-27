@@ -638,3 +638,49 @@ def test_startup_does_not_prime_elements_it_already_has():   # #352
     prime = body[body.index("have_elements"):]
     assert "fetch_elements()" in prime.split("threading.Thread")[0], \
         "the prime must sit inside the empty-database guard"
+
+
+# ---------------------------------------------------------------------------
+# Dead satellites must read as dead in the picker (#302)
+# ---------------------------------------------------------------------------
+WEB = os.path.join(os.path.dirname(__file__), "..", "web", "static")
+
+
+def test_a_non_alive_catalogue_entry_is_dimmed():
+    """The picker is the first thing an anonymous visitor touches. Adding a
+    dead object gives a dot that never moves and no telemetry — which reads as
+    a broken app, not a dead satellite."""
+    js = open(os.path.join(WEB, "app.js"), encoding="utf-8").read()
+    fn = js[js.index("async function renderCatalog("):]
+    fn = fn[:fn.index("\n}", 10)]
+    assert '"alive"' in fn, "the catalogue status is still ignored"
+    assert '"sat inactive"' in fn and '"sat"' in fn, \
+        "alive and non-alive rows must not render identically"
+
+
+def test_dead_entries_stay_selectable():
+    """Someone may legitimately want a re-entered object's last known orbit.
+    Dim it, do not disable it."""
+    js = open(os.path.join(WEB, "app.js"), encoding="utf-8").read()
+    fn = js[js.index("async function renderCatalog("):]
+    fn = fn[:fn.index("\n}", 10)]
+    assert "disabled" not in fn, "a dimmed row must still be addable"
+    assert "trackSat(" in fn
+
+
+def test_the_dimming_uses_an_existing_colour_token():
+    """A new colour for one state is how a palette rots."""
+    html = open(os.path.join(WEB, "index.html"), encoding="utf-8").read()
+    rule = html[html.index(".sat.inactive"):]
+    rule = rule[:rule.index("}") + 1]
+    assert "var(--dim)" in rule, "use the existing --dim token, not a new colour"
+
+
+def test_catalogue_status_is_not_confused_with_link_status():
+    """The fleet list colours dots by LINK recency; this is CATALOGUE status.
+    Two different notions of alive sharing one word must not read as one
+    scale, so the picker says which one it means."""
+    js = open(os.path.join(WEB, "app.js"), encoding="utf-8").read()
+    fn = js[js.index("async function renderCatalog("):]
+    fn = fn[:fn.index("\n}", 10)]
+    assert "catalogue:" in fn, "the picker must name which kind of status it shows"
