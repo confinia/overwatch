@@ -465,12 +465,21 @@ async function renderCatalog(q, list){
   list.appendChild(hdr);
   for (const h of fresh){
     const div = document.createElement("div");
-    div.className = "sat";
+    // Grey means the CATALOGUE says it is not alive (dead / re-entered /
+    // future). Adding one gives a dot that never moves and no telemetry —
+    // indistinguishable from a broken app for the first satellite a visitor
+    // picks. Still selectable: a re-entered object's last known orbit is a
+    // legitimate thing to want (#302).
+    const alive = (h.status || "").toLowerCase() === "alive";
+    div.className = alive ? "sat" : "sat inactive";
     const kind = h.telemetry ? "telemetry + position" : "position only";
+    // "catalogue:" prefix on purpose. The fleet list above colours dots by
+    // LINK recency (green/orange/red); this is a different notion of alive,
+    // and the two must not read as one scale.
     div.innerHTML =
       `<div class="row"><span class="name">${h.name}</span>` +
       `<button class="link" onclick="event.stopPropagation();trackSat(${h.norad},this)">+ add</button></div>` +
-      `<div class="meta">NORAD ${h.norad} · ${h.status || "unknown"} · ${kind}</div>`;
+      `<div class="meta">NORAD ${h.norad} · catalogue: ${h.status || "unknown"} · ${kind}</div>`;
     list.appendChild(div);
   }
 }
