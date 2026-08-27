@@ -15,6 +15,8 @@ import sys
 import psycopg2
 import pytest
 
+from conftest import require_test_db
+
 sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "db"))
 import main  # noqa: E402
@@ -27,6 +29,7 @@ APP_PW = "test-app-role-pw"
 
 @pytest.fixture(scope="module")
 def app_conn():
+    require_test_db()
     os.environ["GRAFANA_DB_PASSWORD"] = "test-grafana-ro-pw"
     su = psycopg2.connect(DSN)
     su.autocommit = True

@@ -31,6 +31,7 @@ OUT=$(podman run --rm --network "$NET" \
   -e "DB_DSN=dbname=orbit user=orbit password=orbit host=$PG port=5432" \
   -e "POLAR_ACCESS_TOKEN=$POLAR_TOKEN" \
   -e "ORG_DB_SECRET=ci-org-db-secret" \
+  -e "OVERWATCH_TEST_DB=1" \
   -v "$PWD:/repo:ro" \
   docker.io/library/python:3.12-slim bash -c '
 set -e
