@@ -50,9 +50,9 @@
       "uid": "provider-refused",
       "title": "A data provider refused us",
       "group": "providers",
-      "_sql_comment": "CelesTrak asks callers to stop AND report to a human on any non-200. We stop (#304/#314); this is the reporting half. Returns `value` and nothing else, so the alert identity cannot churn (#352). Which provider and why are in provider_refusal and the ingest log \u2014 detail belongs there, not in the label set.",
-      "sql": "SELECT 1 AS value FROM provider_refusal HAVING max(ts) > now() - interval '60 minutes'",
-      "summary": "A data provider returned 403/429 or became unreachable in the last hour. We have stopped querying it. Check provider_refusal and the ingest log before anything resumes \u2014 ignoring these is what put us in CelesTrak's firewall."
+      "_sql_comment": "Fires on the ONSET of a refusal, not its persistence: a source that refused us in the last hour and had NOT refused us in the preceding day. CelesTrak's ask is to report the problem to a human for investigation, and investigation happens once \u2014 after that the human knows, and repeating it is how an alert becomes wallpaper (#361). Evaluated PER SOURCE so a new SatNOGS refusal is never masked by an ongoing CelesTrak one; that masking would be far worse than the noise it replaces. Sustained damage is covered separately by elements-stale. Returns `value` and nothing else, so the alert identity cannot churn (#352).",
+      "sql": "SELECT 1 AS value FROM (SELECT source FROM provider_refusal GROUP BY source HAVING max(ts) > now() - interval '60 minutes' AND count(*) FILTER (WHERE ts <= now() - interval '60 minutes' AND ts > now() - interval '25 hours') = 0) q HAVING count(*) > 0",
+      "summary": "A data provider has started refusing us \u2014 403/429 or unreachable \u2014 and we have stopped querying it. Check provider_refusal and the ingest log. Ignoring these is what put us in CelesTrak's firewall."
     }
   ]
 }
