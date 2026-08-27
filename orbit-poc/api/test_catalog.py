@@ -752,3 +752,34 @@ def test_past_passes_carry_what_was_heard(db):   # #366
         cur.execute("DELETE FROM reception WHERE observer = 'HT-PASS-JN97'")
         cur.execute("DELETE FROM satellite WHERE norad = 999001")
         _wipe_health(cur)
+
+
+def test_a_pass_can_be_inspected_frame_by_frame(db):   # #368
+    """WHERE the frames sit in the window is the diagnostic: only around max
+    elevation = horizon problem, across the whole window = healthy chain."""
+    with db, db.cursor() as cur:
+        _wipe_health(cur)
+        _seed_station(cur, "HT-DET-JN97", 0.6, 0.6)
+        cur.execute("INSERT INTO satellite (norad, name, has_telemetry) VALUES "
+                    "(999001, 'DET TEST', false) ON CONFLICT (norad) DO NOTHING")
+        cur.execute("DELETE FROM pass WHERE observer = 'HT-DET-JN97'")
+        cur.execute("INSERT INTO pass (observer, norad, aos, los, max_el_deg) "
+                    "VALUES ('HT-DET-JN97', 999001, now() - interval '3 hours', "
+                    "now() - interval '170 minutes', 45)")
+        cur.execute("INSERT INTO reception (norad, ts, observer, lat, lon) "
+                    "VALUES (999001, now() - interval '175 minutes', 'HT-DET-JN97', 0, 0)")
+        # one decoded field riding on that exact frame timestamp
+        cur.execute("INSERT INTO telemetry (norad, ts, field, value_num) "
+                    "SELECT 999001, ts, 'battery_v', 7.4 FROM reception "
+                    "WHERE observer = 'HT-DET-JN97' LIMIT 1")
+    out = main.station_pass_detail("HT-DET-JN97", 999001,
+                                   out_aos := main.station_health_one("HT-DET-JN97")
+                                   ["past_passes"][0]["aos"])
+    assert out["satellite"] == "DET TEST" and out["duration_s"] == 600
+    assert len(out["frames"]) == 1 and out["frames"][0]["fields"] == 1, \
+        "the frame must carry how many fields it decoded into"
+    with db, db.cursor() as cur:
+        for t in ("pass", "reception", "telemetry"):
+            cur.execute(f"DELETE FROM {t} WHERE norad = 999001")
+        cur.execute("DELETE FROM satellite WHERE norad = 999001")
+        _wipe_health(cur)
