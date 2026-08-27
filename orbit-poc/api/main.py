@@ -801,6 +801,16 @@ def station_pass_detail(callsign: str, norad: int, aos: str):
     how many telemetry fields each decoded into. WHERE the frames sit in the
     window is the diagnostic part — hearing only around max elevation is a
     horizon problem; frames across the whole window is a healthy chain."""
+    # "+00:00" arrives as " 00:00" from any client that does not percent-
+    # encode the plus — query-string decoding turns + into a space, Swift's
+    # URLComponents leaves + literal, and the bare curl in the docs does too.
+    # Undo it rather than 500 on the cast (#369); a malformed rest is a 400.
+    aos = aos.replace(" ", "+")
+    try:
+        from datetime import datetime as _dtv
+        _dtv.fromisoformat(aos)
+    except ValueError:
+        raise HTTPException(400, f"aos is not an ISO timestamp: {aos!r}")
     with cursor() as cur:
         cur.execute("""SELECT observer FROM station_daily
                        WHERE split_part(observer, '-', 1) ILIKE %s

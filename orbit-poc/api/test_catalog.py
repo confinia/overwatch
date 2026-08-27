@@ -783,3 +783,32 @@ def test_a_pass_can_be_inspected_frame_by_frame(db):   # #368
             cur.execute(f"DELETE FROM {t} WHERE norad = 999001")
         cur.execute("DELETE FROM satellite WHERE norad = 999001")
         _wipe_health(cur)
+
+
+def test_pass_detail_survives_an_unencoded_plus(db):   # #369
+    """+00:00 arrives as " 00:00" from any client that does not percent-encode
+    the plus: query decoding maps + to space, Swift URLComponents leaves +
+    literal, and a bare curl does too. The first live request 500d on the
+    timestamp cast. A truly malformed aos is a 400, never a 500."""
+    import pytest as _pt
+    from fastapi import HTTPException as _He
+    with db, db.cursor() as cur:
+        _wipe_health(cur)
+        _seed_station(cur, "HT-ENC-JN97", 0.6, 0.6)
+        cur.execute("INSERT INTO satellite (norad, name, has_telemetry) VALUES "
+                    "(999001, 'ENC TEST', false) ON CONFLICT (norad) DO NOTHING")
+        cur.execute("DELETE FROM pass WHERE observer = 'HT-ENC-JN97'")
+        cur.execute("INSERT INTO pass (observer, norad, aos, los, max_el_deg) "
+                    "VALUES ('HT-ENC-JN97', 999001, now() - interval '3 hours', "
+                    "now() - interval '170 minutes', 45)")
+    aos = main.station_health_one("HT-ENC-JN97")["past_passes"][0]["aos"]
+    assert "+" in aos, "the fixture must exercise the offset form"
+    out = main.station_pass_detail("HT-ENC-JN97", 999001, aos.replace("+", " "))
+    assert out["satellite"] == "ENC TEST"
+    with _pt.raises(_He) as e:
+        main.station_pass_detail("HT-ENC-JN97", 999001, "not-a-time")
+    assert e.value.status_code == 400, "malformed aos must be a 400, not a 500"
+    with db, db.cursor() as cur:
+        cur.execute("DELETE FROM pass WHERE observer = 'HT-ENC-JN97'")
+        cur.execute("DELETE FROM satellite WHERE norad = 999001")
+        _wipe_health(cur)
