@@ -724,3 +724,31 @@ def test_per_station_health_404s_an_unknown_callsign(db):
     with db:
         with _pt.raises(_He):
             main.station_health_one("HT-NOSUCH-XX00")
+
+
+def test_past_passes_carry_what_was_heard(db):   # #366
+    """The per-pass version of the product question: three frames during
+    yesterday's pass means the station worked; zero means it did not hear
+    THAT pass — far more actionable than a daily aggregate."""
+    with db, db.cursor() as cur:
+        _wipe_health(cur)
+        _seed_station(cur, "HT-PASS-JN97", 0.6, 0.6)
+        cur.execute("INSERT INTO satellite (norad, name, has_telemetry) VALUES "
+                    "(999001, 'PASS TEST', false) ON CONFLICT (norad) DO NOTHING")
+        cur.execute("DELETE FROM pass WHERE observer = 'HT-PASS-JN97'")
+        cur.execute("INSERT INTO pass (observer, norad, aos, los, max_el_deg) VALUES "
+                    "('HT-PASS-JN97', 999001, now() - interval '3 hours', "
+                    " now() - interval '170 minutes', 45)")
+        for m in (175, 173, 171):    # inside the padded window
+            cur.execute("INSERT INTO reception (norad, ts, observer, lat, lon) "
+                        "VALUES (999001, now() - %s * interval '1 minute', "
+                        "'HT-PASS-JN97', 0, 0)", (m,))
+    out = main.station_health_one("HT-PASS-JN97")
+    assert out["past_passes"], "a completed pass must appear"
+    assert out["past_passes"][0]["frames"] == 3, \
+        "the frames decoded during the pass must ride along"
+    with db, db.cursor() as cur:
+        cur.execute("DELETE FROM pass WHERE observer = 'HT-PASS-JN97'")
+        cur.execute("DELETE FROM reception WHERE observer = 'HT-PASS-JN97'")
+        cur.execute("DELETE FROM satellite WHERE norad = 999001")
+        _wipe_health(cur)
