@@ -32,9 +32,9 @@ def test_bulk_is_the_primary_path():
     assert "_refresh_bulk_tles" in INGEST
     lookup = INGEST[INGEST.index("def _tle_for("):INGEST.index("def _tle_for(") + 900]
     body = _code(lookup)
-    # the cache is consulted BEFORE any per-object call
-    assert body.index("_refresh_bulk_tles()") < body.index("_tle_from_celestrak"), \
-        "per-object lookup must come after the bulk cache, not before"
+    # the bulk cache is the FIRST thing consulted; there is no per-object
+    # CelesTrak path left to come after it (#357)
+    assert "_refresh_bulk_tles()" in body
 
 
 def test_per_object_lookups_are_backed_off_and_can_give_up():
@@ -61,11 +61,15 @@ def test_a_refusal_silences_us_rather_than_provoking_a_ban():
     assert "403, 429" in INGEST or "(403, 429)" in INGEST
     fn = INGEST[INGEST.index("def _tle_for("):]
     fn = _code(fn[:fn.index("\ndef ", 10)])
-    # both providers are consulted only when not cooling down
-    for provider in ("celestrak", "satnogs"):
-        guard = next(l for l in fn.splitlines()
-                     if f'_cooling("{provider}")' in l and l.strip().startswith("if "))
-        assert "not " in guard, f"{provider} is asked even while cooling down"
+    # SatNOGS is the only per-object source left (#357); it is asked only when
+    # not cooling down. CelesTrak is still cooled in the BULK path.
+    guard = next(l for l in fn.splitlines()
+                 if '_cooling("satnogs")' in l and l.strip().startswith("if "))
+    assert "not " in guard, "satnogs is asked even while cooling down"
+    bulk = _code(INGEST[INGEST.index("def _refresh_bulk_tles("):])
+    bulk = bulk[:bulk.index("\ndef ", 10)]
+    assert '_cooling("celestrak")' in bulk and '_cool("celestrak"' in bulk, \
+        "the bulk path must still stop when CelesTrak refuses or vanishes"
 
 
 def test_the_fill_loop_is_not_a_poller():
@@ -121,7 +125,7 @@ def test_no_unbounded_per_object_loop_remains():
     start = code.index("def _tle_for(")
     end = code.find("\ndef ", start + 1)
     guarded = range(start, end if end != -1 else len(code))
-    for fname in ("_tle_from_celestrak", "_tle_from_satnogs"):
+    for fname in ("_tle_from_satnogs",):
         i = code.find(fname + "(")
         while i != -1:
             if not code[:i].rstrip().endswith("def"):     # skip the definition
@@ -154,6 +158,14 @@ def _lift(*names, **stubs):
     return ns
 
 
+class _Log:
+    """Stand-in logger for lifted functions (the module cannot be imported)."""
+    def debug(self, *a, **k): pass
+    def warning(self, *a, **k): pass
+    def info(self, *a, **k): pass
+    def exception(self, *a, **k): pass
+
+
 class _Resp:
     def __init__(self, status=200, text="", payload=None):
         self.status_code, self.text, self._payload = status, text, payload
@@ -167,57 +179,43 @@ class _Resp:
             raise RuntimeError("HTTP %d" % self.status_code)
 
 
-def _celestrak(resp, cooled=None):
-    """_tle_from_celestrak wired to one canned response."""
-    cooled = [] if cooled is None else cooled
-
-    class _Req:
-        @staticmethod
-        def get(*a, **k):
-            if isinstance(resp, Exception):
-                raise resp
-            return resp
-    return _lift("_tle_from_celestrak",
-                 requests=_Req, log=_Log(), UA={}, CELESTRAK_BASE="x",
-                 CELESTRAK_ONE_TIMEOUT=8,
-                 _cool=lambda *a, **k: cooled.append(a[0]))
+def test_no_per_object_celestrak_request_exists():   # #357
+    """CelesTrak's log: 1,418 gp.php?CATNR= queries in a day, which is what put
+    us in their firewall. Their reply was blunt — "You really shouldn't need to
+    make all of those CATNR requests" — and they are right: GROUP=satnogs is
+    ~1400 objects in ONE request. The fallback is not backed off any more, it
+    is gone."""
+    code = _code(INGEST)
+    assert "CATNR" not in code, "a per-object CelesTrak request survives"
+    assert "_tle_from_celestrak" not in code, "the per-object helper survives"
 
 
-class _Log:
-    def debug(self, *a, **k): pass
-    def warning(self, *a, **k): pass
-    def info(self, *a, **k): pass
+def test_we_ask_celestrak_for_the_set_built_for_us():   # #357
+    groups = INGEST.split('CELESTRAK_GROUPS", "')[1].split('"')[0]
+    lookup = INGEST.split('CELESTRAK_LOOKUP_GROUPS", "')[1].split('"')[0]
+    assert groups == "satnogs" and lookup == "satnogs", \
+        f"fetching {groups!r}/{lookup!r} instead of the satnogs set"
 
 
-def test_celestrak_404_is_absence_not_failure():
-    ns = _celestrak(_Resp(404))
-    assert ns["_tle_from_celestrak"](99999) == (None, True)
+def test_our_user_agent_names_a_reachable_human():   # #357
+    """Their log showed `orbit-poc` with contact you@example.org — a
+    placeholder. When they needed to tell us we were misbehaving, they had no
+    way to reach us."""
+    ua = INGEST.split('HTTP_USER_AGENT",')[1].split(')')[0]
+    assert "example.org" not in ua and "example.com" not in ua, \
+        "the user agent still carries a placeholder contact"
+    assert "confinia.io" in ua and "overwatch" in ua.lower()
 
 
-def test_celestrak_answers_200_with_no_gp_data_for_an_unknown_object():
-    """The real endpoint does this instead of a 404 — status alone would send
-    us back for five more attempts over several days."""
-    ns = _celestrak(_Resp(200, "No GP data found"))
-    assert ns["_tle_from_celestrak"](99999) == (None, True)
-
-
-def test_a_timeout_is_ignorance_not_absence():
-    ns = _celestrak(RuntimeError("timed out"))
-    assert ns["_tle_from_celestrak"](25544) == (None, False)
-
-
-def test_a_refusal_cools_down_and_claims_nothing_about_the_object():
-    cooled = []
-    ns = _celestrak(_Resp(403), cooled=cooled)
-    assert ns["_tle_from_celestrak"](25544) == (None, False)
-    assert cooled == ["celestrak"], "a 403 must start a cooldown"
-
-
-def test_celestrak_still_returns_a_tle_it_has():
-    body = "1 25544U 98067A   26236.5 .000\n2 25544  51.6 100.0 0002\n"
-    ns = _celestrak(_Resp(200, body))
-    tle, absent = ns["_tle_from_celestrak"](25544)
-    assert absent is False and tle[0].startswith("1 ") and tle[1].startswith("2 ")
+def test_a_refusal_is_recorded_for_a_human_not_just_logged():   # #357
+    """"immediately stop querying and report the problem to a human for
+    investigation" — we stop, but we ignored 59 custom 403s in five minutes
+    because nothing was watching."""
+    fn = INGEST[INGEST.index("def _cool("):]
+    fn = fn[:fn.index("\ndef ", 10)]
+    assert "INSERT INTO provider_refusal" in fn
+    assert "except Exception" in fn, \
+        "bookkeeping must never mask the refusal it is recording"
 
 
 def _satnogs(resp, token="tok"):
@@ -246,41 +244,44 @@ def test_satnogs_without_a_token_knows_nothing():
     assert ns["_tle_from_satnogs"](99999) == (None, False)
 
 
-def _tle_for(ct, sn, cooling=()):
+def _tle_for(sn, cooling=()):
     """_tle_for wired to canned provider verdicts. Returns recorded calls."""
     recorded = []
     ns = _lift("_tle_for",
                _refresh_bulk_tles=lambda: {},
                _due_for_lookup=lambda n: True,
                _cooling=lambda src: src in cooling,
-               _tle_from_celestrak=lambda n: ct,
                _tle_from_satnogs=lambda n: sn,
                _record_lookup=lambda *a, **k: recorded.append((a, k)))
     ns["_tle_for"](99999)
     return recorded
 
 
-def test_both_providers_saying_no_gives_up_on_the_first_attempt():
-    (args, kw), = _tle_for(ct=(None, True), sn=(None, True))
+def test_an_answered_not_carried_gives_up_on_the_first_attempt():
+    """SatNOGS is the only per-object source now (#357), so its answer is the
+    whole verdict. This nearly broke silently: `permanent` was computed as
+    `ct_absent and sn_absent`, and with CelesTrak gone ct_absent is always
+    False — the immediate give-up from #310 would have been dead code."""
+    (args, kw), = _tle_for(sn=(None, True))
     assert args[1] is False, "not a success"
     assert kw["permanent"] is True, \
-        "a 404 from both providers must give up at once, not after six tries"
+        "an answered 'not carried' must give up at once, not after six tries"
 
 
 def test_a_404_does_not_give_up_while_satnogs_is_cooling():
     """CelesTrak dropping an object says nothing about SatNOGS. Giving up here
     would lose LAPAN-A2-class satellites for good over a transient refusal."""
-    (args, kw), = _tle_for(ct=(None, True), sn=(None, False), cooling=("satnogs",))
+    (args, kw), = _tle_for(sn=(None, False), cooling=("satnogs",))
     assert kw["permanent"] is False
 
 
 def test_a_timeout_keeps_the_ordinary_backoff():
-    (args, kw), = _tle_for(ct=(None, False), sn=(None, False))
+    (args, kw), = _tle_for(sn=(None, False))
     assert kw["permanent"] is False
 
 
 def test_a_found_tle_clears_the_backoff_row():
-    recorded = _tle_for(ct=(("1 ...", "2 ..."), False), sn=(None, False))
+    recorded = _tle_for(sn=(("1 ...", "2 ..."), False))
     (args, kw), = recorded
     assert args[1] is True, "a success must clear element_fetch, not back off"
 
@@ -421,20 +422,16 @@ class _FakeTime:
 
 
 def test_a_cooldown_short_circuits_the_per_satellite_path():
-    """With CelesTrak cooling, _tle_for must not call it at all — that is what
-    turns 23 x 120s of startup into nothing."""
+    """With SatNOGS cooling, _tle_for must not ask it at all."""
     calls = []
     ns = _lift("_tle_for",
                _refresh_bulk_tles=lambda: {},
                _due_for_lookup=lambda n: True,
-               _cooling=lambda src: src == "celestrak",
-               _tle_from_celestrak=lambda n: calls.append(n) or (None, False),
-               _tle_from_satnogs=lambda n: (None, False),
+               _cooling=lambda src: src == "satnogs",
+               _tle_from_satnogs=lambda n: calls.append(n) or (None, False),
                _record_lookup=lambda *a, **k: None)
     ns["_tle_for"](25544)
-    assert calls == [], "CelesTrak was asked while on cooldown"
-
-
+    assert calls == [], "a cooling provider was asked anyway"
 def test_no_satnogs_call_site_bypasses_the_pacer():   # #315
     """Deliberately derived from the source rather than a list of function
     names: the failure this guards against is a NEW call site being added

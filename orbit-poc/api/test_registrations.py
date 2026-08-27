@@ -172,7 +172,10 @@ def _table_and_column(sql):
 
 def test_the_three_freshness_rules_exist():
     uids = {r["uid"] for r in _freshness_rules()}
-    assert uids == {"telemetry-stalled", "positions-stalled", "elements-stale"}
+    assert uids == {"telemetry-stalled", "positions-stalled", "elements-stale"}, \
+        ("freshness means 'nothing has arrived'. provider-refused is the "
+         "opposite shape — an empty table there means nobody refused us — so "
+         "it lives in its own group (#357)")
 
 
 def test_a_healthy_system_returns_no_rows():
@@ -417,3 +420,17 @@ def test_the_repair_cannot_match_a_current_row():
     for line in sets:
         assert "attempts" not in line, \
             "if attempts can set gave_up again, the repair would delete live rows"
+
+
+def test_a_provider_refusal_is_alerted_on(): # #357
+    """CelesTrak: "immediately stop querying and report the problem to a human
+    for investigation." We stop; this reports. It is deliberately NOT a
+    freshness rule — an empty provider_refusal table means nobody refused us,
+    which is the healthy state, the inverse of an empty telemetry table."""
+    rules = {r["uid"]: r for r in main._ops_alert_spec()["rules"]}
+    assert "provider-refused" in rules
+    r = rules["provider-refused"]
+    assert r.get("group") == "providers"
+    assert r["sql"].split(" FROM ")[0].strip() == "SELECT 1 AS value", \
+        "the alert identity must not churn (#352)"
+    assert "provider_refusal" in r["sql"]

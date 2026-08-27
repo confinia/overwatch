@@ -147,7 +147,7 @@ def test_tracking_does_not_block_on_a_third_party():   # #230
     fill = ing[ing.index("def fill_missing_elements("):]
     fill = fill[:fill.index("\ndef ", 10)]
     assert "_tle_for(norad)" in fill, "the fill must go through the polite lookup"
-    assert "_tle_from_celestrak" not in fill, "no direct per-object call here"
+    assert "CATNR" not in fill, "no per-object CelesTrak call here"
     assert "_tle_from_satnogs" in ing, "the SatNOGS fallback must still exist"
     assert "elements-fill" in ing, "the fill loop is not scheduled"
 
@@ -173,23 +173,16 @@ def test_position_propagation_is_never_starved_by_another_loop():   # #230 regre
         "code after loop(propagate_positions) never runs"
 
 
-def test_a_dead_tle_source_cannot_stall_startup():   # #230 follow-up
-    """Elements are primed BEFORE positions start, and the per-satellite
-    CelesTrak lookup is a fallback path. At a 30s timeout an unreachable
-    CelesTrak costs 30s per satellite before the globe moves at all — twelve
-    minutes of dark globe after every deploy, observed live while CelesTrak's
-    per-object endpoint was down and SatNOGS answered fine."""
+def test_a_dead_tle_source_cannot_stall_startup():   # #230 follow-up, #357
+    """The per-object CelesTrak lookup this once guarded is gone entirely:
+    GROUP=satnogs is one request for the whole set, and 1,418 CATNR queries in
+    a day is what put us in their firewall. The connect budget still has to be
+    bounded, because an unreachable provider must fail fast (#313)."""
     src = open(os.path.join(os.path.dirname(__file__), "..", "ingest", "ingest.py"),
                encoding="utf-8").read()
-    one = src[src.index("def _tle_from_celestrak("):src.index("def _tle_from_satnogs(")]
-    assert "CELESTRAK_ONE_TIMEOUT" in one
-    default = int(src.split('CELESTRAK_ONE_TIMEOUT", ')[1].split(")")[0])
-    assert default <= 10, f"{default}s is too slow for a fallback lookup"
-
-
-# ---------------------------------------------------------------------------
-# A failed lookup must not erase working state (#335)
-# ---------------------------------------------------------------------------
+    assert "CATNR" not in "\n".join(l.split("#", 1)[0] for l in src.splitlines())
+    connect = int(src.split('CONNECT_TIMEOUT", ')[1].split(")")[0])
+    assert connect <= 10, f"{connect}s to open a socket is not a bounded connect"
 INGEST_SRC = open(os.path.join(os.path.dirname(__file__), "..", "ingest",
                                "ingest.py"), encoding="utf-8").read()
 

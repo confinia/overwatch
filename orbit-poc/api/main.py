@@ -160,6 +160,18 @@ CREATE TABLE IF NOT EXISTS station_opportunity (
     PRIMARY KEY (observer, day, norad)
 );
 CREATE INDEX IF NOT EXISTS station_opportunity_day_idx ON station_opportunity (day);
+-- A provider refusing us must reach a PERSON (#357). CelesTrak's requirement
+-- is to "immediately stop querying and report the problem to a human for
+-- investigation" — we already stop, but we ignored 59 of their custom 403s in
+-- five minutes because nothing was watching. Written by the ingest's _cool().
+CREATE TABLE IF NOT EXISTS provider_refusal (
+    id     BIGSERIAL PRIMARY KEY,
+    source TEXT NOT NULL,
+    status INTEGER,
+    detail TEXT,
+    ts     timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS provider_refusal_ts_idx ON provider_refusal (ts DESC);
 -- SatNOGS throttles telemetry for satellites it flags as violating frequency
 -- regulations to one request per day, against six a minute for everything
 -- else. Mirrored from the bulk list so a satellite flagged upstream is
@@ -965,7 +977,7 @@ OPS_DS_UID = "orbitcache-ops"
 # stays out, which is the boundary that actually matters here.
 OPS_TABLES = ("organization", "org_user", "org_token", "api_key",
               "api_usage", "visitor_daily", "registered_user",
-              "telemetry", "position", "elements")
+              "telemetry", "position", "elements", "provider_refusal")
 OPS_ALERT_EMAIL = os.environ.get("OPS_ALERT_EMAIL", "contact@confinia.io")
 # How long the OIDC CSRF nonce stays valid. Must outlive a registration with
 # e-mail verification, not merely a login (#343).
