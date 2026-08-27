@@ -64,6 +64,11 @@ http://overwatch.confinia.io {
 	# MUST stay above the generic /api/* handler (first match wins).
 	handle /api/v1* {
 		uri strip_prefix /api
+		# The mobile app (confinia/overwatch-mobile, GitHub Pages) reads the
+		# open-data endpoints cross-origin (#363). GET only — nothing that
+		# writes accepts a cross-origin caller.
+		header Access-Control-Allow-Origin "https://confinia.github.io"
+		header Access-Control-Allow-Methods "GET"
 		reverse_proxy %LIVE%_api_1:8000 %CANDIDATE%_api_1:8000 {
 			lb_policy first
 			lb_try_duration 3s
@@ -145,6 +150,11 @@ http://api.overwatch.confinia.io {
 
 	handle /api/v1* {
 		uri strip_prefix /api
+		# The mobile app (confinia/overwatch-mobile, GitHub Pages) reads the
+		# open-data endpoints cross-origin (#363). GET only — nothing that
+		# writes accepts a cross-origin caller.
+		header Access-Control-Allow-Origin "https://confinia.github.io"
+		header Access-Control-Allow-Methods "GET"
 		reverse_proxy %LIVE%_api_1:8000 %CANDIDATE%_api_1:8000 {
 			lb_policy first
 			lb_try_duration 3s
