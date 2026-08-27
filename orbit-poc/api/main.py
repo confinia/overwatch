@@ -795,6 +795,53 @@ def station_health_one(callsign: str):
                      "the station's own baseline.")}
 
 
+@app.get("/v1/stations/{callsign}/pass")
+def station_pass_detail(callsign: str, norad: int, aos: str):
+    """One pass, frame by frame (#368): every reception inside the window and
+    how many telemetry fields each decoded into. WHERE the frames sit in the
+    window is the diagnostic part — hearing only around max elevation is a
+    horizon problem; frames across the whole window is a healthy chain."""
+    with cursor() as cur:
+        cur.execute("""SELECT observer FROM station_daily
+                       WHERE split_part(observer, '-', 1) ILIKE %s
+                          OR observer = %s
+                       GROUP BY observer ORDER BY sum(frames) DESC LIMIT 1""",
+                    (callsign, callsign))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, f"No station matching '{callsign}'.")
+        observer = row[0]
+        # nearest pass to the given AOS: the client echoes what /health sent
+        # it, and interpolated rise times shift a little between recomputes
+        cur.execute("""SELECT p.aos, p.los, p.max_el_deg, s.name
+                       FROM pass p JOIN satellite s USING (norad)
+                       WHERE p.observer = %s AND p.norad = %s
+                       ORDER BY abs(extract(epoch FROM p.aos - %s::timestamptz))
+                       LIMIT 1""", (observer, norad, aos))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "No such pass recorded.")
+        p_aos, p_los, max_el, name = row
+        cur.execute("""
+            SELECT r.ts,
+                   (SELECT count(*) FROM telemetry t
+                     WHERE t.norad = r.norad AND t.ts = r.ts) AS fields
+            FROM reception r
+            WHERE r.observer = %s AND r.norad = %s
+              AND r.ts BETWEEN %s - interval '2 minutes'
+                           AND %s + interval '2 minutes'
+            ORDER BY r.ts""", (observer, norad, p_aos, p_los))
+        frames = [{"ts": t.isoformat(), "fields": f} for t, f in cur.fetchall()]
+    dur = (p_los - p_aos).total_seconds()
+    return {"observer": observer, "norad": norad, "satellite": name,
+            "aos": p_aos.isoformat(), "los": p_los.isoformat(),
+            "max_el_deg": max_el, "duration_s": int(dur),
+            "frames": frames,
+            "note": ("offset each frame against aos: frames clustered near "
+                     "the middle of the window suggest a horizon problem, "
+                     "spread across it a healthy chain.")}
+
+
 @app.get("/v1/stations/{callsign}")
 def station_receptions(callsign: str):
     """One station's receptions across the fleet (7 days). The callsign
