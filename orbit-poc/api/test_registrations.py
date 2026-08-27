@@ -10,6 +10,8 @@ import uuid
 import psycopg2
 import pytest
 
+from conftest import require_test_db
+
 sys.path.insert(0, os.path.dirname(__file__))
 import main  # noqa: E402
 
@@ -20,6 +22,7 @@ BOARD = os.path.join(HERE, "..", "grafana", "ops-dashboards", "registrations.jso
 
 @pytest.fixture(scope="module")
 def conn():
+    require_test_db()
     c = psycopg2.connect(DSN)
     with c, c.cursor() as cur:
         cur.execute(main.KEYS_SQL)

@@ -58,5 +58,9 @@ jobs:
         #   test_polar.py  live Polar API, needs POLAR_ACCESS_TOKEN. Polar is
         #                  the fallback provider since Creem became the MoR
         #                  (#269/#270); it runs on the VM gate, not here.
+        env:
+          # These suites write through the real code path; the marker says the
+          # target database is disposable (#359).
+          OVERWATCH_TEST_DB: "1"
         run: |
           python -m pytest -q --ignore=test_polar.py

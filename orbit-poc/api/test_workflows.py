@@ -338,3 +338,24 @@ def test_the_gate_trusts_pytest_not_prose():
     assert 'grep -c "failed"' not in gate, \
         "the verdict must not come from grepping pytest's prose"
     assert "MAIN_EXIT" in gate and "PIPESTATUS" in gate
+
+
+def test_database_tests_cannot_be_aimed_at_production():   # #359
+    """Eight fake a@example.org signups reached the LIVE registry between
+    2026-08-25 and 27, each one e-mailed to the founder as a new registration,
+    because a suite that writes through the real code path was run with
+    --env-file orbit-poc/.env. The marker is set only where the database is
+    disposable."""
+    conftest = open(os.path.join(ROOT, "orbit-poc", "api", "conftest.py"),
+                    encoding="utf-8").read()
+    assert "OVERWATCH_TEST_DB" in conftest and "pytest.fail" in conftest
+    gate = open(os.path.join(ROOT, "deploy", "run-tests.sh"), encoding="utf-8").read()
+    assert "OVERWATCH_TEST_DB=1" in gate, "the gate must mark its throwaway DB"
+    assert "OVERWATCH_TEST_DB" in _wf("ci.yml"), "CI must mark its throwaway DB"
+
+
+def test_every_writable_db_fixture_asks_first():   # #359
+    api = os.path.join(ROOT, "orbit-poc", "api")
+    for name in ("test_registrations.py", "test_catalog.py", "test_app_role.py"):
+        src = open(os.path.join(api, name), encoding="utf-8").read()
+        assert "require_test_db()" in src, f"{name} hands out a connection unguarded"

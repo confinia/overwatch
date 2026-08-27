@@ -14,6 +14,8 @@ import psycopg2
 import psycopg2.pool
 import pytest
 
+from conftest import require_test_db
+
 sys.path.insert(0, os.path.dirname(__file__))
 import main  # noqa: E402
 
@@ -23,6 +25,7 @@ pytestmark = pytest.mark.skipif(not DSN, reason="no database")
 
 @pytest.fixture(scope="module")
 def db():
+    require_test_db()
     main.pool = psycopg2.pool.SimpleConnectionPool(1, 3, DSN)
     conn = psycopg2.connect(DSN)
     init = open(os.path.join(os.path.dirname(__file__), "..", "db", "init.sql"),
