@@ -60,7 +60,12 @@ PASSES_MAX_STATIONS = int(os.environ.get("PASSES_MAX_STATIONS", 20))
 # Be a good citizen: identify ourselves.
 from flatten import flatten_decoded
 
-UA = {"User-Agent": "orbit-poc/0.1 (educational; contact: you@example.org)"}
+# CelesTrak's log showed "orbit-poc" with a placeholder contact address, so
+# when they needed to tell us we were misbehaving they had no way to reach us.
+# A user agent is how a provider finds a human (#357).
+UA = {"User-Agent": os.environ.get(
+    "HTTP_USER_AGENT",
+    "overwatch/1.0 (+https://overwatch.confinia.io; contact@confinia.io)")}
 
 
 def db():
@@ -187,7 +192,7 @@ def resolve_sat_id(norad):
 # Showcase norads not present in any group fall back to one per-CATNR fetch.
 # --------------------------------------------------------------------------
 CELESTRAK_GROUPS = [g.strip() for g in
-                    os.environ.get("CELESTRAK_GROUPS", "amateur,stations").split(",")
+                    os.environ.get("CELESTRAK_GROUPS", "satnogs").split(",")
                     if g.strip()]
 
 # Groups fetched for the TLE CACHE only — their members are NOT seeded into
@@ -197,7 +202,7 @@ CELESTRAK_GROUPS = [g.strip() for g in
 # refreshed on the elements cycle. CelesTrak asks for exactly this, and an
 # unbounded per-object loop is what got our address blocked.
 CELESTRAK_LOOKUP_GROUPS = [g.strip() for g in
-                           os.environ.get("CELESTRAK_LOOKUP_GROUPS", "active").split(",")
+                           os.environ.get("CELESTRAK_LOOKUP_GROUPS", "satnogs").split(",")
                            if g.strip()]
 _bulk_tles = {"ts": 0.0, "by_norad": {}}
 
@@ -229,6 +234,18 @@ def _cool(source, response=None, hours=6, reason="refused us"):
             pass
     _cooldown_until[source] = time.time() + wait
     log.warning("%s %s — not asking again for %.1f h", source, reason, wait / 3600)
+    # Stopping is only half of what CelesTrak asks for: "immediately stop
+    # querying and report the problem to a human for investigation". A log line
+    # is not a report — we ignored 59 of their custom 403s in five minutes
+    # precisely because nothing was watching. Recorded so an alert can see it.
+    try:
+        status = getattr(response, "status_code", None)
+        with db() as conn, conn.cursor() as cur:
+            cur.execute("INSERT INTO provider_refusal (source, status, detail) "
+                        "VALUES (%s, %s, %s)", (source, status, reason[:200]))
+            conn.commit()
+    except Exception as e:                      # never let bookkeeping mask it
+        log.warning("could not record the %s refusal: %s", source, e)
 
 
 def _refresh_bulk_tles():
@@ -510,22 +527,20 @@ def _tle_for(norad):
     if not _due_for_lookup(norad):
         return None
     tle = None
-    ct_absent = sn_absent = False
-    if not _cooling("celestrak"):
-        tle, ct_absent = _tle_from_celestrak(norad)
-    if not tle and not _cooling("satnogs"):
+    sn_absent = False
+    if not _cooling("satnogs"):
         tle, sn_absent = _tle_from_satnogs(norad)
     if tle:
         _record_lookup(norad, True)
         return tle
-    # Both providers ANSWERED that they do not carry it. Five more requests
-    # over the next several days cannot learn anything the first one did not
-    # already tell us, and that is the pattern that got this address
-    # firewalled. Absence is only absence when someone said so: a cooldown, a
-    # timeout or a missing SatNOGS token leaves the ordinary backoff in charge,
-    # because SatNOGS does carry objects CelesTrak has dropped.
-    _record_lookup(norad, False, "not carried by CelesTrak or SatNOGS",
-                   permanent=ct_absent and sn_absent)
+    # SatNOGS ANSWERED that it does not carry this object. With the CelesTrak
+    # per-object path gone (#357) that is the whole verdict, so asking again
+    # cannot learn anything — and repetition is exactly what got this address
+    # firewalled. Absence is still only absence when someone SAID so: a
+    # cooldown, a timeout or a missing token leaves the ordinary backoff in
+    # charge, because not knowing is not the same as knowing there is nothing.
+    _record_lookup(norad, False, "not carried by SatNOGS",
+                   permanent=sn_absent)
     return None
 
 
@@ -684,44 +699,10 @@ def refresh_catalog():
     log.info("Catalog: %d satellites available to pick from", rows)
 
 
-# A per-satellite CelesTrak lookup is a fallback path, so it must fail FAST.
-# At 30s it does not: CelesTrak's per-object endpoint has been unreachable
-# from this VM while the bulk group endpoint kept working, and priming
-# elements at startup then costs ~30s PER satellite before positions can
-# start — twelve minutes of dark globe after every deploy. SatNOGS answers
-# right after, so a short timeout loses nothing.
-CELESTRAK_ONE_TIMEOUT = int(os.environ.get("CELESTRAK_ONE_TIMEOUT", 8))
-
-
-def _tle_from_celestrak(norad):
-    """Returns (tle, absent).
-
-    `absent` means CelesTrak ANSWERED that it does not carry this object.
-    Its usage policy is explicit that a 403 or 404 will not change on retry,
-    so the caller must stop asking rather than back off. A timeout or a 5xx
-    is ignorance, not absence, and leaves `absent` false."""
-    try:
-        r = requests.get(CELESTRAK_BASE,
-                         params={"CATNR": norad, "FORMAT": "TLE"},
-                         headers=UA, timeout=CELESTRAK_ONE_TIMEOUT)
-        if r.status_code in (403, 429):
-            _cool("celestrak", r)
-            return None, False
-        if r.status_code == 404:
-            return None, True
-        r.raise_for_status()
-        # An unknown CATNR answers 200 with this body, not a 404 — so status
-        # alone would send us back for six more tries.
-        if "No GP data found" in r.text:
-            return None, True
-        lines = [ln for ln in r.text.strip().splitlines() if ln.strip()]
-        if len(lines) >= 2 and lines[-2].startswith("1 "):
-            return (lines[-2], lines[-1]), False
-    except Exception as e:
-        log.debug("CelesTrak per-object lookup failed for %s: %s", norad, e)
-    return None, False
-
-
+# No per-object CelesTrak request exists any more (#357). GROUP=satnogs is
+# ~1400 objects in ONE request and is the set CelesTrak built for exactly this
+# use; 1,418 CATNR queries in a day is what put us in their firewall. Their
+# own words: "You really shouldn't need to make all of those CATNR requests."
 def _tle_from_satnogs(norad):
     """Fallback: SatNOGS keeps TLEs for satellites CelesTrak drops from GP
     (e.g. LAPAN-A2). Needs the same free token as telemetry.

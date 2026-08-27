@@ -45,6 +45,14 @@
       "sql": "SELECT 1 AS value FROM elements HAVING max(epoch) IS NULL OR max(epoch) < now() - interval '24 hours'",
       "summary": "Newest orbital element set is over 24h old. Positions are still being drawn, and drifting.",
       "group": "freshness"
+    },
+    {
+      "uid": "provider-refused",
+      "title": "A data provider refused us",
+      "group": "providers",
+      "_sql_comment": "CelesTrak asks callers to stop AND report to a human on any non-200. We stop (#304/#314); this is the reporting half. Returns `value` and nothing else, so the alert identity cannot churn (#352). Which provider and why are in provider_refusal and the ingest log \u2014 detail belongs there, not in the label set.",
+      "sql": "SELECT 1 AS value FROM provider_refusal HAVING max(ts) > now() - interval '60 minutes'",
+      "summary": "A data provider returned 403/429 or became unreachable in the last hour. We have stopped querying it. Check provider_refusal and the ingest log before anything resumes \u2014 ignoring these is what put us in CelesTrak's firewall."
     }
   ]
 }
