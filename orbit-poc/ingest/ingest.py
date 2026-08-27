@@ -206,6 +206,16 @@ CELESTRAK_LOOKUP_GROUPS = [g.strip() for g in
                            if g.strip()]
 _bulk_tles = {"ts": 0.0, "by_norad": {}}
 
+# Space-Track (#370): the second bulk element source, so one supplier's bad
+# day cannot blank the whole product. Credential-optional — without these the
+# source is silently absent, which is what self-host installs and CI get.
+# Their limits are PUBLISHED (30 req/min, 300/hr, GP at most hourly): we make
+# one login and one bulk query per elements cycle, orders of magnitude under.
+SPACETRACK_BASE = os.environ.get("SPACETRACK_BASE", "https://www.space-track.org")
+SPACETRACK_IDENTITY = os.environ.get("SPACETRACK_IDENTITY", "").strip()
+SPACETRACK_PASSWORD = os.environ.get("SPACETRACK_PASSWORD", "").strip()
+_spacetrack_session = {"s": None}
+
 # How long to wait for a TCP connection to a provider. Downloads may be slow;
 # a handshake with a reachable host is not. Keeping these separate is what
 # stops an unreachable provider from being indistinguishable from a big file.
@@ -214,7 +224,7 @@ CONNECT_TIMEOUT = int(os.environ.get("CONNECT_TIMEOUT", 8))
 # When CelesTrak or SatNOGS answers 403/429, stop asking entirely until this
 # passes. Hammering something that just refused us is how a rate limit turns
 # into a ban.
-_cooldown_until = {"celestrak": 0.0, "satnogs": 0.0}
+_cooldown_until = {"celestrak": 0.0, "satnogs": 0.0, "spacetrack": 0.0}
 
 
 def _cooling(source):
@@ -246,6 +256,52 @@ def _cool(source, response=None, hours=6, reason="refused us"):
             conn.commit()
     except Exception as e:                      # never let bookkeeping mask it
         log.warning("could not record the %s refusal: %s", source, e)
+
+
+def _spacetrack_bulk(norads):
+    """The whole fleet's current element sets in ONE query.
+
+    Returns {norad: (tle1, tle2)} or {} — never raises. A failure cools the
+    source down and is recorded in provider_refusal like any other refusal:
+    the lesson of the CelesTrak firewall applied before the first request
+    rather than after the block (#370)."""
+    if not (SPACETRACK_IDENTITY and SPACETRACK_PASSWORD):
+        return {}
+    if _cooling("spacetrack"):
+        return {}
+    try:
+        sess = _spacetrack_session["s"]
+        if sess is None:
+            sess = requests.Session()
+            sess.headers.update(UA)
+            r = sess.post(f"{SPACETRACK_BASE}/ajaxauth/login",
+                          data={"identity": SPACETRACK_IDENTITY,
+                                "password": SPACETRACK_PASSWORD},
+                          timeout=(CONNECT_TIMEOUT, 30))
+            if r.status_code != 200:
+                _cool("spacetrack", r, reason=f"login refused ({r.status_code})")
+                return {}
+            _spacetrack_session["s"] = sess
+        ids = ",".join(str(n) for n in sorted(norads))
+        r = sess.get(f"{SPACETRACK_BASE}/basicspacedata/query/class/gp/"
+                     f"NORAD_CAT_ID/{ids}/format/tle",
+                     timeout=(CONNECT_TIMEOUT, 60))
+        if r.status_code in (401, 403, 429):
+            _spacetrack_session["s"] = None       # session likely expired
+            _cool("spacetrack", r)
+            return {}
+        r.raise_for_status()
+        found = {}
+        for _name, tle1, tle2 in _parse_tle_file(r.text):
+            found[int(tle1[2:7])] = (tle1, tle2)
+        log.info("Space-Track: %d/%d element sets in one query",
+                 len(found), len(norads))
+        return found
+    except requests.exceptions.RequestException as e:
+        log.warning("Space-Track bulk failed: %s", e)
+        _spacetrack_session["s"] = None
+        _cool("spacetrack", hours=1, reason="is unreachable")
+        return {}
 
 
 def _refresh_bulk_tles():
@@ -280,11 +336,20 @@ def _refresh_bulk_tles():
             _cool("celestrak", hours=1, reason="is unreachable")
             break
         time.sleep(2)
+    if not found:
+        # CelesTrak's bulk yielded nothing (blocked, cooling, or down): ask
+        # Space-Track for OUR fleet in one query before anything falls back to
+        # per-object SatNOGS. Order is deliberate — public bulk first, the
+        # authenticated source second, per-object last (#370).
+        with db() as conn, conn.cursor() as cur:
+            cur.execute("SELECT DISTINCT norad FROM satellite")
+            fleet = [r[0] for r in cur.fetchall()]
+        if fleet:
+            found = _spacetrack_bulk(fleet)
     if found:
         _bulk_tles["by_norad"] = found
         _bulk_tles["ts"] = time.time()
-        log.info("TLE cache: %d objects from %s", len(found),
-                 ",".join(CELESTRAK_LOOKUP_GROUPS))
+        log.info("TLE cache: %d objects", len(found))
     return _bulk_tles["by_norad"]
 
 

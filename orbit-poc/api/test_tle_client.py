@@ -405,10 +405,27 @@ def test_an_unreachable_provider_is_put_on_cooldown():
                _bulk_tles={"ts": 0.0, "by_norad": {}},
                _parse_tle_file=lambda t: [],
                _cooling=lambda src: False,
-               _cool=lambda src, *a, **k: cooled.append(src))
+               _cool=lambda src, *a, **k: cooled.append(src),
+               _spacetrack_bulk=lambda norads: {},
+               db=_NoDb)
     ns["_refresh_bulk_tles"]()
     assert cooled == ["celestrak"], \
         f"an unreachable provider must be cooled down exactly once, got {cooled}"
+
+
+class _EmptyDb:
+    """Context-manager stand-in for db(): the bulk refresher reads the fleet
+    before trying the Space-Track fallback, and these tests exercise the
+    CelesTrak path with an empty fleet."""
+    def __enter__(self): return self
+    def __exit__(self, *a): return False
+    def cursor(self): return self
+    def execute(self, *a, **k): pass
+    def fetchall(self): return []
+
+
+def _NoDb():
+    return _EmptyDb()
 
 
 class _FakeTime:
@@ -522,3 +539,109 @@ def test_the_last_fetch_time_survives_a_restart():
     assert "ADD COLUMN IF NOT EXISTS is_violator" in MAIN
     init = open(os.path.join(HERE, "..", "db", "init.sql"), encoding="utf-8").read()
     assert "last_telemetry_fetch" in init, "fresh installs would lack the column"
+
+
+# ---------------------------------------------------------------------------
+# Space-Track: the second bulk source (#370)
+# ---------------------------------------------------------------------------
+def _spacetrack(login_status=200, query_status=200, body="", exc=None,
+                identity="user", cooled=None, cooling=False):
+    cooled = [] if cooled is None else cooled
+
+    class _Sess:
+        def __init__(self): self.headers = {}
+        def post(self, url, data=None, timeout=None):
+            if exc: raise exc
+            return _Resp(login_status)
+        def get(self, url, timeout=None):
+            if exc: raise exc
+            _Sess.last_url = url
+            return _Resp(query_status, body)
+
+    class _Req:
+        Session = _Sess
+        class exceptions:
+            RequestException = RuntimeError
+
+    ns = _lift("_spacetrack_bulk",
+               requests=_Req, log=_Log(), UA={},
+               SPACETRACK_BASE="https://st", SPACETRACK_IDENTITY=identity,
+               SPACETRACK_PASSWORD="pw" if identity else "",
+               CONNECT_TIMEOUT=8,
+               _spacetrack_session={"s": None},
+               _cooling=lambda src: cooling,
+               _cool=lambda src, *a, **k: cooled.append(src),
+               _parse_tle_file=_parse_from_ingest())
+    return ns, _Sess
+
+
+def _parse_from_ingest():
+    ns = _lift("_parse_tle_file")
+    return ns["_parse_tle_file"]
+
+
+TLE_BODY = ("1 25544U 98067A   26239.50000000  .00016717  00000-0  10270-3 0  9000\n"
+            "2 25544  51.6400 208.9163 0006317  69.9862 25.2906 15.49560000000000\n"
+            "1 43017U 17073A   26239.50000000  .00000300  00000-0  10000-4 0  9001\n"
+            "2 43017  97.7000 100.0000 0010000 100.0000 260.0000 14.95000000000000\n")
+
+
+def test_spacetrack_is_silently_absent_without_credentials():
+    """Self-host installs and CI configure nothing and must lose nothing."""
+    ns, _ = _spacetrack(identity="")
+    assert ns["_spacetrack_bulk"]([25544]) == {}
+
+
+def test_one_query_covers_the_whole_fleet():
+    """30 requests/min is their published ceiling; ours is one query per
+    elements cycle with every NORAD id in the URL."""
+    ns, Sess = _spacetrack(body=TLE_BODY)
+    out = ns["_spacetrack_bulk"]([43017, 25544])
+    assert set(out) == {25544, 43017}
+    assert "25544,43017" in Sess.last_url, "ids must be batched into ONE query"
+    assert "/format/tle" in Sess.last_url
+
+
+def test_a_refusal_cools_spacetrack_down():
+    """Sized to the published limit AND carrying the firewall lesson: any
+    refusal silences us and reaches provider_refusal via _cool."""
+    cooled = []
+    ns, _ = _spacetrack(query_status=429, cooled=cooled)
+    assert ns["_spacetrack_bulk"]([25544]) == {}
+    assert cooled == ["spacetrack"]
+
+
+def test_a_login_refusal_cools_down_too():
+    cooled = []
+    ns, _ = _spacetrack(login_status=401, cooled=cooled)
+    assert ns["_spacetrack_bulk"]([25544]) == {}
+    assert cooled == ["spacetrack"]
+
+
+def test_no_spacetrack_request_while_cooling():
+    ns, Sess = _spacetrack(body=TLE_BODY, cooling=True)
+    Sess.last_url = None
+    assert ns["_spacetrack_bulk"]([25544]) == {}
+    assert Sess.last_url is None, "a cooling source was queried anyway"
+
+
+def test_unreachable_spacetrack_cools_down():
+    cooled = []
+    ns, _ = _spacetrack(exc=RuntimeError("timeout"), cooled=cooled)
+    assert ns["_spacetrack_bulk"]([25544]) == {}
+    assert cooled == ["spacetrack"]
+
+
+def test_spacetrack_is_second_never_first():
+    """Order is deliberate: public bulk first, the authenticated source only
+    when that yields nothing, per-object SatNOGS last. And the permanent
+    give-up verdict stays SatNOGS's alone — #310 semantics untouched."""
+    fn = _code(INGEST[INGEST.index("def _refresh_bulk_tles("):])
+    fn = fn[:fn.index("\ndef ", 10)]
+    assert fn.index("CELESTRAK_BASE") < fn.index("_spacetrack_bulk"), \
+        "Space-Track must be the fallback, not the primary"
+    assert "if not found:" in fn
+    tle_for = _code(INGEST[INGEST.index("def _tle_for("):])
+    tle_for = tle_for[:tle_for.index("\ndef ", 10)]
+    assert "spacetrack" not in tle_for, \
+        "the give-up verdict must not involve Space-Track"
