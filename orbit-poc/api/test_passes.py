@@ -137,3 +137,20 @@ def test_store_passes_drops_stations_no_longer_tracked(conn):
         assert cur.fetchone()[0] == 0, "stale station kept its passes"
         cur.execute("SELECT count(*) FROM pass WHERE observer = 'TEST-STATION'")
         assert cur.fetchone()[0] == 1
+
+
+def test_a_recompute_never_deletes_a_completed_pass():   # #367
+    """store_passes said "drop the future rows" and executed DELETE FROM pass —
+    the whole table. Completed passes survived exactly until the next cycle,
+    so the per-pass history (#366) was wiped as fast as it accrued: 188 rows
+    at noon, 4 by mid-afternoon."""
+    import passes as p
+    src = open(p.__file__, encoding="utf-8").read()
+    fn = src[src.index("def store_passes("):]
+    code = "\n".join(l.split("#", 1)[0] for l in fn.splitlines())
+    assert "DELETE FROM pass WHERE aos > now()" in code, \
+        "the clean slate must be scoped to FUTURE rows"
+    assert 'execute("DELETE FROM pass")' not in code, \
+        "an unscoped delete wipes the history the mobile app shows"
+    assert "los < now() - interval '30 days'" in code, \
+        "keep completed passes bounded, not forever"

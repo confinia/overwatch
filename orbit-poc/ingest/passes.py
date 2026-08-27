@@ -121,7 +121,15 @@ def store_passes(cur, rows):
     # recomputed stations instead left passes behind for stations that dropped
     # out of the tracked set — stale windows that still showed in the dashboards
     # and its station picker (#232).
-    cur.execute("DELETE FROM pass")
+    # FUTURE rows only, as the paragraph above says — the code used to clear
+    # the whole table, so completed passes survived exactly until the next
+    # recompute and the per-pass history (#366) was wiped every cycle. The
+    # forward scan can only produce future AOS times (a pass already in
+    # progress has no rising crossing to find), so this is the precise clean
+    # slate. Completed passes are kept 30 days, matching the opportunity
+    # window; unbounded would grow forever.
+    cur.execute("DELETE FROM pass WHERE aos > now()")
+    cur.execute("DELETE FROM pass WHERE los < now() - interval '30 days'")
     if rows:
         execute_values(cur, "INSERT INTO pass "
                             "(observer, norad, aos, los, max_el_deg) VALUES %s "
