@@ -437,3 +437,48 @@ def test_a_provider_refusal_is_alerted_on(): # #357
     assert r["sql"].split(" FROM ")[0].strip() == "SELECT 1 AS value", \
         "the alert identity must not churn (#352)"
     assert "provider_refusal" in r["sql"]
+
+
+def _provider_alert_sql():
+    return next(r["sql"] for r in main._ops_alert_spec()["rules"]
+                if r["uid"] == "provider-refused")
+
+
+def _refusal_fires(cur, rows):
+    """rows: (source, hours_ago). Returns whether the alert would fire."""
+    cur.execute("DELETE FROM provider_refusal WHERE source LIKE 'pt-%'")
+    for source, hours in rows:
+        cur.execute("INSERT INTO provider_refusal (source, status, detail, ts) "
+                    "VALUES (%s, 403, 'test', now() - %s * interval '1 hour')",
+                    (source, hours))
+    cur.execute(f"SELECT count(*) FROM ({_provider_alert_sql()}) q")
+    n = cur.fetchone()[0]
+    cur.execute("DELETE FROM provider_refusal WHERE source LIKE 'pt-%'")
+    return n == 1
+
+
+def test_a_newly_refusing_provider_fires(conn):
+    """The onset is the investigable moment."""
+    with conn, conn.cursor() as cur:
+        assert _refusal_fires(cur, [("pt-new", 0.2)])
+
+
+def test_an_ongoing_refusal_stays_quiet(conn):
+    """CelesTrak refused us hourly for days while we waited on an unblock we
+    had already requested. Repeating that is how an alert becomes wallpaper."""
+    with conn, conn.cursor() as cur:
+        streak = [("pt-old", h) for h in (0.2, 2, 5, 9, 14, 20)]
+        assert not _refusal_fires(cur, streak)
+
+
+def test_a_new_source_is_not_masked_by_an_ongoing_one(conn):
+    """The dangerous version of quieting down: a NEW provider breaking while
+    an old one is still broken must still reach a human."""
+    with conn, conn.cursor() as cur:
+        rows = [("pt-old", h) for h in (0.3, 2, 5, 9, 14, 20)] + [("pt-new", 0.2)]
+        assert _refusal_fires(cur, rows)
+
+
+def test_the_provider_rule_identity_cannot_churn(conn):
+    sql = _provider_alert_sql()
+    assert sql.split(" FROM ")[0].strip() == "SELECT 1 AS value"
