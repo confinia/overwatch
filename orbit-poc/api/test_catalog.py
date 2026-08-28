@@ -707,7 +707,7 @@ def test_per_station_health_returns_days_and_a_caveat(db):
     with db, db.cursor() as cur:
         _wipe_health(cur)
         _seed_station(cur, "HT-MOB-JN97", 0.60, 0.60)
-    out = main.station_health_one("HT-MOB-JN97")
+    out = main.station_health_one("HT-MOB-JN97", main.Response())
     with db, db.cursor() as cur:
         assert out["observer"] == "HT-MOB-JN97"
         assert out["days"] and all("hit_rate" in d for d in out["days"])
@@ -723,7 +723,7 @@ def test_per_station_health_404s_an_unknown_callsign(db):
     from fastapi import HTTPException as _He
     with db:
         with _pt.raises(_He):
-            main.station_health_one("HT-NOSUCH-XX00")
+            main.station_health_one("HT-NOSUCH-XX00", main.Response())
 
 
 def test_past_passes_carry_what_was_heard(db):   # #366
@@ -743,7 +743,7 @@ def test_past_passes_carry_what_was_heard(db):   # #366
             cur.execute("INSERT INTO reception (norad, ts, observer, lat, lon) "
                         "VALUES (999001, now() - %s * interval '1 minute', "
                         "'HT-PASS-JN97', 0, 0)", (m,))
-    out = main.station_health_one("HT-PASS-JN97")
+    out = main.station_health_one("HT-PASS-JN97", main.Response())
     assert out["past_passes"], "a completed pass must appear"
     assert out["past_passes"][0]["frames"] == 3, \
         "the frames decoded during the pass must ride along"
@@ -772,9 +772,9 @@ def test_a_pass_can_be_inspected_frame_by_frame(db):   # #368
         cur.execute("INSERT INTO telemetry (norad, ts, field, value_num) "
                     "SELECT 999001, ts, 'battery_v', 7.4 FROM reception "
                     "WHERE observer = 'HT-DET-JN97' LIMIT 1")
-    out = main.station_pass_detail("HT-DET-JN97", 999001,
-                                   out_aos := main.station_health_one("HT-DET-JN97")
-                                   ["past_passes"][0]["aos"])
+    aos = main.station_health_one("HT-DET-JN97",
+                                  main.Response())["past_passes"][0]["aos"]
+    out = main.station_pass_detail("HT-DET-JN97", 999001, aos, main.Response())
     assert out["satellite"] == "DET TEST" and out["duration_s"] == 600
     assert len(out["frames"]) == 1 and out["frames"][0]["fields"] == 1, \
         "the frame must carry how many fields it decoded into"
@@ -801,14 +801,32 @@ def test_pass_detail_survives_an_unencoded_plus(db):   # #369
         cur.execute("INSERT INTO pass (observer, norad, aos, los, max_el_deg) "
                     "VALUES ('HT-ENC-JN97', 999001, now() - interval '3 hours', "
                     "now() - interval '170 minutes', 45)")
-    aos = main.station_health_one("HT-ENC-JN97")["past_passes"][0]["aos"]
+    aos = main.station_health_one("HT-ENC-JN97", main.Response())["past_passes"][0]["aos"]
     assert "+" in aos, "the fixture must exercise the offset form"
-    out = main.station_pass_detail("HT-ENC-JN97", 999001, aos.replace("+", " "))
+    out = main.station_pass_detail("HT-ENC-JN97", 999001,
+                                   aos.replace("+", " "), main.Response())
     assert out["satellite"] == "ENC TEST"
     with _pt.raises(_He) as e:
-        main.station_pass_detail("HT-ENC-JN97", 999001, "not-a-time")
+        main.station_pass_detail("HT-ENC-JN97", 999001, "not-a-time", main.Response())
     assert e.value.status_code == 400, "malformed aos must be a 400, not a 500"
     with db, db.cursor() as cur:
         cur.execute("DELETE FROM pass WHERE observer = 'HT-ENC-JN97'")
         cur.execute("DELETE FROM satellite WHERE norad = 999001")
         _wipe_health(cur)
+
+
+def test_station_endpoints_are_cacheable():   # #372
+    """First operator feedback on the app: "faster data loading", from a
+    connection where RTT is the whole cost. These are aggregates over open
+    data; a phone reusing them briefly is free speed. A completed pass never
+    changes at all, so it caches hard."""
+    src = open(os.path.join(os.path.dirname(__file__), "main.py"),
+               encoding="utf-8").read()
+    for fn, age in (("stations_list", 300), ("station_health_one", 60),
+                    ("station_pass_detail", 3600)):
+        body = src[src.index(f"def {fn}("):]
+        body = body[:body.index("\n@app.")]
+        assert f'"public, max-age={age}"' in body, \
+            f"{fn} must let the client cache for {age}s"
+        assert "response: Response" in body.split(")")[0] + ")", \
+            f"{fn} must take the Response to set headers on"
