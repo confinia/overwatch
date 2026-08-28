@@ -172,6 +172,20 @@ CREATE TABLE IF NOT EXISTS provider_refusal (
     ts     timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS provider_refusal_ts_idx ON provider_refusal (ts DESC);
+-- Web Push subscriptions (#373): "alert me when MY station goes quiet". One
+-- row per (browser, station); endpoint is the push service URL and is unique
+-- per browser+app. notified_at throttles to one alert per station per day —
+-- a quiet station is a STATE, and #341/#352/#361 taught three times that
+-- alerts fire on change, not state.
+CREATE TABLE IF NOT EXISTS push_watch (
+    endpoint    TEXT NOT NULL,
+    observer    TEXT NOT NULL,
+    p256dh      TEXT NOT NULL,
+    auth        TEXT NOT NULL,
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    notified_at timestamptz,
+    PRIMARY KEY (endpoint, observer)
+);
 -- SatNOGS throttles telemetry for satellites it flags as violating frequency
 -- regulations to one request per day, against six a minute for everything
 -- else. Mirrored from the bulk list so a satellite flagged upstream is
@@ -325,6 +339,7 @@ async def lifespan(_: FastAPI):
     finally:
         pool.putconn(conn)
     _provision_ops_org_async()                     # Grafana may still be booting
+    _push_watch_loop()                             # #373: quiet-station alerts
     yield
     pool.closeall()
 
@@ -697,6 +712,164 @@ def stations_list(response: Response):
         return [{"observer": o, "lat": la, "lon": lo, "frames": f,
                  "satellites": s, "last_rx": t.isoformat()}
                 for o, la, lo, f, s, t in cur.fetchall()]
+
+
+# --- "Alert me when my station goes quiet" (#373) ---------------------------
+# Web Push, VAPID-signed. Without the keys the feature is silently absent —
+# the Space-Track rule: self-host configures nothing and loses nothing until
+# they want it.
+VAPID_PRIVATE = os.environ.get("VAPID_PRIVATE", "").strip()
+VAPID_PUBLIC = os.environ.get("VAPID_PUBLIC", "").strip()
+VAPID_SUBJECT = os.environ.get("VAPID_SUBJECT", "mailto:contact@confinia.io")
+PUSH_COOLDOWN_H = int(os.environ.get("PUSH_COOLDOWN_H", 24))
+
+
+class WatchRequest(BaseModel):
+    endpoint: str
+    p256dh: str
+    auth: str
+
+
+import json as _pushjson
+
+
+def _push_to(endpoint: str, p256dh: str, auth: str, payload: dict) -> bool:
+    """One notification. Returns False when the subscription is GONE (404/410
+    from the push service): that browser uninstalled or expired us, and the
+    row must be deleted rather than retried forever."""
+    from pywebpush import webpush, WebPushException
+    try:
+        webpush(
+            subscription_info={"endpoint": endpoint,
+                               "keys": {"p256dh": p256dh, "auth": auth}},
+            data=_pushjson.dumps(payload),
+            vapid_private_key=VAPID_PRIVATE,
+            vapid_claims={"sub": VAPID_SUBJECT},
+            ttl=3600,
+        )
+        return True
+    except WebPushException as e:
+        code = getattr(getattr(e, "response", None), "status_code", None)
+        if code in (404, 410):
+            return False
+        print(f"push failed ({code}): {e}", flush=True)
+        return True                                # transient: keep the row
+
+
+@app.get("/v1/push/key")
+def push_key():
+    """The VAPID public key the browser needs to subscribe. 404 when push is
+    not configured, so the app can hide the button instead of half-working."""
+    if not (VAPID_PRIVATE and VAPID_PUBLIC):
+        raise HTTPException(404, "Push is not configured on this install.")
+    return {"key": VAPID_PUBLIC}
+
+
+@app.post("/v1/stations/{callsign}/watch", status_code=201)
+def station_watch(callsign: str, body: WatchRequest):
+    """Start watching a station from this browser.
+
+    Immediately sends a REAL push through the whole pipe, so the operator sees
+    it work within seconds, on the device that will receive the actual alert —
+    not a local notification faking it."""
+    if not (VAPID_PRIVATE and VAPID_PUBLIC):
+        raise HTTPException(404, "Push is not configured on this install.")
+    with cursor() as cur:
+        cur.execute("""SELECT observer FROM station_daily
+                       WHERE split_part(observer, '-', 1) ILIKE %s
+                          OR observer = %s
+                       GROUP BY observer ORDER BY sum(frames) DESC LIMIT 1""",
+                    (callsign, callsign))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, f"No station matching '{callsign}'.")
+        observer = row[0]
+        cur.execute("""INSERT INTO push_watch (endpoint, observer, p256dh, auth)
+                       VALUES (%s, %s, %s, %s)
+                       ON CONFLICT (endpoint, observer) DO UPDATE SET
+                         p256dh = EXCLUDED.p256dh, auth = EXCLUDED.auth""",
+                    (body.endpoint, observer, body.p256dh, body.auth))
+        cur.connection.commit()
+    _push_to(body.endpoint, body.p256dh, body.auth,
+             {"title": f"Watching {observer}",
+              "body": "You'll hear from us here if this station goes quiet.",
+              "observer": observer})
+    return {"watching": observer}
+
+
+@app.delete("/v1/stations/{callsign}/watch", status_code=204)
+def station_unwatch(callsign: str, body: WatchRequest):
+    with cursor() as cur:
+        cur.execute("""DELETE FROM push_watch WHERE endpoint = %s
+                       AND (observer = %s OR split_part(observer,'-',1) ILIKE %s)""",
+                    (body.endpoint, callsign, callsign))
+        cur.connection.commit()
+
+
+def _check_watched_stations() -> int:
+    """The sender: notify watchers of stations the DETECTOR currently flags.
+
+    Reusing STATION_HEALTH_SQL is the point, not a convenience — the alert
+    inherits the fleet clause, so our own 2026-08-20 outage would have paged
+    ZERO operators: every station went quiet at once, and the fault was ours.
+    One notification per (browser, station) per PUSH_COOLDOWN_H."""
+    if not (VAPID_PRIVATE and VAPID_PUBLIC):
+        return 0
+    import datetime as _dt
+    with cursor() as cur:
+        cur.execute(STATION_HEALTH_SQL, {
+            "as_of": _dt.datetime.now(_dt.timezone.utc).date().isoformat(),
+            "window": HEALTH_RECENT_DAYS + HEALTH_BASELINE_DAYS,
+            "recent": HEALTH_RECENT_DAYS,
+            "min_days": HEALTH_MIN_DAYS,
+            "min_base": HEALTH_MIN_BASELINE,
+            "collapse": HEALTH_COLLAPSE,
+            "fleet_ok": HEALTH_FLEET_OK,
+        })
+        degraded = {r[0] for r in cur.fetchall()}
+        if not degraded:
+            return 0
+        cur.execute("""SELECT endpoint, observer, p256dh, auth FROM push_watch
+                       WHERE observer = ANY(%s)
+                         AND (notified_at IS NULL
+                              OR notified_at < now() - %s * interval '1 hour')""",
+                    (list(degraded), PUSH_COOLDOWN_H))
+        due = cur.fetchall()
+        sent = 0
+        for endpoint, observer, p256dh, auth in due:
+            ok = _push_to(endpoint, p256dh, auth,
+                          {"title": f"{observer} has gone quiet",
+                           "body": ("Reception is far below this station's own "
+                                    "baseline while the rest of the network is "
+                                    "hearing normally."),
+                           "observer": observer})
+            if ok:
+                cur.execute("UPDATE push_watch SET notified_at = now() "
+                            "WHERE endpoint = %s AND observer = %s",
+                            (endpoint, observer))
+                sent += 1
+            else:                                  # 404/410: browser is gone
+                cur.execute("DELETE FROM push_watch WHERE endpoint = %s",
+                            (endpoint,))
+        cur.connection.commit()
+    return sent
+
+
+def _push_watch_loop() -> None:
+    import threading
+
+    def _loop():
+        while True:
+            try:
+                n = _check_watched_stations()
+                if n:
+                    print(f"push: {n} quiet-station notification(s) sent",
+                          flush=True)
+            except Exception as e:
+                print(f"push loop error: {e}", flush=True)
+            time.sleep(int(os.environ.get("PUSH_CHECK_INTERVAL", 900)))
+
+    threading.Thread(target=_loop, daemon=True).start()
 
 
 @app.get("/v1/stations/health")
