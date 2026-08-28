@@ -678,9 +678,14 @@ def telemetry(norad: int,
 
 
 @app.get("/v1/stations")
-def stations_list():
+def stations_list(response: Response):
     """Volunteer ground stations that received the fleet in the last 7 days
     (positions decoded from their Maidenhead locators)."""
+    # First real operator feedback on the app was "faster data loading" —
+    # from Indonesia, where the RTT to this server is the cost. These are
+    # 7-day aggregates; letting the phone reuse them for five minutes is
+    # free speed (#372).
+    response.headers["Cache-Control"] = "public, max-age=300"
     with cursor() as cur:
         cur.execute("""
             SELECT observer, max(lat) AS lat, max(lon) AS lon,
@@ -729,11 +734,12 @@ def station_health(as_of: str = ""):
 
 
 @app.get("/v1/stations/{callsign}/health")
-def station_health_one(callsign: str):
+def station_health_one(callsign: str, response: Response):
     """One station's own health: daily hit rate, baseline vs recent, and next
     passes. The question a station operator actually has is "is MY station
     okay" — the fleet-wide degraded list cannot answer it for a healthy
     station (#363). Open data, like everything station-facing."""
+    response.headers["Cache-Control"] = "public, max-age=60"
     with cursor() as cur:
         # Resolve the callsign to the busiest matching observer, same match
         # rule as the receptions route below.
@@ -796,11 +802,14 @@ def station_health_one(callsign: str):
 
 
 @app.get("/v1/stations/{callsign}/pass")
-def station_pass_detail(callsign: str, norad: int, aos: str):
+def station_pass_detail(callsign: str, norad: int, aos: str,
+                        response: Response):
     """One pass, frame by frame (#368): every reception inside the window and
     how many telemetry fields each decoded into. WHERE the frames sit in the
     window is the diagnostic part — hearing only around max elevation is a
     horizon problem; frames across the whole window is a healthy chain."""
+    # a completed pass never changes: cache hard
+    response.headers["Cache-Control"] = "public, max-age=3600"
     # "+00:00" arrives as " 00:00" from any client that does not percent-
     # encode the plus — query-string decoding turns + into a space, Swift's
     # URLComponents leaves + literal, and the bare curl in the docs does too.
