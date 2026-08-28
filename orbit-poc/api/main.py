@@ -872,6 +872,34 @@ def _push_watch_loop() -> None:
     threading.Thread(target=_loop, daemon=True).start()
 
 
+@app.get("/v1/satellites/{norad}/frame")
+def frame_fields(norad: int, ts: str, response: Response):
+    """Every decoded field of ONE frame (#375) — the deepest level of the
+    drill-down: station -> pass -> frame -> values. A frame's identity is
+    (satellite, timestamp); the values are identical whichever station heard
+    it. Immutable once decoded, so it caches hard."""
+    response.headers["Cache-Control"] = "public, max-age=3600"
+    ts = ts.replace(" ", "+")            # the unencoded-plus lesson (#369)
+    try:
+        import datetime as _dtf
+        _dtf.datetime.fromisoformat(ts)
+    except ValueError:
+        raise HTTPException(400, f"ts is not an ISO timestamp: {ts!r}")
+    with cursor() as cur:
+        cur.execute("""SELECT field, value_num, value_txt FROM telemetry
+                       WHERE norad = %s AND ts = %s::timestamptz
+                       ORDER BY field""", (norad, ts))
+        rows = cur.fetchall()
+        if not rows:
+            raise HTTPException(404, "No decoded fields for that frame.")
+        cur.execute("SELECT name FROM satellite WHERE norad = %s", (norad,))
+        name = (cur.fetchone() or [f"NORAD {norad}"])[0]
+    return {"norad": norad, "satellite": name, "ts": ts,
+            "fields": [{"field": f,
+                        "value": v if v is not None else t}
+                       for f, v, t in rows]}
+
+
 @app.get("/v1/stations/health")
 def station_health(as_of: str = ""):
     """Ground stations whose reception has collapsed against their own history.

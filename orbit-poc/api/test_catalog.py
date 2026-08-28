@@ -921,3 +921,28 @@ def test_a_gone_browser_is_forgotten(db, monkeypatch):
         cur.execute("SELECT count(*) FROM push_watch WHERE endpoint='https://push.test/gone'")
         assert cur.fetchone()[0] == 0
         _wipe_health(cur)
+
+
+def test_a_frame_yields_its_decoded_values(db):   # #375
+    """The deepest drill-down level: numeric and text values both, since
+    modes and states are strings ("NOMINAL") and charts are numbers."""
+    import pytest as _pt
+    from fastapi import HTTPException as _He
+    with db, db.cursor() as cur:
+        cur.execute("INSERT INTO satellite (norad, name, has_telemetry) VALUES "
+                    "(999001, 'FRAME TEST', false) ON CONFLICT (norad) DO NOTHING")
+        cur.execute("DELETE FROM telemetry WHERE norad = 999001")
+        cur.execute("INSERT INTO telemetry (norad, ts, field, value_num) VALUES "
+                    "(999001, '2026-08-28T06:00:00+00:00', 'battery_v', 7.42)")
+        cur.execute("INSERT INTO telemetry (norad, ts, field, value_txt) VALUES "
+                    "(999001, '2026-08-28T06:00:00+00:00', 'mode', 'NOMINAL')")
+    out = main.frame_fields(999001, "2026-08-28T06:00:00 00:00", main.Response())
+    assert out["satellite"] == "FRAME TEST"
+    got = {f["field"]: f["value"] for f in out["fields"]}
+    assert got == {"battery_v": 7.42, "mode": "NOMINAL"}, \
+        "numeric and text values must both come through"
+    with _pt.raises(_He):
+        main.frame_fields(999001, "1999-01-01T00:00:00+00:00", main.Response())
+    with db, db.cursor() as cur:
+        cur.execute("DELETE FROM telemetry WHERE norad = 999001")
+        cur.execute("DELETE FROM satellite WHERE norad = 999001")
