@@ -830,3 +830,94 @@ def test_station_endpoints_are_cacheable():   # #372
             f"{fn} must let the client cache for {age}s"
         assert "response: Response" in body.split(")")[0] + ")", \
             f"{fn} must take the Response to set headers on"
+
+
+# ---------------------------------------------------------------------------
+# "Alert me when my station goes quiet" (#373)
+# ---------------------------------------------------------------------------
+def test_push_is_silently_absent_without_keys():
+    """The Space-Track rule: self-host configures nothing and loses nothing.
+    The key endpoint 404s so the app hides the button instead of half-working."""
+    import pytest as _pt
+    from fastapi import HTTPException as _He
+    old = (main.VAPID_PRIVATE, main.VAPID_PUBLIC)
+    main.VAPID_PRIVATE = main.VAPID_PUBLIC = ""
+    try:
+        with _pt.raises(_He): main.push_key()
+        with _pt.raises(_He):
+            main.station_watch("X", main.WatchRequest(
+                endpoint="https://p/e", p256dh="k", auth="a"))
+        assert main._check_watched_stations() == 0
+    finally:
+        main.VAPID_PRIVATE, main.VAPID_PUBLIC = old
+
+
+def test_a_watch_stores_and_deletes(db, monkeypatch):
+    monkeypatch.setattr(main, "VAPID_PRIVATE", "x")
+    monkeypatch.setattr(main, "VAPID_PUBLIC", "y")
+    sent = []
+    monkeypatch.setattr(main, "_push_to",
+                        lambda e, p, a, payload: sent.append(payload) or True)
+    with db, db.cursor() as cur:
+        _wipe_health(cur)
+        _seed_station(cur, "HT-PUSH-JN97", 0.6, 0.6)
+    out = main.station_watch("HT-PUSH-JN97", main.WatchRequest(
+        endpoint="https://push.example/e1", p256dh="k", auth="a"))
+    assert out["watching"] == "HT-PUSH-JN97"
+    assert sent and "Watching" in sent[0]["title"], \
+        "subscribing must send a REAL push so the pipe is proven on the spot"
+    with db, db.cursor() as cur:
+        cur.execute("SELECT count(*) FROM push_watch WHERE endpoint='https://push.example/e1'")
+        assert cur.fetchone()[0] == 1
+    main.station_unwatch("HT-PUSH-JN97", main.WatchRequest(
+        endpoint="https://push.example/e1", p256dh="k", auth="a"))
+    with db, db.cursor() as cur:
+        cur.execute("SELECT count(*) FROM push_watch WHERE endpoint='https://push.example/e1'")
+        assert cur.fetchone()[0] == 0
+        _wipe_health(cur)
+
+
+def test_the_quiet_alert_is_the_detectors_verdict(db, monkeypatch):
+    """The sender reuses STATION_HEALTH_SQL, fleet clause included: our own
+    2026-08-20 outage — every station to zero at once — must page NOBODY,
+    because the fault was ours. And one alert per cooldown: a quiet station is
+    a state; #341/#352/#361 taught three times to fire on the change."""
+    monkeypatch.setattr(main, "VAPID_PRIVATE", "x")
+    monkeypatch.setattr(main, "VAPID_PUBLIC", "y")
+    sent = []
+    monkeypatch.setattr(main, "_push_to",
+                        lambda e, p, a, payload: sent.append(payload) or True)
+    with db, db.cursor() as cur:
+        _wipe_health(cur)
+        cur.execute("DELETE FROM push_watch WHERE endpoint LIKE 'https://push.test/%'")
+        for good in ("HT-G1", "HT-G2", "HT-G3"):
+            _seed_station(cur, good, 0.60, 0.60)
+        _seed_station(cur, "HT-QUIET", 0.60, 0.00)
+        cur.execute("INSERT INTO push_watch (endpoint, observer, p256dh, auth) "
+                    "VALUES ('https://push.test/q', 'HT-QUIET', 'k', 'a')")
+    assert main._check_watched_stations() == 1
+    assert sent and "gone quiet" in sent[0]["title"]
+    assert main._check_watched_stations() == 0, \
+        "the second cycle must respect the cooldown, not re-page"
+    with db, db.cursor() as cur:
+        cur.execute("DELETE FROM push_watch WHERE endpoint LIKE 'https://push.test/%'")
+        _wipe_health(cur)
+
+
+def test_a_gone_browser_is_forgotten(db, monkeypatch):
+    """404/410 from the push service means that browser uninstalled us."""
+    monkeypatch.setattr(main, "VAPID_PRIVATE", "x")
+    monkeypatch.setattr(main, "VAPID_PUBLIC", "y")
+    monkeypatch.setattr(main, "_push_to", lambda e, p, a, payload: False)
+    with db, db.cursor() as cur:
+        _wipe_health(cur)
+        for good in ("HT-G1", "HT-G2", "HT-G3"):
+            _seed_station(cur, good, 0.60, 0.60)
+        _seed_station(cur, "HT-QUIET", 0.60, 0.00)
+        cur.execute("INSERT INTO push_watch (endpoint, observer, p256dh, auth) "
+                    "VALUES ('https://push.test/gone', 'HT-QUIET', 'k', 'a')")
+    main._check_watched_stations()
+    with db, db.cursor() as cur:
+        cur.execute("SELECT count(*) FROM push_watch WHERE endpoint='https://push.test/gone'")
+        assert cur.fetchone()[0] == 0
+        _wipe_health(cur)
