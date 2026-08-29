@@ -39,7 +39,12 @@ jobs:
           stage=$(jq -r '.[] | select(.name=="stage").conclusion // ""' <<<"$jobs")
           promote=$(jq -r '.[] | select(.name=="promote").conclusion // ""' <<<"$jobs")
           echo "stage=$stage promote=$promote"
-          if [ "$stage" != "success" ] || [ "$promote" != "cancelled" ]; then
+          # At-the-gate signature, corrected by the first live supersession
+          # (run 33276722290): a promote WAITING on approval when the run is
+          # killed never gets a conclusion at all - the jobs API reports it
+          # empty, not 'cancelled'. On a cancelled run, stage=success is
+          # sufficient: the only thing left in flight WAS the gate.
+          if [ "$stage" != "success" ] || [ "$promote" = "success" ]; then
             echo "not at the gate - quiet"; echo "proceed=false" >> "$GITHUB_OUTPUT"; exit 0
           fi
           # The superseding run: the next deploy run on main after this one. A
