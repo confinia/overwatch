@@ -627,7 +627,14 @@ async function selectStation(observer){
   if (location.hash !== h) history.replaceState(null, "", h);
   const head = document.getElementById("panelHead");
   const body = document.getElementById("panelBody");
-  head.innerHTML = `${escapeHTML(observer)} — volunteer ground station (SatNOGS) · ` +
+  // Say only the kind we know (#97): SatNOGS app_source distinguishes a
+  // network observation station from a direct SiDS uploader — one operator
+  // runs both under one callsign and could not tell them apart here.
+  const stInfo = allStations.find(s => s.observer === observer);
+  const kind = stInfo?.source === "network" ? "SatNOGS network station"
+             : stInfo?.source === "sids" ? "direct-upload station (SiDS)"
+             : "volunteer ground station";
+  head.innerHTML = `${escapeHTML(observer)} — ${kind} · ` +
     `<a class="action" href="https://www.qrz.com/db/${encodeURIComponent(baseCall(observer.split("-")[0]))}" ` +
     `target="_blank" rel="noopener" title="Look up / contact the operator">Contact operator ↗</a>`;
   body.innerHTML = `<div class="empty"><span class="dot"></span>Loading receptions…</div>`;
