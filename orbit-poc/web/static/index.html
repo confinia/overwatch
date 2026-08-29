@@ -253,20 +253,22 @@
     width:30px; height:30px; border-radius:50%; border:1px solid var(--line);
     background:var(--panel); color:var(--dim); font-size:16px; cursor:pointer; }
   #guide-open:hover { color:var(--text); border-color:var(--accent); }
-  #guide { position:fixed; inset:0; z-index:40; background:rgba(10,14,23,.75);
+  #guide, #why-register { position:fixed; inset:0; z-index:40; background:rgba(10,14,23,.75);
     display:flex; align-items:center; justify-content:center; padding:16px; }
-  #guide[hidden] { display:none; }
-  #guide .card { background:var(--panel); border:1px solid var(--line);
+  #guide[hidden], #why-register[hidden] { display:none; }
+  #guide .card, #why-register .card { background:var(--panel); border:1px solid var(--line);
     border-radius:10px; max-width:520px; width:100%; padding:20px 22px;
     max-height:90vh; overflow-y:auto; }
-  #guide h2 { margin:0 0 12px; font-size:16px; }
-  #guide ul { margin:0 0 16px; padding-left:18px; }
-  #guide li { margin:0 0 10px; line-height:1.45; font-size:13.5px; }
-  #guide li b { color:var(--accent); font-weight:600; }
+  #guide h2, #why-register h2 { margin:0 0 12px; font-size:16px; }
+  #guide ul, #why-register ul { margin:0 0 16px; padding-left:18px; }
+  #guide li, #why-register li { margin:0 0 10px; line-height:1.45; font-size:13.5px; }
+  #guide li b, #why-register li b { color:var(--accent); font-weight:600; }
   #guide .dot-rx { color:#ff9f43; }
-  #guide button { background:var(--accent); color:#06101f; border:0;
+  #guide button, #why-register button { background:var(--accent); color:#06101f; border:0;
     border-radius:8px; padding:8px 18px; font-size:13.5px; font-weight:600;
     cursor:pointer; }
+  #why-register .plain { background:none; color:var(--dim); font-weight:400;
+    padding:8px 12px; }
 </style>
 </head>
 <body>
@@ -288,6 +290,28 @@
         organization is only for teams pushing private telemetry.</li>
     </ul>
     <button id="guide-close" type="button">Got it</button>
+  </div>
+</div>
+
+<!-- "What awaits me if I register?" — Daniel DL7NDR's question on the
+     SatNOGS forum, verbatim. The sign-in link opens this instead of
+     dropping visitors into a login form unexplained. -->
+<div id="why-register" hidden>
+  <div class="card" role="dialog" aria-labelledby="why-title">
+    <h2 id="why-title">What registering gets you</h2>
+    <ul>
+      <li>The control room you are looking at is <b>open data</b> — free,
+        no account needed, and that stays true.</li>
+      <li>A <b>free account</b> adds the operator comforts: favourite
+        satellites pinned to the top, and "alert me if my station goes
+        quiet".</li>
+      <li id="why-pro">Flying something? An organization gives your team a
+        <b>private control room for your own telemetry</b>: one HTTP request
+        per pass in, isolated per-org dashboards and API keys out. That part
+        is the paid plan — it is what funds the open one.</li>
+    </ul>
+    <button id="why-signin" type="button">Sign in / Register</button>
+    <button id="why-close" class="plain" type="button">Just looking</button>
   </div>
 </div>
 <div id="app">
