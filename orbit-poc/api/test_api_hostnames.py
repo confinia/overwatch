@@ -58,3 +58,29 @@ def test_site_hosts_keep_the_api_prefix():
     assert "handle /api/v1*" in _block(tmpl, "overwatch.confinia.io")
     assert "handle /api/v1*" in _block(open(SANDBOX_CADDY).read(),
                                        "sandbox.overwatch.confinia.io")
+
+
+# ---------------------------------------------------------------------------
+# grafana.overwatch.confinia.io — the memorable hostname (#386)
+# ---------------------------------------------------------------------------
+EDGE_STUB = os.path.join(HERE, "..", "..", "deploy", "caddy", "overwatch.caddy")
+
+
+def test_grafana_hostname_redirects_to_the_canonical_path():
+    """A 308 to overwatch.confinia.io/grafana — never a second serving
+    origin: root_url, the same-origin iframes, frame-ancestors 'self' and
+    the Keycloak redirect URIs all assume the canonical one."""
+    tmpl = open(TMPL, encoding="utf-8").read()
+    block = tmpl[tmpl.index("http://grafana.overwatch.confinia.io"):]
+    block = block[:block.index("\n}")]
+    assert "redir * https://overwatch.confinia.io/grafana{uri} 308" in block
+    assert "reverse_proxy" not in block, \
+        "the hostname must redirect, not serve — one Grafana origin only"
+
+
+def test_grafana_hostname_is_in_the_edge_stub():
+    # the stub is what the founder applies on the platform edge (rule 19) —
+    # a hostname missing here never terminates TLS, and the redirect above
+    # is unreachable dead config
+    stub = open(EDGE_STUB, encoding="utf-8").read()
+    assert "grafana.overwatch.confinia.io" in stub
