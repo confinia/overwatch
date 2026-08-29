@@ -5,6 +5,7 @@ CI installs sgp4 so it runs there.
 """
 import math
 import os
+import re
 import sys
 from datetime import datetime, timezone
 
@@ -163,3 +164,15 @@ def test_a_recompute_never_deletes_a_completed_pass():   # #367
         "an unscoped delete wipes the history the mobile app shows"
     assert "los < now() - interval '30 days'" in code, \
         "keep completed passes bounded, not forever"
+
+
+def test_pass_coverage_reaches_every_active_station():
+    """Forum, thread 15232/8: 'i see not all station have next and recent
+    pass. why?' — because the default covered the top 20 of 202 eligible
+    stations, cutting off at exactly the engaged operators (ranks 21, 25).
+    47 ms per pair measured live -> full coverage is minutes per cycle."""
+    src = open(os.path.join(os.path.dirname(__file__), "..", "ingest",
+                            "ingest.py"), encoding="utf-8").read()
+    m = re.search(r'PASSES_MAX_STATIONS = int\(os\.environ\.get\("PASSES_MAX_STATIONS", (\d+)\)\)', src)
+    assert m and int(m.group(1)) >= 200, \
+        "the default must cover every currently active station, not a top slice"

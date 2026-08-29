@@ -57,7 +57,11 @@ CATALOG_INTERVAL   = int(os.environ.get("CATALOG_INTERVAL",   86400))
 PASSES_INTERVAL     = int(os.environ.get("PASSES_INTERVAL",     6 * 3600))
 PASSES_HORIZON_H    = int(os.environ.get("PASSES_HORIZON_H",    168))
 PASSES_MIN_EL       = float(os.environ.get("PASSES_MIN_EL",     10.0))
-PASSES_MAX_STATIONS = int(os.environ.get("PASSES_MAX_STATIONS", 20))
+# 250: every station with a position and 7-day activity (202 today) plus
+# headroom. Measured 47 ms per station-sat 168h scan in the prod container,
+# so full coverage costs ~4.4 min per 6h cycle; 20 was thrift, not physics,
+# and the cutoff excluded the operators who actually asked (ranks 21, 25).
+PASSES_MAX_STATIONS = int(os.environ.get("PASSES_MAX_STATIONS", 250))
 
 # Be a good citizen: identify ourselves.
 from flatten import flatten_decoded
