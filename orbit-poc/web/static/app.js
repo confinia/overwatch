@@ -490,6 +490,14 @@ async function renderCatalog(q, list){
   hdr.className = "meta"; hdr.style.padding = "8px 12px 2px";
   hdr.textContent = "From the open network — add any satellite to the globe";
   list.appendChild(hdr);
+  // The question behind a missing satellite is "is the telemetry not
+  // free?" (asked verbatim on the forum, #96). Absence is never a paywall
+  // — say so exactly where someone is looking for the missing satellite.
+  const why = document.createElement("div");
+  why.className = "meta"; why.style.padding = "0 12px 6px";
+  why.textContent = "Telemetry appears once a satellite has an open decoder " +
+    "and has been heard recently — nothing here is behind a paywall.";
+  list.appendChild(why);
   for (const h of fresh){
     const div = document.createElement("div");
     // Grey means the CATALOGUE says it is not alive (dead / re-entered /
