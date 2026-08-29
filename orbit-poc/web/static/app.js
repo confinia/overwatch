@@ -30,8 +30,22 @@ const TOUCH = window.matchMedia("(pointer: coarse)").matches;
 // drives all three so they describe the same frames over the same window
 // (#70/#71/#72). Persisted per browser.
 const RANGES = [[1,"1h"],[6,"6h"],[24,"24h"],[72,"3d"],[168,"7d"]];
-let rangeHours = Number(localStorage.getItem("ovw_rangeHours"));
-if (!RANGES.some(r => r[0] === rangeHours)) rangeHours = 168;   // default 7 days
+// Reading order: URL -> localStorage -> 24h (#258). The URL wins so a shared
+// link or bookmark shows the sender's window, not the reader's leftover
+// setting; the hash already carries the selection, so the range rides the
+// query string. 24h default: a cold first visit answers "what is happening
+// now" instead of pulling a week of receptions before first paint.
+const RANGE_BY_LABEL = Object.fromEntries(RANGES.map(([h, l]) => [l, h]));
+let rangeHours = RANGE_BY_LABEL[
+  new URLSearchParams(location.search).get("range")]
+  ?? Number(localStorage.getItem("ovw_rangeHours"));
+if (!RANGES.some(r => r[0] === rangeHours)) rangeHours = 24;    // default 24h
+function rangeToUrl(){
+  // replaceState like the selection does — copy-pasteable, no history spam
+  const q = new URLSearchParams(location.search);
+  q.set("range", RANGES.find(r => r[0] === rangeHours)[1]);
+  history.replaceState(null, "", `${location.pathname}?${q}${location.hash}`);
+}
 function renderRangebar(){
   const el = document.getElementById("rangebar");
   if (!el) return;
@@ -41,6 +55,7 @@ function renderRangebar(){
 function setRange(h){
   if (h === rangeHours) return;
   rangeHours = h; localStorage.setItem("ovw_rangeHours", String(h));
+  rangeToUrl();
   renderRangebar();
   // re-fetch the active view with the new window so map + fields stay coherent
   if (activeStation) selectStation(activeStation);
@@ -105,7 +120,7 @@ function toggleOpen(){
     if (head) head.textContent = "Select a satellite to inspect its telemetry";
     if (body) body.innerHTML = `<div class="empty">Showing your satellites only. ` +
       `Star an open-data satellite (★) to keep following it here.</div>`;
-    if (location.hash) history.replaceState(null, "", location.pathname);
+    if (location.hash) history.replaceState(null, "", location.pathname + location.search);   // keep ?range= (#258)
   }
   applyOpenVisibility(); renderList(allSats);
 }
