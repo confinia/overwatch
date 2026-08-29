@@ -13,5 +13,8 @@
     "auth": "true",
     "user": "$(env:SMTP_USER)",
     "password": "$(env:SMTP_PASSWORD)"
-  }
+  },
+  "resetPasswordAllowed": true,
+  "eventsEnabled": true,
+  "eventsExpiration": 1209600
 }

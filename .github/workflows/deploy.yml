@@ -107,6 +107,17 @@ jobs:
           podman-compose -p ovw-staging -f docker-compose.yml up -d --build 2>&1 | tail -2
           for c in $(podman ps --format '{{.Names}}' | grep ^ovw-staging); do
             podman update --restart=always "$c" >/dev/null; done
+          # Realm configuration is code (#174/#201): re-converge it on every
+          # stage, so a merged realm-file change can no longer sit unapplied
+          # waiting for a by-hand one-shot (#265 found eventsEnabled would
+          # have). One shared Keycloak serves all envs, so realm files are
+          # per-environment and a prod-realm edit lands at stage time - keep
+          # prod realm edits deliberate. The cli is partial + no-delete +
+          # idempotent; a failed apply fails the stage, loudly.
+          cd ~/projects/overwatch/orbit-poc/v2
+          podman-compose -p ovw2 up --no-deps keycloak-config-cli 2>&1 | tail -3
+          rc=$(podman inspect ovw2_keycloak-config-cli_1 --format '{{.State.ExitCode}}')
+          [ "$rc" = "0" ] || { echo "realm config apply failed (exit $rc)" >&2; exit 1; }
           # The ops Grafana shows what is staged vs promoted (#382); this row
           # is where "the gap" starts ticking.
           bash ~/projects/overwatch/deploy/record-deploy-event.sh \
