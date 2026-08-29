@@ -112,3 +112,25 @@ def test_revoking_still_requires_the_full_key():
     fn = fn[:fn.index("async function confirmRevoke")]
     assert "full key" in fn, "the confirmation wording is gone"
     assert "required" in fn, "the field must be required"
+
+
+def test_the_sign_in_affordance_answers_what_awaits_me():
+    """DL7NDR, verbatim: "What awaits me if I register to your site?" The
+    anonymous sign-in link must open the explainer, not drop visitors into
+    a Keycloak form unexplained — and the card must say what is free, and
+    what the paid plan exists for."""
+    html = _read_static("index.html")
+    card = html[html.index('id="why-register"'):html.index('id="app"')]
+    assert "open data" in card and "free" in card
+    assert "private control room for your own telemetry" in card
+    assert "paid plan" in card, "the card must name the paid plan"
+    assert 'id="why-signin"' in card, "the card itself must carry on to login"
+    js = _read_static("app.js")
+    assert 'onclick="whyRegister();return false"' in js, \
+        "the Sign in / Register link must open the explainer first"
+    assert 'getElementById("why-pro")' in js, \
+        "selfhost (#280) has no billing surface, the card must follow it"
+
+
+def _read_static(name):
+    return open(os.path.join(STATIC, name), encoding="utf-8").read()

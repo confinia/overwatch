@@ -139,7 +139,11 @@ async function loadAccount(){
       orgInfo = null;
     }
   } catch (e) {
-    el.innerHTML = ` · <a class="action" href="${API_BASE}/api/v1/auth/login">Sign in / Register</a>`;
+    // The affordance answers "what awaits me if I register?" (DL7NDR, #95)
+    // before asking for credentials; the card's own button carries on to
+    // Keycloak. href kept for no-JS readers and crawlers.
+    el.innerHTML = ` · <a class="action" href="${API_BASE}/api/v1/auth/login" ` +
+      `onclick="whyRegister();return false">Sign in / Register</a>`;
     orgInfo = null;
     signedIn = false; myFavorites = new Set();               // #221
   }
@@ -243,7 +247,15 @@ fetch(`${API_BASE}/api/v1/billing/mode`).then(r => r.json()).then(m => {
     el.textContent = "billing off";
     el.title = "Billing is not connected in this environment.";
   }
-}).catch(() => {});
+}).catch(() => {
+  // 404 = the selfhost edition (#280): no billing surface exists, so the
+  // why-register card must not promise a paid plan nobody here sells. The
+  // private-telemetry sentence stays — the capability is real either way.
+  const pro = document.getElementById("why-pro");
+  if (pro) pro.innerHTML = "Flying something? An organization gives your " +
+    "team a <b>private control room for your own telemetry</b>: one HTTP " +
+    "request per pass in, isolated per-org dashboards and API keys out.";
+});
 
 // Basemap: Sentinel-2 cloudless by EOX — real Copernicus imagery, processed
 // and served from Europe. The glyph server only feeds the text labels.
@@ -1428,6 +1440,25 @@ function dragGutter(id, onMove){
   el.addEventListener("pointerup", end);
   el.addEventListener("pointercancel", end);
 }
+
+// --- Why register (#95) -----------------------------------------------------
+function whyRegister(){
+  const card = document.getElementById("why-register");
+  if (!card) { location.href = `${API_BASE}/api/v1/auth/login`; return; }
+  card.hidden = false;
+}
+(() => {
+  const card = document.getElementById("why-register");
+  if (!card) return;
+  const close = () => { card.hidden = true; };
+  document.getElementById("why-signin").addEventListener("click",
+    () => { location.href = `${API_BASE}/api/v1/auth/login`; });
+  document.getElementById("why-close").addEventListener("click", close);
+  card.addEventListener("click", e => { if (e.target === card) close(); });
+  window.addEventListener("keydown", e => {
+    if (e.key === "Escape" && !card.hidden) close();
+  });
+})();
 
 // --- First-run guide (#108) -------------------------------------------------
 // Two operators independently called the first visit a learning curve (F1SXJ:
