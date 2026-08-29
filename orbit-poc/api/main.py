@@ -114,6 +114,13 @@ CREATE TABLE IF NOT EXISTS org_token (
 -- object; an unbounded retry loop against that endpoint got our shared
 -- egress address blocked by two data providers. Backoff must survive a
 -- container restart, or a recycle silently resumes the polling.
+CREATE TABLE IF NOT EXISTS deploy_event (
+    ts      timestamptz NOT NULL DEFAULT now(),
+    phase   text        NOT NULL CHECK (phase IN ('stage', 'promote')),
+    sha     text        NOT NULL,
+    run_id  bigint      NOT NULL,
+    run_url text        NOT NULL
+);
 CREATE TABLE IF NOT EXISTS element_fetch (
     norad        INTEGER PRIMARY KEY,
     attempts     INTEGER NOT NULL DEFAULT 0,
@@ -1345,7 +1352,11 @@ OPS_DS_UID = "orbitcache-ops"
 # stays out, which is the boundary that actually matters here.
 OPS_TABLES = ("organization", "org_user", "org_token", "api_key",
               "api_usage", "visitor_daily", "registered_user",
-              "telemetry", "position", "elements", "provider_refusal")
+              "telemetry", "position", "elements", "provider_refusal",
+              # written by deploy/record-deploy-event.sh, read by the ops
+              # deploys board (#382); granted once the first deploy after
+              # this change has created it
+              "deploy_event")
 OPS_ALERT_EMAIL = os.environ.get("OPS_ALERT_EMAIL", "contact@confinia.io")
 # How long the OIDC CSRF nonce stays valid. Must outlive a registration with
 # e-mail verification, not merely a login (#343).
