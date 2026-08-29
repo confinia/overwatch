@@ -291,6 +291,53 @@ def main():
             die(f"token carries no organization after re-login: {me}")
         org_id = me["organization"]["id"]
 
+        step("password recovery: the reset mail is really sent (#265)")
+        # The capability has been live in every realm since #174, and nothing
+        # would notice it breaking: SMTP credentials rotate, a Keycloak
+        # recreate can drop the realm's smtpServer, the sender can start
+        # failing SPF. Three checks, all through the admin API we already
+        # authenticated against:
+        #   1. the realm still offers recovery and still has an SMTP host
+        #      (a recreate that drops either fails CI instead of users);
+        #   2. execute-actions-email answers 204 — Keycloak sends the mail
+        #      synchronously, so a 500 here IS the SMTP failure surfaced;
+        #   3. the SEND_RESET_PASSWORD event exists for our user — the send
+        #      was recorded, not merely not-erroring (needs eventsEnabled,
+        #      which the realm config now owns).
+        st, txt = kc(adm, "GET", "", token=token)
+        realm = json.loads(txt) if st == 200 else {}
+        if not realm.get("resetPasswordAllowed"):
+            die("realm no longer offers password recovery (resetPasswordAllowed)")
+        if not (realm.get("smtpServer") or {}).get("host"):
+            die("realm has no smtpServer host — recovery mail cannot send")
+        st, txt = kc(adm, "PUT", f"/users/{uid}/execute-actions-email",
+                     ["UPDATE_PASSWORD"], token=token)
+        if st != 204:
+            die(f"execute-actions-email failed ({st}): {txt[:300]}")
+        if realm.get("eventsEnabled"):
+            sent = False
+            for _ in range(10):
+                st, txt = kc(adm, "GET",
+                             f"/events?type=SEND_RESET_PASSWORD&user={uid}",
+                             token=token)
+                if st == 200 and json.loads(txt or "[]"):
+                    sent = True
+                    break
+                time.sleep(2)
+            if not sent:
+                st, txt = kc(adm, "GET",
+                             f"/events?type=SEND_RESET_PASSWORD_ERROR&user={uid}",
+                             token=token)
+                err = (json.loads(txt or "[]") or [{}])[0].get("error",
+                                                              "no event at all")
+                die(f"reset mail send not recorded — {err}")
+        else:
+            # events are turned on by the same change that added this step;
+            # until the realm config has been applied once, the 204 above is
+            # the proof (Keycloak sends synchronously - a send failure is a
+            # 500 on execute-actions-email, not a silent 204)
+            print("   (realm events not enabled yet - 204 send is the proof)")
+
         step(f"private Grafana provisioned for org {org_id[:8]}")
         # The endpoint provisions inside the request and answers 503 when
         # Grafana did not respond in time — its docstring calls that retriable,
