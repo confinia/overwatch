@@ -34,6 +34,8 @@ from psycopg2.extras import execute_values
 from sgp4.api import Satrec, jday
 import numpy as np
 
+import catalog_sync              # catalogue merge/prune after a bulk pass (#384)
+
 from satellites import SHOWCASE
 from calibration import calibrate, canonical_from, CANONICAL_SOURCES
 
@@ -715,6 +717,7 @@ def refresh_catalog():
                  CATALOG_INTERVAL / 3600)
         return
     url, page, rows = f"{SATNOGS_BASE}/satellites/", 0, 0
+    seen = set()                       # every norad this pass delivered (#384)
     headers = dict(UA)
     if SATNOGS_TOKEN:
         headers["Authorization"] = f"Token {SATNOGS_TOKEN}"
@@ -740,6 +743,7 @@ def refresh_catalog():
             batch.append((norad, name, sat.get("sat_id"), sat.get("status"),
                           bool(sat.get("is_frequency_violator"))))
         if batch:
+            seen.update(b[0] for b in batch)
             with db() as conn, conn.cursor() as cur:
                 execute_values(cur,
                     """INSERT INTO catalog (norad, name, sat_id, status, is_violator)
@@ -760,6 +764,17 @@ def refresh_catalog():
                        FROM satellite s
                        WHERE s.norad = c.norad AND s.decoder IS NOT NULL
                          AND c.decoder IS DISTINCT FROM s.decoder""")
+        # Reconcile ONLY after a complete pass (url exhausted, no early
+        # return): a partial list would read as a mass extinction. The DB
+        # merges temporary norads by hand (#384) — this is where our mirror
+        # follows, and where merged-away ghosts finally leave the picker.
+        if url is None and seen:
+            summary = catalog_sync.reconcile_catalog(cur, seen, log)
+            if summary["merged"] or summary["pruned"]:
+                log.info("Catalog reconcile: %(merged)d merges applied, "
+                         "%(pruned)d vanished rows pruned", summary)
+        else:
+            log.info("Catalog: pass incomplete, reconcile skipped")
         conn.commit()
     log.info("Catalog: %d satellites available to pick from", rows)
 
