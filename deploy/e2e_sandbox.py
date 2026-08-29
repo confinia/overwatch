@@ -319,10 +319,23 @@ def main():
         # form entirely.
         rop = opener()
         st, url, html = fetch(rop, f"{BASE}/api/v1/auth/login")
-        m = re.search(r'href="([^"]*login-actions/reset-credentials[^"]*)"',
-                      html)
+        reset_re = r'href="([^"]*login-actions/reset-credentials[^"]*)"'
+        m = re.search(reset_re, html)
         if not m:
-            die(f"no 'Forgot password?' link on the login form at {url}")
+            # keycloak.v2 splits the flow (see _walk_forms): the username
+            # page carries only Register; 'Forgot password?' renders on the
+            # PASSWORD page. One username submit gets us there.
+            action, fields = _form(html)
+            if not action:
+                die(f"no login form at {url}")
+            for name in list(fields):
+                if name.lower() in ("username", "email"):
+                    fields[name] = USER_EMAIL
+            fields.pop("rememberMe", None)
+            st, url, html = fetch(rop, action, data=fields)
+            m = re.search(reset_re, html)
+        if not m:
+            die(f"no 'Forgot password?' link on either login page at {url}")
         st, url, html = fetch(rop, m.group(1).replace("&amp;", "&"))
         action, fields = _form(html)
         if not action:
