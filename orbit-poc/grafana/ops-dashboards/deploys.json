@@ -1,0 +1,236 @@
+{
+ "uid": "deploys",
+ "title": "Deploy pipeline",
+ "description": "What production runs vs what is merged (#382). Rows are written by deploy.yml itself at stage and promote.",
+ "schemaVersion": 39,
+ "time": {
+  "from": "now-30d",
+  "to": "now"
+ },
+ "refresh": "5m",
+ "panels": [
+  {
+   "id": 1,
+   "title": "Unpromoted candidate",
+   "type": "stat",
+   "datasource": {
+    "type": "postgres",
+    "uid": "orbitcache-ops"
+   },
+   "gridPos": {
+    "h": 6,
+    "w": 8,
+    "x": 0,
+    "y": 0
+   },
+   "fieldConfig": {
+    "defaults": {
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 1
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "colorMode": "background",
+    "graphMode": "none",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    }
+   },
+   "targets": [
+    {
+     "format": "table",
+     "refId": "A",
+     "rawSql": "SELECT CASE WHEN (SELECT sha FROM deploy_event WHERE phase='stage' ORDER BY ts DESC LIMIT 1) IS NOT DISTINCT FROM (SELECT sha FROM deploy_event WHERE phase='promote' ORDER BY ts DESC LIMIT 1) THEN 0 ELSE 1 END AS \"Unpromoted candidate\"",
+     "datasource": {
+      "type": "postgres",
+      "uid": "orbitcache-ops"
+     }
+    }
+   ],
+   "description": "1 = the latest staged commit is not the latest promoted one \u2014 a candidate is waiting (rule 26 made visible). 0 = production runs what is merged."
+  },
+  {
+   "id": 2,
+   "title": "Waiting at the gate",
+   "type": "stat",
+   "datasource": {
+    "type": "postgres",
+    "uid": "orbitcache-ops"
+   },
+   "gridPos": {
+    "h": 6,
+    "w": 8,
+    "x": 8,
+    "y": 0
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "s",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 259200
+       },
+       {
+        "color": "red",
+        "value": 604800
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "colorMode": "background",
+    "graphMode": "none",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    }
+   },
+   "targets": [
+    {
+     "format": "table",
+     "refId": "A",
+     "rawSql": "SELECT COALESCE(EXTRACT(EPOCH FROM now() - (SELECT min(ts) FROM deploy_event s WHERE phase='stage' AND NOT EXISTS (SELECT 1 FROM deploy_event p WHERE p.phase='promote' AND p.ts > s.ts))), 0) AS \"Waiting at the gate\"",
+     "datasource": {
+      "type": "postgres",
+      "uid": "orbitcache-ops"
+     }
+    }
+   ],
+   "description": "How long the oldest un-promoted candidate has been staged. 0 when nothing waits."
+  },
+  {
+   "id": 3,
+   "title": "Since last promote",
+   "type": "stat",
+   "datasource": {
+    "type": "postgres",
+    "uid": "orbitcache-ops"
+   },
+   "gridPos": {
+    "h": 6,
+    "w": 8,
+    "x": 16,
+    "y": 0
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "s",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 259200
+       },
+       {
+        "color": "red",
+        "value": 604800
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "colorMode": "background",
+    "graphMode": "none",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    }
+   },
+   "targets": [
+    {
+     "format": "table",
+     "refId": "A",
+     "rawSql": "SELECT EXTRACT(EPOCH FROM now() - max(ts)) AS \"Since last promote\" FROM deploy_event WHERE phase='promote'",
+     "datasource": {
+      "type": "postgres",
+      "uid": "orbitcache-ops"
+     }
+    }
+   ]
+  },
+  {
+   "id": 4,
+   "title": "Deploys \u2014 newest first",
+   "type": "table",
+   "datasource": {
+    "type": "postgres",
+    "uid": "orbitcache-ops"
+   },
+   "gridPos": {
+    "h": 12,
+    "w": 24,
+    "x": 0,
+    "y": 6
+   },
+   "fieldConfig": {
+    "defaults": {},
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Run"
+      },
+      "properties": [
+       {
+        "id": "links",
+        "value": [
+         {
+          "title": "open the workflow run",
+          "url": "${__value.text}",
+          "targetBlank": true
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "showHeader": true
+   },
+   "targets": [
+    {
+     "format": "table",
+     "refId": "A",
+     "rawSql": "SELECT ts AS \"When\", phase AS \"Phase\", substr(sha, 1, 7) AS \"Commit\", run_url AS \"Run\" FROM deploy_event ORDER BY ts DESC LIMIT 50",
+     "datasource": {
+      "type": "postgres",
+      "uid": "orbitcache-ops"
+     }
+    }
+   ]
+  }
+ ]
+}

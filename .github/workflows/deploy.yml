@@ -56,9 +56,11 @@ jobs:
         env:
           TARGET: ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}
           SHA: ${{ github.sha }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes "$TARGET" \
-            "SHA='$SHA' bash -s" <<'REMOTE'
+            "SHA='$SHA' RUN_ID='$RUN_ID' RUN_URL='$RUN_URL' bash -s" <<'REMOTE'
           set -euo pipefail
           cd ~/projects/overwatch
           git fetch -q origin
@@ -105,6 +107,10 @@ jobs:
           podman-compose -p ovw-staging -f docker-compose.yml up -d --build 2>&1 | tail -2
           for c in $(podman ps --format '{{.Names}}' | grep ^ovw-staging); do
             podman update --restart=always "$c" >/dev/null; done
+          # The ops Grafana shows what is staged vs promoted (#382); this row
+          # is where "the gap" starts ticking.
+          bash ~/projects/overwatch/deploy/record-deploy-event.sh \
+            stage "$SHA" "$RUN_ID" "$RUN_URL"
           REMOTE
 
       - name: Check staging answers (its own stack, its own database)
@@ -131,9 +137,16 @@ jobs:
       - name: Swap the live colour
         env:
           TARGET: ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}
+          SHA: ${{ github.sha }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes "$TARGET" \
             'bash ~/projects/overwatch/deploy/slots.sh promote'
+          # the promote row closes "the gap" on the ops deploys board (#382)
+          ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes "$TARGET" \
+            "bash ~/projects/overwatch/deploy/record-deploy-event.sh \
+             promote '$SHA' '$RUN_ID' '$RUN_URL'"
 
       - name: Verify production is live
         run: |
