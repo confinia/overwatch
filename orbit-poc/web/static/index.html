@@ -246,12 +246,54 @@
   #siteftr { padding:10px 16px; border-top:1px solid var(--line); font-size:12px;
     color:var(--dim); flex:0 0 auto; }
   #siteftr a { color:var(--dim); text-decoration:none; } #siteftr a:hover { color:var(--fg); }
+  /* First-run guide (#108): a card, not a tour. Two operators called the
+     first visit a learning curve (F1SXJ, DL7NDR); the answer must be readable
+     in twenty seconds and reachable forever after via the ? on the globe. */
+  #guide-open { position:absolute; z-index:7; top:10px; left:10px;
+    width:30px; height:30px; border-radius:50%; border:1px solid var(--line);
+    background:var(--panel); color:var(--dim); font-size:16px; cursor:pointer; }
+  #guide-open:hover { color:var(--text); border-color:var(--accent); }
+  #guide { position:fixed; inset:0; z-index:40; background:rgba(10,14,23,.75);
+    display:flex; align-items:center; justify-content:center; padding:16px; }
+  #guide[hidden] { display:none; }
+  #guide .card { background:var(--panel); border:1px solid var(--line);
+    border-radius:10px; max-width:520px; width:100%; padding:20px 22px;
+    max-height:90vh; overflow-y:auto; }
+  #guide h2 { margin:0 0 12px; font-size:16px; }
+  #guide ul { margin:0 0 16px; padding-left:18px; }
+  #guide li { margin:0 0 10px; line-height:1.45; font-size:13.5px; }
+  #guide li b { color:var(--accent); font-weight:600; }
+  #guide .dot-rx { color:#ff9f43; }
+  #guide button { background:var(--accent); color:#06101f; border:0;
+    border-radius:8px; padding:8px 18px; font-size:13.5px; font-weight:600;
+    cursor:pointer; }
 </style>
 </head>
 <body>
+
+<div id="guide" hidden>
+  <div class="card" role="dialog" aria-labelledby="guide-title">
+    <h2 id="guide-title">How to read this</h2>
+    <ul>
+      <li>Every satellite on the globe is <b>broadcasting open telemetry</b>
+        right now. Positions move live, computed from published orbits.</li>
+      <li><b>Click a satellite</b>: each <span class="dot-rx">orange dot</span>
+        is a volunteer antenna that actually heard it. The panel underneath
+        decodes what it said — battery voltages, temperatures, eclipse
+        cycles.</li>
+      <li>Run a ground station? <b>Search your callsign</b> or station name to
+        see your reception pass by pass, against your own baseline and the
+        network's — was it you, or was it quiet?</li>
+      <li><b>Signing in is free</b> and adds favourites and alerts. An
+        organization is only for teams pushing private telemetry.</li>
+    </ul>
+    <button id="guide-close" type="button">Got it</button>
+  </div>
+</div>
 <div id="app">
   <div id="left">
     <div id="map"></div>
+    <button id="guide-open" type="button" title="How to read this">?</button>
     <div id="gutter-map" class="gutter" title="Drag to resize · drag to the edge to hide the globe/dashboards"></div>
     <div id="fleetbar" title="Fleet link status">loading fleet…</div>
     <div id="rangebar" title="Time window for receptions, decoded fields and track"></div>

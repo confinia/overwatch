@@ -1428,3 +1428,25 @@ function dragGutter(id, onMove){
   el.addEventListener("pointerup", end);
   el.addEventListener("pointercancel", end);
 }
+
+// --- First-run guide (#108) -------------------------------------------------
+// Two operators independently called the first visit a learning curve (F1SXJ:
+// "mérite un apprentissage"; DL7NDR: "what awaits me if I register?"). A card,
+// not a step-by-step tour: it must be readable in twenty seconds, dismissible
+// once per browser, and reachable forever after from the ? on the globe.
+(() => {
+  const guide = document.getElementById("guide");
+  if (!guide) return;
+  const open = () => { guide.hidden = false; };
+  const close = () => {
+    guide.hidden = true;
+    localStorage.setItem("ovw_guide_seen", "1");
+  };
+  document.getElementById("guide-open").addEventListener("click", open);
+  document.getElementById("guide-close").addEventListener("click", close);
+  guide.addEventListener("click", e => { if (e.target === guide) close(); });
+  window.addEventListener("keydown", e => {
+    if (e.key === "Escape" && !guide.hidden) close();
+  });
+  if (!localStorage.getItem("ovw_guide_seen")) open();
+})();
