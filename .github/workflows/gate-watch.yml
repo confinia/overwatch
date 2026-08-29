@@ -1,0 +1,80 @@
+name: gate-watch
+
+# A newer push to main cancels a deploy run whose `promote` job is waiting on
+# the production reviewer (cancel-in-progress: true — deliberate since #203).
+# The cancellation itself is correct; its silence is not: the reviewer never
+# learns the approval request is void, and if the newer run's sandbox leg
+# fails there is no new gate either (#377 — the #320/#324 class, which
+# deploy.yml's chain-broken job does not cover).
+#
+# This watcher fires on every completed deploy run and mails ops exactly when
+# the cancelled run was AT the gate: `stage` succeeded, `promote` cancelled.
+# A run cancelled mid-stage is ordinary supersession and stays quiet — an
+# alert that cries wolf is worse than the silence (#326).
+on:
+  workflow_run:
+    workflows: [deploy]
+    types: [completed]
+
+permissions:
+  actions: read
+
+jobs:
+  notify:
+    if: github.event.workflow_run.conclusion == 'cancelled'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Was the run at the gate, and which run superseded it?
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_NUMBER: ${{ github.event.workflow_run.run_number }}
+          WORKFLOW_ID: ${{ github.event.workflow_run.workflow_id }}
+        run: |
+          set -euo pipefail
+          jobs=$(gh api "repos/$REPO/actions/runs/$RUN_ID/jobs" \
+                 --jq '[.jobs[] | {name, conclusion}]')
+          stage=$(jq -r '.[] | select(.name=="stage").conclusion // ""' <<<"$jobs")
+          promote=$(jq -r '.[] | select(.name=="promote").conclusion // ""' <<<"$jobs")
+          echo "stage=$stage promote=$promote"
+          if [ "$stage" != "success" ] || [ "$promote" != "cancelled" ]; then
+            echo "not at the gate - quiet"; echo "proceed=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          # The superseding run: the next deploy run on main after this one. A
+          # hand-cancelled gate has none - the founder did it knowingly, quiet.
+          newer=$(gh api "repos/$REPO/actions/workflows/$WORKFLOW_ID/runs?branch=main&per_page=20" \
+                  --jq "[.workflow_runs[] | select(.run_number > $RUN_NUMBER)]
+                        | sort_by(.run_number) | first // empty
+                        | {head_sha, html_url}")
+          if [ -z "$newer" ]; then
+            echo "no newer run - cancelled by hand, quiet"
+            echo "proceed=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          { echo "proceed=true"
+            echo "new_sha=$(jq -r .head_sha <<<"$newer")"
+            echo "new_url=$(jq -r .html_url <<<"$newer")"; } >> "$GITHUB_OUTPUT"
+
+      - name: Authorize the SSH session
+        if: steps.gate.outputs.proceed == 'true'
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "${{ secrets.VM_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "${{ secrets.VM_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      # The mail goes out from the VM, whose .env already holds the ops SMTP
+      # account (same creds Grafana alerts use) - no new repo secret to rot.
+      - name: Mail ops that the gate moved
+        if: steps.gate.outputs.proceed == 'true'
+        env:
+          TARGET: ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}
+          OLD_SHA: ${{ github.event.workflow_run.head_sha }}
+          OLD_URL: ${{ github.event.workflow_run.html_url }}
+          NEW_SHA: ${{ steps.gate.outputs.new_sha }}
+          NEW_URL: ${{ steps.gate.outputs.new_url }}
+        run: |
+          ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes "$TARGET" \
+            "bash ~/projects/overwatch/deploy/notify-gate-superseded.sh \
+             '$OLD_SHA' '$OLD_URL' '$NEW_SHA' '$NEW_URL'"
