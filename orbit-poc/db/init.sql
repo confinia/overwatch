@@ -58,6 +58,10 @@ CREATE TABLE IF NOT EXISTS reception (
     norad        INTEGER REFERENCES satellite(norad),
     ts           TIMESTAMPTZ NOT NULL,
     observer     TEXT NOT NULL,
+    -- SatNOGS app_source: 'network' (network observation) or 'sids' (direct
+    -- upload). One operator runs both kinds under one callsign and cannot
+    -- tell them apart in a station list (#97). NULL = ingested before this.
+    source       TEXT,
     lat          DOUBLE PRECISION,
     lon          DOUBLE PRECISION,
     PRIMARY KEY (norad, ts, observer)

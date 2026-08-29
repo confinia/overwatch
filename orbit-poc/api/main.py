@@ -45,6 +45,9 @@ OPEN_PATHS = ("/", "/v1", "/v1/docs", "/v1/openapi.json", "/v1/healthz",
 pool: psycopg2.pool.SimpleConnectionPool | None = None
 
 KEYS_SQL = """
+-- who-heard-whom rows predate the kind distinction (#97): 'network'
+-- observation vs 'sids' direct upload, straight from SatNOGS app_source
+ALTER TABLE IF EXISTS reception ADD COLUMN IF NOT EXISTS source TEXT;
 CREATE TABLE IF NOT EXISTS api_key (
     key        uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     email      text NOT NULL,
@@ -712,13 +715,17 @@ def stations_list(response: Response):
         cur.execute("""
             SELECT observer, max(lat) AS lat, max(lon) AS lon,
                    count(*) AS frames, count(DISTINCT norad) AS satellites,
-                   max(ts) AS last_rx
+                   max(ts) AS last_rx,
+                   mode() WITHIN GROUP (ORDER BY source) AS source
             FROM reception
             WHERE ts > now() - interval '7 days' AND lat IS NOT NULL
             GROUP BY observer ORDER BY frames DESC""")
+        # source: what SatNOGS says about how this station's frames arrive —
+        # 'network' observation vs 'sids' direct upload (#97). One operator
+        # runs both kinds under one callsign; only labelled when known.
         return [{"observer": o, "lat": la, "lon": lo, "frames": f,
-                 "satellites": s, "last_rx": t.isoformat()}
-                for o, la, lo, f, s, t in cur.fetchall()]
+                 "satellites": s, "last_rx": t.isoformat(), "source": src}
+                for o, la, lo, f, s, t, src in cur.fetchall()]
 
 
 # --- "Alert me when my station goes quiet" (#373) ---------------------------
@@ -996,10 +1003,19 @@ def station_health_one(callsign: str, response: Response):
         past = [{"norad": n, "satellite": nm, "aos": a.isoformat(),
                  "los": l.isoformat(), "max_el_deg": e, "frames": f}
                 for n, nm, a, l, e, f in cur.fetchall()]
+        # how this station's frames arrive (#97): 'network' observation vs
+        # 'sids' direct upload, majority over 30 days; None until known
+        cur.execute("""SELECT mode() WITHIN GROUP (ORDER BY source)
+                       FROM reception WHERE observer = %s
+                         AND ts > now() - interval '30 days'
+                         AND source IS NOT NULL""", (observer,))
+        row = cur.fetchone()
+        source = row[0] if row else None
     rated = [d["hit_rate"] for d in days if d["hit_rate"] is not None]
     recent = rated[-3:] if rated else []
     base = rated[:-3] if len(rated) > 3 else []
-    return {"observer": observer, "days": days, "next_passes": nxt,
+    return {"observer": observer, "source": source,
+            "days": days, "next_passes": nxt,
             "past_passes": past,
             "recent_rate": round(sum(recent) / len(recent), 4) if recent else None,
             "baseline_rate": round(sum(base) / len(base), 4) if base else None,

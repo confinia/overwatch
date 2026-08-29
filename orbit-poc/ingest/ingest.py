@@ -1123,7 +1123,9 @@ def _maidenhead(loc):
 
 
 def _reception_row(norad, ts, f):
-    """SatNOGS observer strings look like 'KM7DOS-CN87xi'."""
+    """SatNOGS observer strings look like 'KM7DOS-CN87xi'. app_source says
+    HOW the frame arrived — 'network' observation vs 'sids' direct upload —
+    which is the only honest basis for labelling a station's kind (#97)."""
     obs = (f.get("observer") or "").strip()
     if not obs:
         return None
@@ -1132,7 +1134,7 @@ def _reception_row(norad, ts, f):
         pos = _maidenhead(obs.rsplit("-", 1)[1])
         if pos:
             lat, lon = pos
-    return (norad, ts, obs, lat, lon)
+    return (norad, ts, obs, lat, lon, (f.get("app_source") or "").strip() or None)
 
 
 def _store_frames(norad, frames, decoder):
@@ -1197,7 +1199,7 @@ def _store_frames(norad, frames, decoder):
         receptions = list({(r[0], r[1], r[2]): r for r in receptions}.values())
         with db() as conn, conn.cursor() as cur:
             execute_values(cur,
-                """INSERT INTO reception (norad, ts, observer, lat, lon)
+                """INSERT INTO reception (norad, ts, observer, lat, lon, source)
                    VALUES %s ON CONFLICT DO NOTHING""", receptions)
             conn.commit()
     return decoded_n
