@@ -30,17 +30,19 @@ SID = "RIXQ-TEST-0000-0000-0000"
 def cur():
     require_test_db()
     conn = psycopg2.connect(DSN)
-    with conn, conn.cursor() as c:
-        c.execute("DELETE FROM catalog WHERE sat_id = %s", (SID,))
-        c.execute("DELETE FROM satellite WHERE norad IN (98291, 69794)")
+    def scrub(c):
+        # children first: telemetry FKs satellite, deleting the parent while
+        # rows point at it is exactly the violation the module works around
         c.execute("DELETE FROM telemetry WHERE norad IN (98291, 69794)")
+        c.execute("DELETE FROM satellite WHERE norad IN (98291, 69794)")
+        c.execute("DELETE FROM catalog WHERE sat_id = %s", (SID,))
+    with conn, conn.cursor() as c:
+        scrub(c)
     with conn:
         with conn.cursor() as c:
             yield c
     with conn, conn.cursor() as c:
-        c.execute("DELETE FROM catalog WHERE sat_id = %s", (SID,))
-        c.execute("DELETE FROM satellite WHERE norad IN (98291, 69794)")
-        c.execute("DELETE FROM telemetry WHERE norad IN (98291, 69794)")
+        scrub(c)
     conn.close()
 
 
