@@ -101,3 +101,20 @@ def test_migration_discovers_norad_tables_at_runtime(cur):
     tables = catalog_sync.norad_keyed_tables(cur)
     assert "satellite" in tables and "telemetry" in tables
     assert "catalog" not in tables, "catalog is deleted, never re-keyed"
+
+
+def test_every_ingest_module_import_is_in_the_docker_image():
+    """#385 shipped catalog_sync.py without adding it to the Dockerfile's
+    explicit COPY list; the sandbox ingest crash-looped on ModuleNotFoundError
+    and chain-broken stopped the deploy (the third member of the #271 class).
+    Any local module ingest.py imports must be COPY'd — checked for ALL of
+    them, so the next new module cannot repeat this."""
+    import re
+    base = os.path.join(os.path.dirname(__file__), "..", "ingest")
+    src = open(os.path.join(base, "ingest.py"), encoding="utf-8").read()
+    docker = open(os.path.join(base, "Dockerfile"), encoding="utf-8").read()
+    local = {m for m in re.findall(r"^(?:    )?import (\w+)", src, re.M)
+             if os.path.exists(os.path.join(base, m + ".py"))}
+    for mod in local:
+        assert f"{mod}.py" in docker, \
+            f"ingest.py imports {mod} but the Dockerfile never copies {mod}.py"
