@@ -103,19 +103,28 @@ def test_recompute_is_idempotent_and_does_not_duplicate(conn):
         assert _near_duplicates(cur) == 0, "same pass stored more than once"
 
 
-def test_store_passes_prunes_past_passes(conn):
+def test_store_passes_keeps_recent_history_and_prunes_only_old_passes(conn):
+    """A recompute must NOT erase completed passes — they are the per-pass
+    history (#366, #367). Only passes older than the 30-day opportunity
+    window are pruned. This test used to assert the opposite (the pre-#367
+    clean slate) and sat red on main for a day without blocking anything."""
     import sys as _sys
     _sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "ingest"))
     import passes as _p
-    past = datetime.now(timezone.utc) - timedelta(hours=3)
+    recent = datetime.now(timezone.utc) - timedelta(hours=3)
+    ancient = datetime.now(timezone.utc) - timedelta(days=31)
     with conn, conn.cursor() as cur:
         cur.execute("DELETE FROM pass WHERE observer = 'TEST-STATION'")
-        cur.execute("INSERT INTO pass (observer, norad, aos, los, max_el_deg) "
-                    "VALUES ('TEST-STATION', 99992, %s, %s, 10)",
-                    (past, past + timedelta(minutes=5)))
+        for aos in (recent, ancient):
+            cur.execute("INSERT INTO pass (observer, norad, aos, los, max_el_deg) "
+                        "VALUES ('TEST-STATION', 99992, %s, %s, 10)",
+                        (aos, aos + timedelta(minutes=5)))
         _p.store_passes(cur, [])
-        cur.execute("SELECT count(*) FROM pass WHERE observer = 'TEST-STATION'")
-        assert cur.fetchone()[0] == 0            # past pass pruned
+        cur.execute("SELECT aos FROM pass WHERE observer = 'TEST-STATION'")
+        kept = [r[0] for r in cur.fetchall()]
+        assert len(kept) == 1, "exactly the recent completed pass must survive"
+        assert abs((kept[0] - recent).total_seconds()) < 1, \
+            "the 30-day window pruned the wrong row"
 
 
 def test_store_passes_drops_stations_no_longer_tracked(conn):
