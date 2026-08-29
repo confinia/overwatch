@@ -299,8 +299,9 @@ def main():
         # authenticated against:
         #   1. the realm still offers recovery and still has an SMTP host
         #      (a recreate that drops either fails CI instead of users);
-        #   2. execute-actions-email answers 204 — Keycloak sends the mail
-        #      synchronously, so a 500 here IS the SMTP failure surfaced;
+        #   2. the 'Forgot password?' link exists on the login form and the
+        #      reset-credentials form accepts the address — the path a
+        #      locked-out user actually walks;
         #   3. the SEND_RESET_PASSWORD event exists for our user — the send
         #      was recorded, not merely not-erroring (needs eventsEnabled,
         #      which the realm config now owns).
@@ -310,10 +311,28 @@ def main():
             die("realm no longer offers password recovery (resetPasswordAllowed)")
         if not (realm.get("smtpServer") or {}).get("host"):
             die("realm has no smtpServer host — recovery mail cannot send")
-        st, txt = kc(adm, "PUT", f"/users/{uid}/execute-actions-email",
-                     ["UPDATE_PASSWORD"], token=token)
-        if st != 204:
-            die(f"execute-actions-email failed ({st}): {txt[:300]}")
+        # The REAL user path, not the admin shortcut: execute-actions-email
+        # emits no SEND_RESET_PASSWORD user event (first live run proved it -
+        # 'no event at all'), and it also would not exercise the 'Forgot
+        # password?' link a locked-out user actually clicks. Fresh session:
+        # this user is logged in on `op`, and Keycloak SSO would skip the
+        # form entirely.
+        rop = opener()
+        st, url, html = fetch(rop, f"{BASE}/api/v1/auth/login")
+        m = re.search(r'href="([^"]*login-actions/reset-credentials[^"]*)"',
+                      html)
+        if not m:
+            die(f"no 'Forgot password?' link on the login form at {url}")
+        st, url, html = fetch(rop, m.group(1).replace("&amp;", "&"))
+        action, fields = _form(html)
+        if not action:
+            die(f"no reset-credentials form at {url}")
+        for name in list(fields):
+            if name.lower() in ("username", "email"):
+                fields[name] = USER_EMAIL
+        st, url, html = fetch(rop, action, data=fields)
+        if st >= 400:
+            die(f"reset-credentials submit failed ({st}) at {url}")
         if realm.get("eventsEnabled"):
             sent = False
             for _ in range(10):
@@ -333,10 +352,10 @@ def main():
                 die(f"reset mail send not recorded — {err}")
         else:
             # events are turned on by the same change that added this step;
-            # until the realm config has been applied once, the 204 above is
-            # the proof (Keycloak sends synchronously - a send failure is a
-            # 500 on execute-actions-email, not a silent 204)
-            print("   (realm events not enabled yet - 204 send is the proof)")
+            # until the realm config has been applied once, the accepted form
+            # submit is the only proof available (Keycloak shows an error
+            # page when the send fails, which fetch() would have surfaced)
+            print("   (realm events not enabled yet - accepted submit only)")
 
         step(f"private Grafana provisioned for org {org_id[:8]}")
         # The endpoint provisions inside the request and answers 503 when

@@ -43,7 +43,10 @@ def test_every_realm_records_events():
 def test_the_walker_exercises_the_reset_flow():
     src = open(os.path.join(HERE, "..", "..", "deploy", "e2e_sandbox.py"),
                encoding="utf-8").read()
-    assert "execute-actions-email" in src, "no reset trigger in the walk"
+    assert "reset-credentials" in src, \
+        "the walk must use the real 'Forgot password?' flow — the admin\n" \
+        "        execute-actions-email shortcut emits no user event (proven\n" \
+        "        by the first live run: 'no event at all')"
     assert "SEND_RESET_PASSWORD" in src, "the send is not asserted"
     assert "resetPasswordAllowed" in src, "the realm guard is missing"
 
