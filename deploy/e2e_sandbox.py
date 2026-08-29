@@ -336,10 +336,14 @@ def main():
             m = re.search(reset_re, html)
         if not m:
             die(f"no 'Forgot password?' link on either login page at {url}")
-        st, url, html = fetch(rop, m.group(1).replace("&amp;", "&"))
+        # the theme renders the link host-relative; fetch() (urllib)
+        # refuses anything but absolute URLs
+        st, url, html = fetch(rop, urllib.parse.urljoin(
+            url, m.group(1).replace("&amp;", "&")))
         action, fields = _form(html)
         if not action:
             die(f"no reset-credentials form at {url}")
+        action = urllib.parse.urljoin(url, action)   # same belt for the form
         for name in list(fields):
             if name.lower() in ("username", "email"):
                 fields[name] = USER_EMAIL
