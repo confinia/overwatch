@@ -132,6 +132,16 @@ http://overwatch.confinia.io {
 # blue/green roles rotate at every promote so the database could not be pinned
 # in a colour either. The platform edge proxies the staging host to :8200.
 
+# ---- Grafana on its own memorable hostname ---------------------------------
+# grafana.overwatch.confinia.io answers, but the CANONICAL origin stays
+# overwatch.confinia.io/grafana: GF_SERVER_ROOT_URL, the app's same-origin
+# iframes, CSP frame-ancestors 'self' and the Keycloak OIDC redirect URIs all
+# assume it. A 308 gives the memorable name without touching any of them
+# (#386); a full origin migration is its own issue if a real need appears.
+http://grafana.overwatch.confinia.io {
+	redir * https://overwatch.confinia.io/grafana{uri} 308
+}
+
 # ---- production API on its own hostname ------------------------------------
 # api.overwatch.confinia.io serves the public API at the root (/v1/...), with
 # no /api prefix. /api/v1/... keeps working here too: FastAPI runs with

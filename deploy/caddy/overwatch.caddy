@@ -3,6 +3,6 @@
 # terminate TLS here and forward to the overwatch caddy, which routes prod +
 # staging (blue/green) and sandbox (-> the isolated ovw-sandbox stack).
 # DNS prerequisite: sandbox.overwatch.confinia.io -> this edge. TLS auto-provisions.
-overwatch.confinia.io, staging.overwatch.confinia.io, sandbox.overwatch.confinia.io {
+overwatch.confinia.io, staging.overwatch.confinia.io, sandbox.overwatch.confinia.io, grafana.overwatch.confinia.io {
 	reverse_proxy 127.0.0.1:8090
 }
