@@ -38,6 +38,14 @@ SHOWCASE = [
      "note": "University of Arizona 6U; active beacon."},
     {"norad": 40931, "name": "LAPAN-A2 (IO-86)", "telemetry": True, "decoder": "io86",
      "note": "Indonesian microsat, amateur payload; frequent passes."},
+    # Asked for by name on the SatNOGS forum ("I'm missing satellites like
+    # MARINA. Is the telemetry not free?" — DL7NDR, #96). Verified before
+    # adding: fresh decoded frames in the DB and an open 'marina' decoder.
+    # 98293 is a TEMPORARY catalogue id: no CelesTrak elements (SatNOGS TLE
+    # fallback carries it), and when the DB merges it onto the confirmed
+    # NORAD, the catalogue reconcile (#384) migrates everything with it.
+    {"norad": 98293, "name": "Marina", "telemetry": True, "decoder": "marina",
+     "note": "Requested by an operator; active beacon, open decoder."},
 
     # Validated by batch/sweep_full.py on 2026-07-18 (frames < 7 days, decode OK)
     {"norad": 32785, "name": "CUTE-1.7+APD II (CO-65)", "telemetry": True, "decoder": "co65",
