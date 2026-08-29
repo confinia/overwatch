@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Record one deploy-pipeline event (stage | promote) in the orbit database, so
 # the ops Grafana can show what production runs versus what is merged (#382).
-# Called from deploy.yml over the ssh session it already holds. This script
-# OWNS the schema: the api only grants ops_ro SELECT once the table exists
-# (main.py grants what exists), so a first run needs no migration step.
+# Called from deploy.yml over the ssh session it already holds. The schema
+# truth lives in main.py's startup DDL (where ops_ro gets its grant); the
+# CREATE here repeats it for one bootstrap window only: the very first stage
+# row lands on a database no new api has booted against yet.
 set -euo pipefail
 PHASE=$1; SHA=$2; RUN_ID=$3; RUN_URL=$4
 case "$PHASE" in stage|promote) ;; *) echo "phase must be stage|promote" >&2; exit 1;; esac

@@ -114,6 +114,13 @@ CREATE TABLE IF NOT EXISTS org_token (
 -- object; an unbounded retry loop against that endpoint got our shared
 -- egress address blocked by two data providers. Backoff must survive a
 -- container restart, or a recycle silently resumes the polling.
+CREATE TABLE IF NOT EXISTS deploy_event (
+    ts      timestamptz NOT NULL DEFAULT now(),
+    phase   text        NOT NULL CHECK (phase IN ('stage', 'promote')),
+    sha     text        NOT NULL,
+    run_id  bigint      NOT NULL,
+    run_url text        NOT NULL
+);
 CREATE TABLE IF NOT EXISTS element_fetch (
     norad        INTEGER PRIMARY KEY,
     attempts     INTEGER NOT NULL DEFAULT 0,

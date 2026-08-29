@@ -113,7 +113,7 @@
     {
      "format": "table",
      "refId": "A",
-     "rawSql": "SELECT COALESCE(EXTRACT(EPOCH FROM now() - (SELECT min(ts) FROM deploy_event s WHERE phase='stage' AND NOT EXISTS (SELECT 1 FROM deploy_event p WHERE p.phase='promote' AND p.ts > s.ts))), 0) AS \"Waiting at the gate\"",
+     "rawSql": "SELECT COALESCE(date_part('epoch', now() - (SELECT min(ts) FROM deploy_event s WHERE phase='stage' AND NOT EXISTS (SELECT 1 FROM deploy_event p WHERE p.phase='promote' AND p.ts > s.ts))), 0) AS \"Waiting at the gate\"",
      "datasource": {
       "type": "postgres",
       "uid": "orbitcache-ops"
@@ -172,7 +172,7 @@
     {
      "format": "table",
      "refId": "A",
-     "rawSql": "SELECT EXTRACT(EPOCH FROM now() - max(ts)) AS \"Since last promote\" FROM deploy_event WHERE phase='promote'",
+     "rawSql": "SELECT date_part('epoch', now() - max(ts)) AS \"Since last promote\" FROM deploy_event WHERE phase='promote'",
      "datasource": {
       "type": "postgres",
       "uid": "orbitcache-ops"

@@ -24,10 +24,15 @@ def test_the_workflow_records_both_phases():
     assert "promote '$SHA'" in wf
 
 
-def test_the_recorder_owns_the_schema_and_rejects_junk():
+def test_the_recorder_bootstraps_the_schema_and_rejects_junk():
+    # Schema truth is main.py's startup DDL; the recorder repeats the CREATE
+    # because the very first stage row lands before any new api has booted.
     sh = _read("deploy", "record-deploy-event.sh")
     assert "CREATE TABLE IF NOT EXISTS deploy_event" in sh, \
         "first run must need no migration step"
+    ddl = _read("orbit-poc", "api", "main.py")
+    assert "CREATE TABLE IF NOT EXISTS deploy_event" in ddl, \
+        "the table must exist after a plain boot, or the ops grant never lands"
     assert "stage|promote" in sh, "phase must be validated"
     assert "ON_ERROR_STOP" in sh, "a failed insert must fail the step, not vanish"
 
