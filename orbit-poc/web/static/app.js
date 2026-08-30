@@ -579,8 +579,14 @@ function renderList(sats){
     div.className = "sat" + (s.norad===activeNorad?" active":"");
     const pos = s.lat==null ? "acquiring…"
       : `${s.lat.toFixed(1)}°, ${s.lon.toFixed(1)}° · ${Math.round(s.alt_km)} km`;
-    const heard = " · " + (s.last_frame
-      ? "heard " + age(s.last_frame) : "no frames yet");
+    // "no frames yet" promised something that cannot happen for a satellite
+    // with no open decoder: the picker (#230) tracks POSITION for anything
+    // catalogued, and telemetry only where a decoder exists. A reader could
+    // not tell the two apart, so one went digging in the SatNOGS DB for a
+    // bug that was not there (#406). Say which case this is.
+    const heard = " · " + (s.last_frame ? "heard " + age(s.last_frame)
+      : s.has_telemetry ? "no frames yet"
+      : "position only (no open decoder)");
     // #221: a ★ toggle to add/remove this satellite from your set (signed-in
     // only). stopPropagation so starring doesn't also select the satellite.
     const on = myFavorites.has(s.norad);
