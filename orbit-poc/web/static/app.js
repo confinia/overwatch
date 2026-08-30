@@ -17,11 +17,33 @@ const API_BASE = MIRROR ? "https://overwatch.confinia.io" : "";
 // deployment: production, staging, and self-host). LOCAL kept for the beacon.
 const GRAFANA = `${API_BASE}/grafana`;
 const DASH_UID = "orbit-telemetry";
-// #105: on the very first (cold) visit the Grafana anonymous session isn't
-// established, so d-solo iframes can paint the Grafana home page ("Welcome to
-// Grafana") instead of the panel — exactly what a manual reload fixes. We do
-// that reload once, automatically, until the session is warm.
+// #105/#409: on a cold visit the Grafana session isn't established yet, so a
+// d-solo iframe can paint Grafana's home page ("Welcome to Grafana") instead
+// of the panel — exactly what a manual reload fixes, which no visitor will do.
+// This flag means "a panel has been SEEN to paint", not "we tried once": the
+// first version set it before anything had rendered, so when the first attempt
+// failed, every later embed believed the session was warm and never retried
+// (#409).
 let gfReady = false;
+
+// Is this frame showing Grafana's home page instead of the panel we asked for?
+// true = wrong, false = right, null = cannot tell. Grafana is same-origin
+// under /grafana in every deployment except the github.io mirror, so on the
+// real site we can simply look. On the mirror the document is cross-origin and
+// unreadable, which is what null means, and the caller keeps the old blind
+// single reload there rather than pretending to know.
+function gfShowsHome(f){
+  try {
+    const w = f.contentWindow, d = f.contentDocument;
+    if (!w || !d || !d.body) return null;
+    // Grafana routes away from /d-solo/ when it falls back to home: that is
+    // the structural signal. The text is the belt to those braces.
+    if (!w.location.pathname.includes("/d-solo/")) return true;
+    return /Welcome to Grafana/i.test(d.body.innerText || "");
+  } catch (e) {
+    return null;                      // cross-origin: no opinion
+  }
+}
 // Coarse pointer (phones/tablets): draw visibly bigger dots — a 4px target
 // is neither tappable nor perceived as tappable on a phone.
 const TOUCH = window.matchMedia("(pointer: coarse)").matches;
@@ -696,7 +718,7 @@ async function selectStation(observer){
     `Each line points to where a satellite was when this station heard it.</div>`);
   // Next passes over THIS station (#217): which satellites will cover it next.
   // Embedded from the shared next-passes board (panel 1), above the receptions.
-  const cold = !gfReady; gfReady = true;
+  const cold = !gfReady;   // set only when a panel paints (#409)
   const passesEmbed = `<div class="ggrid">` +
     `<div class="gcell wide tall"><iframe loading="lazy" ` +
     `src="${GRAFANA}/d-solo/next-passes/next-passes?orgId=1&panelId=4&var-station=${encodeURIComponent(observer)}&theme=dark&kiosk"></iframe></div>` +
@@ -858,15 +880,31 @@ function trackPanelLoading(container, cold){
     const cell = f.closest(".gcell");
     if (cell) cell.classList.add("gfpending");
     f.addEventListener("load", () => {
-      // #105: the first embed of a session paints Grafana's home page, so it is
-      // reloaded once. That fires `load` TWICE — only the second means painted,
-      // or the counter would reach 100% over blank panels.
-      if (cold && !f.dataset.r){
-        f.dataset.r = "1";
+      // #105/#409: a cold session paints Grafana's home page inside the frame.
+      // Reloading fixes it, which is why a manual refresh always worked. Each
+      // reload fires `load` again, so counting only happens on the attempt we
+      // accept, or the bar would reach 100% over blank panels.
+      const home = gfShowsHome(f);
+      const tries = Number(f.dataset.r || 0);
+      // While we can SEE it is wrong, retry with backoff up to three times —
+      // one 700ms guess was the old behaviour and it lost whenever Grafana
+      // needed longer. When we cannot see (cross-origin mirror), fall back to
+      // exactly one blind reload on a cold embed, as before.
+      const retry = home === true ? tries < 3 : (home === null && cold && tries < 1);
+      if (retry){
+        f.dataset.r = String(tries + 1);
         const src = f.src;
-        setTimeout(() => { f.src = src; }, 700);
+        setTimeout(() => { f.src = src; }, 500 * (tries + 1));
         return;
       }
+      // Not home (verified), or we cannot tell and have stopped retrying:
+      // this is as painted as we will ever know it to be.
+      if (home !== true) gfReady = true;
+      // Still showing home after every retry: do NOT count it in. Counting it
+      // would clear the shimmer and report "all panels loaded" over a panel we
+      // can see is wrong. Leaving it pending lets the stuck banner say so and
+      // offer a reload, which is the one action that fixes this.
+      if (home === true) return;
       if (f.dataset.counted) return;
       f.dataset.counted = "1";
       if (cell) cell.classList.remove("gfpending");
@@ -889,7 +927,7 @@ async function embedDashboards(s){
   const qs = `orgId=1&var-norad=${s.norad}&theme=dark&from=now-${rangeHours}h&to=now`;
   // #105: reload a d-solo iframe once on the first cold embed (what a manual
   // refresh does) so a Grafana-home first paint becomes the real panel.
-  const cold = !gfReady; gfReady = true;
+  const cold = !gfReady;   // set only when a panel paints (#409)
   // The next-passes coverage timeline is NOT embedded here: it lives as its own
   // Grafana board (uid next-passes) until the visualisation earns a place in
   // the satellite view (#232).
