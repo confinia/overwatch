@@ -693,7 +693,12 @@ async function selectStation(observer){
   const cold = !gfReady; gfReady = true;
   const passesEmbed = `<div class="ggrid">` +
     `<div class="gcell wide tall"><iframe loading="lazy" ` +
-    `src="${GRAFANA}/d-solo/next-passes/next-passes?orgId=1&panelId=4&var-station=${encodeURIComponent(observer)}&theme=dark&kiosk"></iframe></div></div>`;
+    `src="${GRAFANA}/d-solo/next-passes/next-passes?orgId=1&panelId=4&var-station=${encodeURIComponent(observer)}&theme=dark&kiosk"></iframe></div>` +
+    // What the station actually HEARD (#403), on its own past-facing board:
+    // the passes board looks 24h ahead, receptions live behind us. Same
+    // window as the Range control, so both timelines describe one period.
+    `<div class="gf"><iframe title="Heard" loading="lazy" ` +
+    `src="${GRAFANA}/d-solo/station-heard/station-heard?orgId=1&panelId=1&var-station=${encodeURIComponent(observer)}&from=now-${rangeHours}h&to=now&theme=dark&kiosk"></iframe></div></div>`;
   body.innerHTML = passesEmbed +
     `<div class="empty" style="overflow-y:auto">` +
     `<b>${recs.length} receptions · ${sats.length} satellites (last 7 days)</b><br><br>` +

@@ -1,183 +1,183 @@
 {
-  "uid": "next-passes",
-  "title": "Next Passes",
-  "tags": [
-    "orbit-poc"
-  ],
-  "timezone": "utc",
-  "schemaVersion": 39,
-  "version": 5,
-  "refresh": "5m",
-  "time": {
-    "from": "now",
-    "to": "now+24h"
-  },
-  "templating": {
-    "list": [
-      {
-        "name": "station",
-        "label": "Ground station",
-        "type": "query",
-        "datasource": {
-          "type": "postgres",
-          "uid": "orbitcache"
-        },
-        "query": "SELECT DISTINCT observer FROM pass ORDER BY 1",
-        "refresh": 1,
-        "sort": 1,
-        "includeAll": false,
-        "multi": false,
-        "current": {}
-      },
-      {
-        "name": "norad",
-        "label": "Satellite (NORAD)",
-        "type": "query",
-        "datasource": {
-          "type": "postgres",
-          "uid": "orbitcache"
-        },
-        "query": "SELECT DISTINCT norad FROM pass ORDER BY 1",
-        "refresh": 1,
-        "sort": 3,
-        "includeAll": false,
-        "multi": false,
-        "current": {}
-      }
-    ]
-  },
-  "panels": [
-    {
-      "type": "state-timeline",
-      "title": "Coverage timeline \u2014 ground stations seeing this satellite",
-      "datasource": {
-        "type": "postgres",
-        "uid": "orbitcache"
-      },
-      "id": 3,
-      "gridPos": {
-        "h": 16,
-        "w": 24,
-        "x": 0,
-        "y": 0
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "format": "time_series",
-          "rawSql": "SELECT p.aos AS time, p.max_el_deg AS value, p.observer AS metric FROM pass p JOIN satellite s USING (norad) WHERE p.aos > now() AND p.aos < now() + interval '24 hours' AND p.norad = $norad UNION ALL SELECT p.los AS time, NULL AS value, p.observer AS metric FROM pass p JOIN satellite s USING (norad) WHERE p.aos > now() AND p.aos < now() + interval '24 hours' AND p.norad = $norad ORDER BY 1",
-          "datasource": {
-            "type": "postgres",
-            "uid": "orbitcache"
-          }
-        }
-      ],
-      "transformations": [
-        {
-          "id": "prepareTimeSeries",
-          "options": {
-            "format": "wide"
-          }
-        }
-      ],
-      "options": {
-        "showValue": "never",
-        "mergeValues": true,
-        "rowHeight": 0.9,
-        "alignValue": "left",
-        "legend": {
-          "showLegend": false,
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        }
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic-by-name"
-          },
-          "custom": {
-            "lineWidth": 0,
-            "fillOpacity": 85
-          },
-          "unit": "deg",
-          "decimals": 1,
-          "min": 0,
-          "max": 90,
-          "noValue": "no pass"
-        },
-        "overrides": []
-      }
+ "uid": "next-passes",
+ "title": "Next Passes",
+ "tags": [
+  "orbit-poc"
+ ],
+ "timezone": "utc",
+ "schemaVersion": 39,
+ "version": 5,
+ "refresh": "5m",
+ "time": {
+  "from": "now",
+  "to": "now+24h"
+ },
+ "templating": {
+  "list": [
+   {
+    "name": "station",
+    "label": "Ground station",
+    "type": "query",
+    "datasource": {
+     "type": "postgres",
+     "uid": "orbitcache"
     },
-    {
-      "type": "state-timeline",
-      "title": "Coverage timeline \u2014 satellites passing over $station",
-      "datasource": {
-        "type": "postgres",
-        "uid": "orbitcache"
-      },
-      "id": 4,
-      "gridPos": {
-        "h": 16,
-        "w": 24,
-        "x": 0,
-        "y": 18
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "format": "time_series",
-          "rawSql": "SELECT p.aos AS time, p.max_el_deg AS value, s.name AS metric FROM pass p JOIN satellite s USING (norad) WHERE p.aos > now() AND p.aos < now() + interval '24 hours' AND p.observer = '$station' UNION ALL SELECT p.los AS time, NULL AS value, s.name AS metric FROM pass p JOIN satellite s USING (norad) WHERE p.aos > now() AND p.aos < now() + interval '24 hours' AND p.observer = '$station' ORDER BY 1",
-          "datasource": {
-            "type": "postgres",
-            "uid": "orbitcache"
-          }
-        }
-      ],
-      "transformations": [
-        {
-          "id": "prepareTimeSeries",
-          "options": {
-            "format": "wide"
-          }
-        }
-      ],
-      "options": {
-        "showValue": "never",
-        "mergeValues": true,
-        "rowHeight": 0.9,
-        "alignValue": "left",
-        "legend": {
-          "showLegend": false,
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        }
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic-by-name"
-          },
-          "custom": {
-            "lineWidth": 0,
-            "fillOpacity": 85
-          },
-          "unit": "deg",
-          "decimals": 1,
-          "min": 0,
-          "max": 90,
-          "noValue": "no pass"
-        },
-        "overrides": []
-      }
-    }
+    "query": "SELECT DISTINCT observer FROM pass ORDER BY 1",
+    "refresh": 1,
+    "sort": 1,
+    "includeAll": false,
+    "multi": false,
+    "current": {}
+   },
+   {
+    "name": "norad",
+    "label": "Satellite (NORAD)",
+    "type": "query",
+    "datasource": {
+     "type": "postgres",
+     "uid": "orbitcache"
+    },
+    "query": "SELECT DISTINCT norad FROM pass ORDER BY 1",
+    "refresh": 1,
+    "sort": 3,
+    "includeAll": false,
+    "multi": false,
+    "current": {}
+   }
   ]
+ },
+ "panels": [
+  {
+   "type": "state-timeline",
+   "title": "Coverage timeline \u2014 ground stations seeing this satellite",
+   "datasource": {
+    "type": "postgres",
+    "uid": "orbitcache"
+   },
+   "id": 3,
+   "gridPos": {
+    "h": 16,
+    "w": 24,
+    "x": 0,
+    "y": 0
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "format": "time_series",
+     "rawSql": "SELECT p.aos AS time, p.max_el_deg AS value, p.observer AS metric FROM pass p JOIN satellite s USING (norad) WHERE p.aos > now() AND p.aos < now() + interval '24 hours' AND p.norad = $norad UNION ALL SELECT p.los AS time, NULL AS value, p.observer AS metric FROM pass p JOIN satellite s USING (norad) WHERE p.aos > now() AND p.aos < now() + interval '24 hours' AND p.norad = $norad ORDER BY 1",
+     "datasource": {
+      "type": "postgres",
+      "uid": "orbitcache"
+     }
+    }
+   ],
+   "transformations": [
+    {
+     "id": "prepareTimeSeries",
+     "options": {
+      "format": "wide"
+     }
+    }
+   ],
+   "options": {
+    "showValue": "never",
+    "mergeValues": true,
+    "rowHeight": 0.9,
+    "alignValue": "left",
+    "legend": {
+     "showLegend": false,
+     "displayMode": "list",
+     "placement": "bottom"
+    },
+    "tooltip": {
+     "mode": "single",
+     "sort": "none"
+    }
+   },
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "mode": "palette-classic-by-name"
+     },
+     "custom": {
+      "lineWidth": 0,
+      "fillOpacity": 85
+     },
+     "unit": "deg",
+     "decimals": 1,
+     "min": 0,
+     "max": 90,
+     "noValue": "no pass"
+    },
+    "overrides": []
+   }
+  },
+  {
+   "type": "state-timeline",
+   "title": "Coverage timeline \u2014 satellites passing over $station",
+   "datasource": {
+    "type": "postgres",
+    "uid": "orbitcache"
+   },
+   "id": 4,
+   "gridPos": {
+    "h": 16,
+    "w": 24,
+    "x": 0,
+    "y": 18
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "format": "time_series",
+     "rawSql": "SELECT p.aos AS time, p.max_el_deg AS value, s.name AS metric FROM pass p JOIN satellite s USING (norad) WHERE p.aos > now() AND p.aos < now() + interval '24 hours' AND p.observer = '$station' UNION ALL SELECT p.los AS time, NULL AS value, s.name AS metric FROM pass p JOIN satellite s USING (norad) WHERE p.aos > now() AND p.aos < now() + interval '24 hours' AND p.observer = '$station' ORDER BY 1",
+     "datasource": {
+      "type": "postgres",
+      "uid": "orbitcache"
+     }
+    }
+   ],
+   "transformations": [
+    {
+     "id": "prepareTimeSeries",
+     "options": {
+      "format": "wide"
+     }
+    }
+   ],
+   "options": {
+    "showValue": "never",
+    "mergeValues": true,
+    "rowHeight": 0.9,
+    "alignValue": "left",
+    "legend": {
+     "showLegend": false,
+     "displayMode": "list",
+     "placement": "bottom"
+    },
+    "tooltip": {
+     "mode": "single",
+     "sort": "none"
+    }
+   },
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "mode": "palette-classic-by-name"
+     },
+     "custom": {
+      "lineWidth": 0,
+      "fillOpacity": 85
+     },
+     "unit": "deg",
+     "decimals": 1,
+     "min": 0,
+     "max": 90,
+     "noValue": "no pass"
+    },
+    "overrides": []
+   }
+  }
+ ]
 }
