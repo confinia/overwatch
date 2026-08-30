@@ -667,6 +667,7 @@ async function selectStation(observer){
       links.push({ type:"Feature", geometry:{ type:"LineString",
         coordinates:[[r.lon, r.lat], [r.sat_lon, r.sat_lat]] },
         properties:{ observer, ts:new Date(r.ts).getTime(),
+                     norad:r.norad, sat:r.name,      // the popup names it (#400)
                      slat:r.sat_lat.toFixed(1), slon:r.sat_lon.toFixed(1),
                      km: Math.round(haversineKm(r.lat, r.lon, r.sat_lat, r.sat_lon)) } });
     }
@@ -1084,6 +1085,7 @@ async function drawReceptions(norad){
         geometry:{ type:"LineString",
           coordinates:[[r.lon, r.lat], [r.sat_lon, r.sat_lat]] },
         properties:{ observer:r.observer, ts:t,
+                     norad, sat:(satsByNorad[norad] || {}).name || "",
                      slat:r.sat_lat.toFixed(1), slon:r.sat_lon.toFixed(1),
                      km: Math.round(haversineKm(r.lat, r.lon, r.sat_lat, r.sat_lon)) } });
     }
@@ -1405,12 +1407,17 @@ map.on("load", () => {
   map.on("click", "rx-links-hit", e => {
     if (map.queryRenderedFeatures(e.point, { layers:["rx-stations-hit", "sats-hit"] }).length) return;
     const p = e.features[0].properties;
-    const sat = satsByNorad[activeNorad];
+    // From the line's own properties (#400): on the station view activeNorad
+    // is null by design, and "the satellite" was the one thing the operator
+    // did not already know. Deep-link the name to that satellite's view.
+    const satName = p.sat || (satsByNorad[p.norad] || {}).name || "the satellite";
+    const satLink = p.norad != null
+      ? `<a href="#${p.norad}">${escapeHTML(satName)}</a>` : escapeHTML(satName);
     new maplibregl.Popup({ maxWidth:"280px" })
       .setLngLat(e.lngLat)
       .setHTML(`<b>Radio reception</b><br>` +
         `<b>${p.observer.split("-")[0]}</b> decoded a frame from ` +
-        `<b>${sat ? sat.name : "the satellite"}</b><br>${fmtT(p.ts)}<br>` +
+        `<b>${satLink}</b><br>${fmtT(p.ts)}<br>` +
         `satellite was over ${p.slat}°, ${p.slon}° at that moment` +
         (p.km != null ? `<br><b>heard ${Number(p.km).toLocaleString()} km away</b>` : ""))
       .addTo(map);
