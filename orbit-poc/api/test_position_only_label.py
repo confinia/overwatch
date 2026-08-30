@@ -13,7 +13,9 @@ APP = os.path.join(os.path.dirname(__file__), "..", "web", "static", "app.js")
 
 def test_a_satellite_without_a_decoder_is_labelled_position_only():
     js = open(APP, encoding="utf-8").read()
-    block = js[js.index("const heard = "):]
+    # anchored on the list row's own label, not the fleet-bar counter that
+    # shares the name (the loose anchor sliced the wrong statement)
+    block = js[js.index('const heard = " \u00b7 "'):]
     block = block[:block.index(";")]
     assert "s.has_telemetry" in block, \
         "the label must branch on whether telemetry is even possible"
