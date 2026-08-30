@@ -80,7 +80,9 @@ def test_next_passes_embedding():   # #217/#232 (in-app integration)
     assert "panelId=3&var-norad=" not in app        # satellite view: no passes embed
     assert "panelId=4&var-station=" in app          # station view keeps its timeline
     assert "panelId=2&var-norad=" not in app        # tables removed
-    assert "panelId=1&var-station=" not in app
+    # board-qualified: panel 1 of next-passes was the removed table; other
+    # boards (station-heard, #403) legitimately embed their panel 1
+    assert "next-passes?orgId=1&panelId=1&var-station=" not in app
 
 
 def test_favorite_satellites_wired():   # #221
