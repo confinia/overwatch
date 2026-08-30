@@ -51,8 +51,18 @@
   @media (max-width: 900px) { .gutter { display:none; } }
   #map { height:100%; min-height:0; }
   /* Fleet health signal — floats over the globe, works on mobile too. */
-  #fleetbar { position:absolute; top:10px; left:10px; z-index:5;
-    background:rgba(18,24,38,.88); border:1px solid var(--line);
+  /* One row owns the top of the globe (#408). Five elements each used to
+     claim `absolute; top:10px` and overlapped: the guide button sat on the
+     fleet bar, the centred range bar ran into the reception legend. The pane
+     is resizable by dragging the gutter, so no media query can help: the
+     available width is not the viewport width. A wrapping flex row cannot
+     overlap at any drag position. pointer-events:none lets map drags pass
+     through the empty space between the bars; each child takes them back. */
+  #topbar { position:absolute; top:10px; left:10px; right:10px; z-index:5;
+    display:flex; flex-wrap:wrap; gap:8px; align-items:flex-start;
+    pointer-events:none; }
+  #topbar > * { pointer-events:auto; }
+  #fleetbar { background:rgba(18,24,38,.88); border:1px solid var(--line);
     border-radius:8px; padding:6px 12px; font-size:12px; color:var(--text);
     display:flex; gap:12px; align-items:center; }
   .fdot { display:inline-block; width:8px; height:8px; border-radius:50%;
@@ -65,8 +75,7 @@
   .fdot.live { animation:pulse 1.6s infinite;
     box-shadow:0 0 7px 1px rgba(57,217,138,.8); }
   /* Time-window selector — drives receptions, decoded fields and track (#71). */
-  #rangebar { position:absolute; top:10px; left:50%; transform:translateX(-50%);
-    z-index:5; background:rgba(18,24,38,.88); border:1px solid var(--line);
+  #rangebar { background:rgba(18,24,38,.88); border:1px solid var(--line);
     border-radius:8px; padding:3px; display:flex; gap:2px; align-items:center; }
   #rangebar .lbl { color:var(--dim); font-size:11px; padding:0 6px; }
   #rangebar button { background:none; border:0; color:var(--dim); cursor:pointer;
@@ -206,7 +215,7 @@
     background:var(--live); margin-right:6px; vertical-align:middle;
     animation:pulse 1.6s infinite; }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
-  #rxlegend { position:absolute; top:10px; right:10px; z-index:5; max-width:290px;
+  #rxlegend { margin-left:auto; max-width:290px;
     background:rgba(18,24,38,.9); border:1px solid var(--line); border-left:3px solid #f5a623;
     border-radius:8px; padding:8px 12px; font-size:12px; color:var(--text); line-height:1.4; }
   #rxlegend b { color:#f5a623; }
@@ -217,7 +226,7 @@
     border-radius:6px; padding:5px 9px; font-size:12px; cursor:pointer; }
   #oem-import:hover { border-color:#00e5cc; color:#00e5cc; }
   #oem-status { color:var(--dim); font-size:11px; }
-  #oem-banner { position:absolute; top:10px; left:10px; z-index:5; max-width:300px;
+  #oem-banner { max-width:300px;
     background:var(--panel); border:1px solid #00e5cc66; border-radius:8px;
     padding:7px 11px; font-size:12px; color:var(--text); box-shadow:0 2px 10px #0007; }
   #oem-banner b { color:#00e5cc; }
@@ -249,8 +258,7 @@
   /* First-run guide (#108): a card, not a tour. Two operators called the
      first visit a learning curve (F1SXJ, DL7NDR); the answer must be readable
      in twenty seconds and reachable forever after via the ? on the globe. */
-  #guide-open { position:absolute; z-index:7; top:10px; left:10px;
-    width:30px; height:30px; border-radius:50%; border:1px solid var(--line);
+  #guide-open { flex:0 0 auto; width:30px; height:30px; border-radius:50%; border:1px solid var(--line);
     background:var(--panel); color:var(--dim); font-size:16px; cursor:pointer; }
   #guide-open:hover { color:var(--text); border-color:var(--accent); }
   #guide, #why-register { position:fixed; inset:0; z-index:40; background:rgba(10,14,23,.75);
@@ -317,12 +325,14 @@
 <div id="app">
   <div id="left">
     <div id="map"></div>
-    <button id="guide-open" type="button" title="How to read this">?</button>
     <div id="gutter-map" class="gutter" title="Drag to resize · drag to the edge to hide the globe/dashboards"></div>
-    <div id="fleetbar" title="Fleet link status">loading fleet…</div>
-    <div id="rangebar" title="Time window for receptions, decoded fields and track"></div>
-    <div id="rxlegend" style="display:none"></div>
-    <div id="oem-banner" style="display:none"></div>
+    <div id="topbar">
+      <button id="guide-open" type="button" title="How to read this">?</button>
+      <div id="fleetbar" title="Fleet link status">loading fleet…</div>
+      <div id="rangebar" title="Time window for receptions, decoded fields and track"></div>
+      <div id="oem-banner" style="display:none"></div>
+      <div id="rxlegend" style="display:none"></div>
+    </div>
     <div id="panel">
       <div class="head" id="panelHead">Select a satellite to inspect its telemetry</div>
       <div id="panelBody">

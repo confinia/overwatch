@@ -87,14 +87,22 @@ def test_field_click_flies_to_reception(html):   # #42 (retired panel, kept)
     assert "pulseLink" in html and "rxLinkFeatures" in html
 
 
-def test_reception_legend_anchored_top_right(html):   # #62
-    # the reception legend sits in the top-right of the map, not over the
-    # dashboards at the bottom of the left column
+def test_reception_legend_anchored_top_right(html):   # #62, mechanism moved by #408
+    """The legend belongs in the top-right of the map, never over the
+    dashboards at the bottom of the left column. That invariant is unchanged.
+    Since #408 it is composed rather than declared: #topbar pins the row to
+    the top of the globe and the legend is pushed to its right end, because
+    five elements each anchoring themselves to top:10px overlapped. Asserting
+    top/right ON THE LEGEND would now pin the old mechanism, not the rule."""
+    row = re.search(r"#topbar\s*\{[^}]*\}", html)
+    assert row, "no #topbar rule: the legend has nothing anchoring it"
+    assert re.search(r"\btop:\s*\d", row.group(0)), "the row must sit at the top"
+    assert "bottom:" not in row.group(0)
     m = re.search(r"#rxlegend\s*\{[^}]*\}", html)
     assert m, "no #rxlegend rule"
     rule = m.group(0)
-    # anchored to the top-right, not the bottom-left (border-left is unrelated)
-    assert re.search(r"\btop:\s*\d", rule) and re.search(r"[; {]right:\s*\d", rule)
+    assert "margin-left:auto" in rule, "the legend must be pushed to the right end"
+    # still never anchored to the bottom or the left (border-left is unrelated)
     assert "bottom:" not in rule and not re.search(r"[; {]left:\s*\d", rule)
 
 
