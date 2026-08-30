@@ -612,7 +612,7 @@ function renderList(sats){
       const div = document.createElement("div");
       div.className = "sat" + (st.observer===activeStation?" active":"");
       div.innerHTML =
-        `<div class="row"><span class="name" style="color:#f5a623">${st.observer.split("-")[0]}</span></div>
+        `<div class="row"><span class="name" style="color:#f5a623">${escapeHTML(stationName(st.observer))}</span></div>
          <div class="meta">station ${st.observer} · ${st.frames} frames · ${st.sats} satellites · last ${age(st.last_rx)}</div>`;
       div.onclick = () => selectStation(st.observer);
       list.appendChild(div);
@@ -643,7 +643,7 @@ async function selectStation(observer){
              : stInfo?.source === "sids" ? "direct-upload station (SiDS)"
              : "volunteer ground station";
   head.innerHTML = `${escapeHTML(observer)} — ${kind} · ` +
-    `<a class="action" href="https://www.qrz.com/db/${encodeURIComponent(baseCall(observer.split("-")[0]))}" ` +
+    `<a class="action" href="https://www.qrz.com/db/${encodeURIComponent(baseCall(stationName(observer)))}" ` +
     `target="_blank" rel="noopener" title="Look up / contact the operator">Contact operator ↗</a>`;
   body.innerHTML = `<div class="empty"><span class="dot"></span>Loading receptions…</div>`;
   const recs = await j(`/api/station/${encodeURIComponent(observer)}`);
@@ -674,7 +674,7 @@ async function selectStation(observer){
   }
   if (lat != null){
     stations.push({ type:"Feature", geometry:{ type:"Point", coordinates:[lon, lat] },
-      properties:{ name: observer.split("-")[0], grid: observer.split("-")[1] || "",
+      properties:{ name: stationName(observer), grid: stationGrid(observer),
                    n: recs.length, first: 0, last: 0 } });
     map.flyTo({ center:[lon, lat], zoom: Math.max(map.getZoom(), 2.6), duration: 1500 });
   }
@@ -685,7 +685,7 @@ async function selectStation(observer){
       geometry:{ type:"Point", coordinates: l.geometry.coordinates[1] }, properties:{} })) });
   rxLinkFeatures = links; clearPulse();
   const sats = Object.values(bySat).sort((a, b) => b.n - a.n);
-  setRxLegend(`<b>${observer.split("-")[0]}</b> — this station's receptions` +
+  setRxLegend(`<b>${escapeHTML(stationName(observer))}</b> — this station's receptions` +
     `<div class="sub">${recs.length} frames across ${sats.length} satellites, last 7 days. ` +
     `Each line points to where a satellite was when this station heard it.</div>`);
   // Next passes over THIS station (#217): which satellites will cover it next.
@@ -793,7 +793,7 @@ function passesPanelHTML(ps){
   }
   const n = ps[0];
   const rows = ps.slice(0, 12).map(p => {
-    const call = String(p.observer).split("-")[0];
+    const call = stationName(p.observer);
     return `<tr><td class="np-when ${imminence(p.in_s)}">${fmtIn(p.in_s)}</td>` +
       `<td class="np-st" title="${escapeHTML(p.observer)}">${escapeHTML(call)}</td>` +
       `<td class="np-el ${elClass(p.max_el_deg)}">${Math.round(p.max_el_deg)}°</td>` +
@@ -801,7 +801,7 @@ function passesPanelHTML(ps){
   }).join("");
   return `<div class="np">` +
     `<div class="np-head">Next contact — <b class="${imminence(n.in_s)}">${fmtIn(n.in_s)}</b> ` +
-    `via ${escapeHTML(String(n.observer).split("-")[0])} · ${Math.round(n.max_el_deg)}° max · ` +
+    `via ${escapeHTML(stationName(n.observer))} · ${Math.round(n.max_el_deg)}° max · ` +
     `${Math.round(n.dur_s / 60)} min` +
     `<span class="np-sub">${ps.length} pass${ps.length > 1 ? "es" : ""} in the next 24 h</span></div>` +
     `<table class="np-tbl"><tbody>${rows}</tbody></table></div>`;
@@ -975,6 +975,12 @@ function escapeHTML(s){
 // carry a portable suffix ("UT4UYF/M" → UT4UYF), a foreign prefix ("DL/F1ABC" →
 // F1ABC) or a descriptive name ("SA2KNG Omni UHF/VHF" → SA2KNG). QRZ records
 // live under the base call, and a slash URL-encodes to %2F which 404s.
+// A SatNOGS observer is "<name>-<grid>", and the NAME may itself contain
+// dashes ("DL7NDR UHF-Turnstile-JN48ap"). The locator is always the LAST
+// segment (the ingest already does rsplit); the labels used to split on the
+// first dash and showed "DL7NDR UHF" with locator "Turnstile" (#402).
+function stationName(obs){ const s = String(obs || ""); const i = s.lastIndexOf("-"); return i > 0 ? s.slice(0, i) : s; }
+function stationGrid(obs){ const s = String(obs || ""); const i = s.lastIndexOf("-"); return i > 0 ? s.slice(i + 1) : ""; }
 function baseCall(label){
   const first = String(label || "").trim().split(/\s+/)[0];  // call is the first token
   // home call is the longest /-separated part (M/P/QRP suffixes & DL/W prefixes are shorter)
@@ -1033,7 +1039,7 @@ function jumpToReception(fieldTs, tr){
   const when = dtMin <= 0 ? "at the same moment"
     : `~${dtMin} min ${best.properties.ts < fieldTs ? "before" : "after"}`;
   setRxLegend(`<b>Reception that carried this field</b><div class="sub">` +
-    `nearest frame ${when}, decoded by <b>${escapeHTML(best.properties.observer.split("-")[0])}</b> — ` +
+    `nearest frame ${when}, decoded by <b>${escapeHTML(stationName(best.properties.observer))}</b> — ` +
     `satellite was over ${best.properties.slat}°, ${best.properties.slon}°.</div>`);
 }
 let pulseTimer = null, pulseStep = 0;
@@ -1092,7 +1098,7 @@ async function drawReceptions(norad){
   }
   const stations = Object.entries(st).map(([obs, a]) => ({ type:"Feature",
     geometry:{ type:"Point", coordinates:[a.lon, a.lat] },
-    properties:{ name: obs.split("-")[0], grid: obs.split("-")[1] || "",
+    properties:{ name: stationName(obs), grid: stationGrid(obs),
                  observer: obs, n: a.n, first: a.first, last: a.last } }));
   map.getSource("rx-stations").setData({ type:"FeatureCollection", features: stations });
   map.getSource("rx-links").setData({ type:"FeatureCollection", features: links });
@@ -1416,7 +1422,7 @@ map.on("load", () => {
     new maplibregl.Popup({ maxWidth:"280px" })
       .setLngLat(e.lngLat)
       .setHTML(`<b>Radio reception</b><br>` +
-        `<b>${p.observer.split("-")[0]}</b> decoded a frame from ` +
+        `<b>${escapeHTML(stationName(p.observer))}</b> decoded a frame from ` +
         `<b>${satLink}</b><br>${fmtT(p.ts)}<br>` +
         `satellite was over ${p.slat}°, ${p.slon}° at that moment` +
         (p.km != null ? `<br><b>heard ${Number(p.km).toLocaleString()} km away</b>` : ""))
