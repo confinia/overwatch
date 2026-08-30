@@ -5,10 +5,11 @@ import json
 import os
 
 BOARD = os.path.join(os.path.dirname(__file__), "..", "grafana", "dashboards",
-                     "public", "next-passes.json")
+                     "public", "station-heard.json")
 
 
 def test_the_station_board_has_a_heard_panel():
+    # its OWN board: next-passes looks now..now+24h, receptions live in the past
     d = json.load(open(BOARD, encoding="utf-8"))
     heard = [p for p in d["panels"] if (p.get("title") or "").startswith("Heard")]
     assert len(heard) == 1
