@@ -271,6 +271,18 @@ fetch(`${API_BASE}/api/version`).then(r => r.json()).then(v => {
 // container, because two sources drift and a badge that wrongly says "sandbox"
 // while real cards are charged is worse than no badge at all.
 fetch(`${API_BASE}/api/v1/billing/mode`).then(r => r.json()).then(m => {
+  // The one line for mission teams (#421). Every channel sends people to
+  // this page, and nothing on it said their own telemetry could come here.
+  // Inserted only where the billing surface answered: the selfhost edition
+  // (#280) has no plans page to link, and a dead link is worse than none.
+  const ftr = document.getElementById("siteftr");
+  if (ftr && !document.getElementById("fly")){
+    const a = document.createElement("a");
+    a.id = "fly"; a.href = "/pro.html";
+    a.textContent = "Fly something? Put your own telemetry here";
+    a.style.color = "var(--accent)";
+    ftr.append(" · ", a);
+  }
   const el = document.getElementById("paymode");
   if (!el) return;
   const env = m.env || m.polar_env;             // polar_env: pre-#269 field name
