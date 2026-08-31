@@ -45,10 +45,28 @@
   .muted { color:var(--dim); font-size:12px; }
   #satname { font-size:15px; font-weight:700; }
   #thermal .kv .v { font-variant-numeric:tabular-nums; }
-  #loading { position:fixed; inset:0; display:flex; align-items:center;
-    justify-content:center; color:var(--dim); font-size:14px; z-index:20;
-    background:var(--bg); transition:opacity .5s; }
+  /* A static line of text for five seconds reads as a frozen page. The
+     telemetry call alone takes ~3s and the WebGL scene costs more, so the
+     overlay MOVES and SAYS which step it is on. Same rule as the dashboard
+     embeds (#239): something that cannot finish must say so rather than sit
+     there, because an infinite load is invisible otherwise. */
+  #loading { position:fixed; inset:0; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:14px; color:var(--dim);
+    font-size:14px; z-index:20; background:var(--bg); transition:opacity .5s; }
   #loading.hidden { opacity:0; pointer-events:none; }
+  #loading .spin { width:26px; height:26px; border-radius:50%;
+    border:2px solid var(--line); border-top-color:var(--accent);
+    animation:spin 900ms linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  #loading.failed .spin { animation:none; border-top-color:#f5a623; }
+  #loading .step b { color:var(--text); font-weight:600; }
+  #loading .hint { font-size:12px; max-width:340px; text-align:center;
+    line-height:1.5; }
+  #loading .hint a { color:var(--accent); }
+  /* Respect a reader who asked for less motion: keep the state, drop the spin */
+  @media (prefers-reduced-motion: reduce) {
+    #loading .spin { animation:none; }
+  }
   .legend { position:fixed; bottom:10px; left:14px; z-index:9; font-size:11px;
     color:var(--dim); background:var(--panel); border:1px solid var(--line);
     border-radius:8px; padding:6px 10px; max-width:320px; line-height:1.4; }
@@ -57,7 +75,11 @@
 </head>
 <body>
 <div id="scene"></div>
-<div id="loading">Loading spacecraft…</div>
+<div id="loading">
+  <div class="spin" aria-hidden="true"></div>
+  <div class="step" role="status" aria-live="polite">Starting…</div>
+  <div class="hint"></div>
+</div>
 <div id="topbar">
   <a href="/" title="Back to the globe">← Overwatch</a>
   <span id="crumb" class="muted"></span>
@@ -380,22 +402,67 @@ addEventListener("beforeunload", disposeScene);
 
 // ---- data + HUD ------------------------------------------------------------
 let satInfo = null;
+// Which step we are on, so a slow start looks like progress and a stuck one
+// names the thing that stuck. `step` is what we are DOING; `hint` is only for
+// when it goes wrong, because a hint shown during normal loading is noise.
+function loadingStep(text, hint){
+  const box = document.getElementById("loading");
+  if (!box) return;
+  const s = box.querySelector(".step"), h = box.querySelector(".hint");
+  if (s) s.innerHTML = text;
+  if (h) h.innerHTML = hint || "";
+}
+function loadingFailed(what, detail){
+  const box = document.getElementById("loading");
+  if (box) box.classList.add("failed");
+  loadingStep(`Could not load <b>${escapeHTML(what)}</b>`,
+    `${escapeHTML(detail || "")}<br><a href="#" onclick="location.reload();` +
+    `return false">try again</a> · <a href="/">back to the globe</a>`);
+}
+
 async function load(){
-  if (!NORAD){ document.getElementById("loading").textContent =
-    "No satellite selected — open /w/spacecraft?sat=<NORAD>."; return; }
-  buildScene();
-  await refresh();
+  if (!NORAD){
+    loadingFailed("this view", "No satellite selected. Open /w/spacecraft?sat=<NORAD>.");
+    return;
+  }
+  try {
+    loadingStep("Building the 3D view…");
+    buildScene();
+  } catch (e) {
+    // WebGL can be unavailable or blocked. Before this the overlay simply
+    // stayed on screen for ever, with no way to tell a slow load from a
+    // dead one.
+    loadingFailed("the 3D view",
+                  "Your browser refused a WebGL context. " + (e && e.message || ""));
+    return;
+  }
+  try {
+    await refresh(loadingStep);
+  } catch (e) {
+    loadingFailed("this spacecraft", e && e.message || "");
+    return;
+  }
   document.getElementById("loading").classList.add("hidden");
   setInterval(refresh, 15000);
 }
 
-async function refresh(){
+// `say` is passed only on the FIRST load, so the 15s refresh stays silent.
+// Each fetch is still tolerated when the page is already up (a blip must not
+// blank a working view), but on the first load a total failure has to
+// surface — that is the difference between "slow" and "broken".
+async function refresh(say){
+  let got = 0;
+  if (say) say("Loading the fleet…");
   try {
     const sats = await j("/api/satellites");
     satInfo = sats.find(s => s.norad === NORAD) || satInfo;
+    got++;
   } catch (e) {}
   let fields = [];
-  try { fields = await j(`/api/v1/telemetry/${NORAD}/fields`); } catch (e) {}
+  if (say) say("Loading decoded telemetry…");
+  try { fields = await j(`/api/v1/telemetry/${NORAD}/fields`); got++; } catch (e) {}
+  if (say && !got) throw new Error("The API did not answer.");
+  if (say) say("Drawing…");
   renderHUD(componentMap(fields));
 }
 
