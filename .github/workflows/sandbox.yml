@@ -73,7 +73,7 @@ jobs:
           cd orbit-poc/sandbox
           # #237: never `down` first. The long part of a redeploy is the BUILD
           # (2-4 min); with the stack torn down, that whole window answers a
-          # bare 502 — to a prospect's browser and to our own e2e walks alike.
+          # bare 502 — to a visitor's browser and to our own e2e walks alike.
           # Build while the OLD stack keeps serving, then swap in seconds.
           C="podman-compose -p ovw-sandbox -f docker-compose.yml"
           $C build 2>&1 | tail -3

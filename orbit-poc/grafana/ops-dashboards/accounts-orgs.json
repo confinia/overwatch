@@ -1,7 +1,7 @@
 {
   "uid": "accounts-orgs",
   "title": "Accounts & organizations",
-  "description": "Internal admin view of the account/tenant model: organizations, members, service tokens, API-key leads, signups over time (#28). Reads the org model in Postgres; admin-only (ops folder).",
+  "description": "Internal admin view of the account/tenant model: organizations, members, service tokens, API-key accounts, signups over time (#28). Reads the org model in Postgres; admin-only (ops folder).",
   "tags": [
     "ops",
     "accounts"
@@ -118,7 +118,7 @@
     },
     {
       "id": 3,
-      "title": "API-key accounts (leads)",
+      "title": "API-key accounts",
       "type": "stat",
       "datasource": {
         "type": "postgres",

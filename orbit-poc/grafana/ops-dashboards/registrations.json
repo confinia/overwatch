@@ -1,7 +1,7 @@
 {
   "uid": "registrations",
   "title": "User registrations",
-  "description": "Who signed up and when (#172): the registration registry fed by every Keycloak login and backfilled from the realm. Funnel: registered -> organization -> API key. Admin-only (ops Grafana org).",
+  "description": "Who signed up and when (#172): the registration registry fed by every Keycloak login and backfilled from the realm. Counts at each step: registered, organization, API key. Admin-only (ops Grafana org).",
   "tags": [
     "ops",
     "accounts"

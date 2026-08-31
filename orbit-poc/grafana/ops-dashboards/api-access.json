@@ -1,7 +1,7 @@
 {
   "uid": "api-access",
   "title": "API Access (Ops)",
-  "description": "The public /v1 product API: traffic, latency, consumers, countries, keys. Metering view \u2014 this is what pricing reads at the monetization review.",
+  "description": "The public /v1 product API: traffic, latency, consumers, countries, keys. Metering view: what each consumer actually uses.",
   "tags": [
     "ops",
     "api"
@@ -209,7 +209,7 @@
     },
     {
       "id": 8,
-      "title": "Top API keys (range) \u2014 each key is a person we can talk to",
+      "title": "Top API keys (range)",
       "type": "table",
       "datasource": {
         "type": "postgres",
