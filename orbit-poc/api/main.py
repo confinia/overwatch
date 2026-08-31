@@ -196,6 +196,20 @@ CREATE TABLE IF NOT EXISTS push_watch (
     notified_at timestamptz,
     PRIMARY KEY (endpoint, observer)
 );
+-- The same shape for satellites (#412). A separate table rather than a
+-- nullable `norad` on push_watch: that column would have relaxed the primary
+-- key of a table holding live subscriptions, and a duplicated twenty-line
+-- sender is a cheaper price than a migration that can silently unsubscribe
+-- real browsers. Generalise the day a third subject appears, not before.
+CREATE TABLE IF NOT EXISTS push_watch_sat (
+    endpoint    TEXT NOT NULL,
+    norad       INTEGER NOT NULL,
+    p256dh      TEXT NOT NULL,
+    auth        TEXT NOT NULL,
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    notified_at timestamptz,
+    PRIMARY KEY (endpoint, norad)
+);
 -- SatNOGS throttles telemetry for satellites it flags as violating frequency
 -- regulations to one request per day, against six a minute for everything
 -- else. Mirrored from the bulk list so a satellite flagged upstream is
@@ -735,6 +749,104 @@ def stations_list(response: Response):
 VAPID_PRIVATE = os.environ.get("VAPID_PRIVATE", "").strip()
 VAPID_PUBLIC = os.environ.get("VAPID_PUBLIC", "").strip()
 VAPID_SUBJECT = os.environ.get("VAPID_SUBJECT", "mailto:contact@confinia.io")
+
+# The satellite twin of STATION_HEALTH_SQL (#412). Same rate (frames over
+# passes available), same baseline split, and TWO suppression clauses where
+# the station detector needs one.
+#
+# A station is quiet for one interesting reason: its own equipment. A
+# satellite has two uninteresting ones that must be ruled out first —
+# our own ingest breaking (the fleet clause, which kept the 2026-08-20
+# outage from paging anyone), and the handful of stations that usually
+# hear THIS satellite being down. Without that second clause we would tell
+# an operator their spacecraft went quiet when the spacecraft is fine and
+# the ground is broken: the exact inverse of the mistake the station
+# detector exists to avoid.
+SATELLITE_HEALTH_SQL = """
+WITH sat_opp AS (
+    SELECT norad, day, sum(passes) AS passes
+    FROM station_opportunity
+    WHERE day >  %(as_of)s::date - %(window)s::integer
+      AND day <= %(as_of)s::date
+    GROUP BY norad, day
+), sat_heard AS (
+    SELECT norad, ts::date AS day, count(*) AS frames
+    FROM reception
+    WHERE ts >= %(as_of)s::date - %(window)s::integer
+      AND ts <  %(as_of)s::date + 1
+    GROUP BY norad, ts::date
+), rate AS (
+    SELECT o.norad, o.day, o.passes,
+           coalesce(h.frames, 0)::float / nullif(o.passes, 0) AS hit_rate
+    FROM sat_opp o
+    LEFT JOIN sat_heard h ON h.norad = o.norad AND h.day = o.day
+), fleet AS (
+    SELECT day, avg(hit_rate) AS fleet_rate
+    FROM rate WHERE hit_rate IS NOT NULL GROUP BY day
+), st_rate AS (
+    -- every station's OWN daily rate, across all satellites
+    SELECT o.observer, o.day,
+           coalesce(max(d.frames), 0)::float
+             / nullif(sum(o.passes), 0) AS hit_rate
+    FROM station_opportunity o
+    LEFT JOIN station_daily d
+           ON d.observer = o.observer AND d.day = o.day
+    WHERE o.day >  %(as_of)s::date - %(window)s::integer
+      AND o.day <= %(as_of)s::date
+    GROUP BY o.observer, o.day
+), listeners AS (
+    SELECT DISTINCT norad, observer
+    FROM station_opportunity
+    WHERE day >  %(as_of)s::date - %(window)s::integer
+      AND day <= %(as_of)s::date
+), lis AS (
+    -- did the stations that usually hear this satellite collapse themselves?
+    SELECT l.norad,
+           avg(s.hit_rate) FILTER (
+             WHERE s.day >  %(as_of)s::date - %(recent)s::integer) AS lis_recent,
+           avg(s.hit_rate) FILTER (
+             WHERE s.day <= %(as_of)s::date - %(recent)s::integer) AS lis_base
+    FROM listeners l JOIN st_rate s ON s.observer = l.observer
+    GROUP BY l.norad
+), split AS (
+    SELECT r.norad,
+           avg(r.hit_rate) FILTER (
+             WHERE r.day >  %(as_of)s::date - %(recent)s::integer)  AS recent_rate,
+           avg(r.hit_rate) FILTER (
+             WHERE r.day <= %(as_of)s::date - %(recent)s::integer)  AS base_rate,
+           count(*)        FILTER (
+             WHERE r.day <= %(as_of)s::date - %(recent)s::integer)  AS base_days,
+           avg(f.fleet_rate) FILTER (
+             WHERE r.day >  %(as_of)s::date - %(recent)s::integer)  AS fleet_recent,
+           avg(f.fleet_rate) FILTER (
+             WHERE r.day <= %(as_of)s::date - %(recent)s::integer)  AS fleet_base,
+           sum(r.passes)   FILTER (
+             WHERE r.day >  %(as_of)s::date - %(recent)s::integer)  AS recent_passes
+    FROM rate r JOIN fleet f ON f.day = r.day
+    GROUP BY r.norad
+)
+SELECT s.norad, sat.name,
+       round(s.base_rate::numeric, 4)    AS baseline_rate,
+       round(s.recent_rate::numeric, 4)  AS recent_rate,
+       s.base_days, s.recent_passes,
+       round(s.fleet_base::numeric, 4)   AS fleet_baseline,
+       round(s.fleet_recent::numeric, 4) AS fleet_recent,
+       round(l.lis_base::numeric, 4)     AS listeners_baseline,
+       round(l.lis_recent::numeric, 4)   AS listeners_recent
+FROM split s
+JOIN lis l ON l.norad = s.norad
+LEFT JOIN satellite sat ON sat.norad = s.norad
+WHERE s.base_days >= %(min_days)s
+  AND s.base_rate >= %(min_base)s
+  AND s.recent_passes > 0
+  AND s.recent_rate <= s.base_rate * %(collapse)s
+  -- not ours: the fleet did not fall with it
+  AND s.fleet_recent >= s.fleet_base * %(fleet_ok)s
+  -- not the ground's: its usual listeners are still working
+  AND l.lis_recent >= l.lis_base * %(fleet_ok)s
+ORDER BY s.base_rate - s.recent_rate DESC
+"""
+
 PUSH_COOLDOWN_H = int(os.environ.get("PUSH_COOLDOWN_H", 24))
 
 
@@ -820,6 +932,120 @@ def station_unwatch(callsign: str, body: WatchRequest):
         cur.connection.commit()
 
 
+@app.get("/v1/satellites/health")
+def satellites_health(as_of: str | None = None):
+    """Satellites heard far below their own baseline (#412).
+
+    Two suppressions, not one: the fleet clause (our ingest broke) and the
+    listener clause (the stations that usually hear this satellite are the
+    ones that are down). A satellite is only reported when neither explains
+    the silence."""
+    import datetime as _dt
+    day = as_of or _dt.datetime.now(_dt.timezone.utc).date().isoformat()
+    with cursor() as cur:
+        cur.execute(SATELLITE_HEALTH_SQL, {
+            "as_of": day,
+            "window": HEALTH_RECENT_DAYS + HEALTH_BASELINE_DAYS,
+            "recent": HEALTH_RECENT_DAYS,
+            "min_days": HEALTH_MIN_DAYS,
+            "min_base": HEALTH_MIN_BASELINE,
+            "collapse": HEALTH_COLLAPSE,
+            "fleet_ok": HEALTH_FLEET_OK,
+        })
+        rows = cur.fetchall()
+    return {
+        "as_of": day,
+        "quiet": [{"norad": n, "name": nm, "baseline_rate": float(b),
+                   "recent_rate": float(r), "baseline_days": bd,
+                   "recent_passes": rp,
+                   "fleet_baseline": float(fb), "fleet_recent": float(fr),
+                   "listeners_baseline": float(lb), "listeners_recent": float(lr)}
+                  for n, nm, b, r, bd, rp, fb, fr, lb, lr in rows],
+        "note": ("A satellite is listed only when its own reception collapsed "
+                 "while the fleet held AND the stations that usually hear it "
+                 "kept working. Silence explained by our ingest or by the "
+                 "ground is not the satellite's fault, and is not reported."),
+    }
+
+
+@app.post("/v1/satellites/{norad}/watch", status_code=201)
+def satellite_watch(norad: int, body: WatchRequest):
+    """Start watching a satellite from this browser (#412)."""
+    if not (VAPID_PRIVATE and VAPID_PUBLIC):
+        raise HTTPException(404, "Push is not configured on this install.")
+    with cursor() as cur:
+        cur.execute("SELECT name FROM satellite WHERE norad = %s", (norad,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, f"Satellite {norad} is not tracked.")
+        name = row[0]
+        cur.execute("""INSERT INTO push_watch_sat (endpoint, norad, p256dh, auth)
+                       VALUES (%s, %s, %s, %s)
+                       ON CONFLICT (endpoint, norad) DO UPDATE SET
+                         p256dh = EXCLUDED.p256dh, auth = EXCLUDED.auth""",
+                    (body.endpoint, norad, body.p256dh, body.auth))
+        cur.connection.commit()
+    _push_to(body.endpoint, body.p256dh, body.auth,
+             {"title": f"Watching {name}",
+              "body": "You'll hear from us here if this satellite goes quiet.",
+              "norad": norad})
+    return {"watching": norad, "name": name}
+
+
+@app.delete("/v1/satellites/{norad}/watch", status_code=204)
+def satellite_unwatch(norad: int, body: WatchRequest):
+    with cursor() as cur:
+        cur.execute("DELETE FROM push_watch_sat WHERE endpoint = %s AND norad = %s",
+                    (body.endpoint, norad))
+        cur.connection.commit()
+
+
+def _check_watched_satellites() -> int:
+    """The sender for satellites: same discipline as the station one (#412).
+
+    It runs the DETECTOR, never its own threshold, so it inherits both
+    suppression clauses. A satellite silent because our ingest is blocked, or
+    because its listeners are down, pages nobody."""
+    if not (VAPID_PRIVATE and VAPID_PUBLIC):
+        return 0
+    import datetime as _dt
+    with cursor() as cur:
+        cur.execute(SATELLITE_HEALTH_SQL, {
+            "as_of": _dt.datetime.now(_dt.timezone.utc).date().isoformat(),
+            "window": HEALTH_RECENT_DAYS + HEALTH_BASELINE_DAYS,
+            "recent": HEALTH_RECENT_DAYS,
+            "min_days": HEALTH_MIN_DAYS,
+            "min_base": HEALTH_MIN_BASELINE,
+            "collapse": HEALTH_COLLAPSE,
+            "fleet_ok": HEALTH_FLEET_OK,
+        })
+        quiet = {r[0]: r[1] for r in cur.fetchall()}
+        if not quiet:
+            return 0
+        cur.execute("""SELECT endpoint, norad, p256dh, auth FROM push_watch_sat
+                       WHERE norad = ANY(%s)
+                         AND (notified_at IS NULL
+                              OR notified_at < now() - %s * interval '1 hour')""",
+                    (list(quiet), PUSH_COOLDOWN_H))
+        sent = 0
+        for endpoint, norad, p256dh, auth in cur.fetchall():
+            ok = _push_to(endpoint, p256dh, auth,
+                          {"title": f"{quiet[norad]} has gone quiet",
+                           "body": ("It is being heard far below its own "
+                                    "baseline, while the fleet and its usual "
+                                    "ground stations are working normally."),
+                           "norad": norad})
+            if ok:
+                cur.execute("UPDATE push_watch_sat SET notified_at = now() "
+                            "WHERE endpoint = %s AND norad = %s", (endpoint, norad))
+                sent += 1
+            else:                                  # 404/410: browser is gone
+                cur.execute("DELETE FROM push_watch_sat WHERE endpoint = %s",
+                            (endpoint,))
+        cur.connection.commit()
+    return sent
+
+
 def _check_watched_stations() -> int:
     """The sender: notify watchers of stations the DETECTOR currently flags.
 
@@ -878,6 +1104,10 @@ def _push_watch_loop() -> None:
                 n = _check_watched_stations()
                 if n:
                     print(f"push: {n} quiet-station notification(s) sent",
+                          flush=True)
+                m = _check_watched_satellites()          # #412
+                if m:
+                    print(f"push: {m} quiet-satellite notification(s) sent",
                           flush=True)
             except Exception as e:
                 print(f"push loop error: {e}", flush=True)
