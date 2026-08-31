@@ -62,6 +62,10 @@ CREATE TABLE IF NOT EXISTS reception (
     -- upload). One operator runs both kinds under one callsign and cannot
     -- tell them apart in a station list (#97). NULL = ingested before this.
     source       TEXT,
+    -- The number SatNOGS uses for a Network station, straight from the frame.
+    -- It is what an operator calls their own station (#417). NULL for SiDS
+    -- uploads, which have no Network station, and for older rows.
+    station_id   INTEGER,
     lat          DOUBLE PRECISION,
     lon          DOUBLE PRECISION,
     PRIMARY KEY (norad, ts, observer)

@@ -1125,7 +1125,10 @@ def _maidenhead(loc):
 def _reception_row(norad, ts, f):
     """SatNOGS observer strings look like 'KM7DOS-CN87xi'. app_source says
     HOW the frame arrived — 'network' observation vs 'sids' direct upload —
-    which is the only honest basis for labelling a station's kind (#97)."""
+    which is the only honest basis for labelling a station's kind (#97).
+    station_id is the number SatNOGS itself uses: it is in the Network URL of
+    a station's own page, so it is what an operator knows their station AS,
+    and we were dropping it (#417)."""
     obs = (f.get("observer") or "").strip()
     if not obs:
         return None
@@ -1134,7 +1137,12 @@ def _reception_row(norad, ts, f):
         pos = _maidenhead(obs.rsplit("-", 1)[1])
         if pos:
             lat, lon = pos
-    return (norad, ts, obs, lat, lon, (f.get("app_source") or "").strip() or None)
+    try:
+        station_id = int(f.get("station_id"))
+    except (TypeError, ValueError):
+        station_id = None          # SiDS uploads have no Network station
+    return (norad, ts, obs, lat, lon,
+            (f.get("app_source") or "").strip() or None, station_id)
 
 
 def _store_frames(norad, frames, decoder):
@@ -1199,7 +1207,8 @@ def _store_frames(norad, frames, decoder):
         receptions = list({(r[0], r[1], r[2]): r for r in receptions}.values())
         with db() as conn, conn.cursor() as cur:
             execute_values(cur,
-                """INSERT INTO reception (norad, ts, observer, lat, lon, source)
+                """INSERT INTO reception
+                       (norad, ts, observer, lat, lon, source, station_id)
                    VALUES %s ON CONFLICT DO NOTHING""", receptions)
             conn.commit()
     return decoded_n

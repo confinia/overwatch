@@ -48,6 +48,11 @@ KEYS_SQL = """
 -- who-heard-whom rows predate the kind distinction (#97): 'network'
 -- observation vs 'sids' direct upload, straight from SatNOGS app_source
 ALTER TABLE IF EXISTS reception ADD COLUMN IF NOT EXISTS source TEXT;
+-- the station number SatNOGS itself uses, which is how operators refer to
+-- their own station and how they expect to search for it (#417)
+ALTER TABLE IF EXISTS reception ADD COLUMN IF NOT EXISTS station_id INTEGER;
+CREATE INDEX IF NOT EXISTS reception_station_id_idx
+    ON reception (station_id) WHERE station_id IS NOT NULL;
 CREATE TABLE IF NOT EXISTS api_key (
     key        uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     email      text NOT NULL,
@@ -730,16 +735,20 @@ def stations_list(response: Response):
             SELECT observer, max(lat) AS lat, max(lon) AS lon,
                    count(*) AS frames, count(DISTINCT norad) AS satellites,
                    max(ts) AS last_rx,
-                   mode() WITHIN GROUP (ORDER BY source) AS source
+                   mode() WITHIN GROUP (ORDER BY source) AS source,
+                   max(station_id) AS station_id
             FROM reception
             WHERE ts > now() - interval '7 days' AND lat IS NOT NULL
             GROUP BY observer ORDER BY frames DESC""")
         # source: what SatNOGS says about how this station's frames arrive —
         # 'network' observation vs 'sids' direct upload (#97). One operator
         # runs both kinds under one callsign; only labelled when known.
+        # station_id: the number SatNOGS uses, so an operator can search for
+        # the station the way they refer to it (#417)
         return [{"observer": o, "lat": la, "lon": lo, "frames": f,
-                 "satellites": s, "last_rx": t.isoformat(), "source": src}
-                for o, la, lo, f, s, t, src in cur.fetchall()]
+                 "satellites": s, "last_rx": t.isoformat(), "source": src,
+                 "station_id": sid}
+                for o, la, lo, f, s, t, src, sid in cur.fetchall()]
 
 
 # --- "Alert me when my station goes quiet" (#373) ---------------------------
@@ -891,6 +900,30 @@ def push_key():
     return {"key": VAPID_PUBLIC}
 
 
+def _resolve_station(cur, callsign: str):
+    """The observer string for whatever a human typed, or None.
+
+    A bare number is a SatNOGS station id. That is how an operator refers to
+    their own station, because it is the number in the URL of their Network
+    page, and until #417 typing it found nothing: we were dropping station_id
+    from every frame we ingested. Only `reception` carries it, so numbers
+    resolve there; callsigns and names keep resolving through the daily
+    aggregate, which is cheaper and already indexed.
+    """
+    if callsign.isdigit():
+        cur.execute("""SELECT observer FROM reception WHERE station_id = %s
+                       GROUP BY observer ORDER BY count(*) DESC LIMIT 1""",
+                    (int(callsign),))
+    else:
+        cur.execute("""SELECT observer FROM station_daily
+                       WHERE split_part(observer, '-', 1) ILIKE %s
+                          OR observer = %s
+                       GROUP BY observer ORDER BY sum(frames) DESC LIMIT 1""",
+                    (callsign, callsign))
+    row = cur.fetchone()
+    return row[0] if row else None
+
+
 @app.post("/v1/stations/{callsign}/watch", status_code=201)
 def station_watch(callsign: str, body: WatchRequest):
     """Start watching a station from this browser.
@@ -901,15 +934,9 @@ def station_watch(callsign: str, body: WatchRequest):
     if not (VAPID_PRIVATE and VAPID_PUBLIC):
         raise HTTPException(404, "Push is not configured on this install.")
     with cursor() as cur:
-        cur.execute("""SELECT observer FROM station_daily
-                       WHERE split_part(observer, '-', 1) ILIKE %s
-                          OR observer = %s
-                       GROUP BY observer ORDER BY sum(frames) DESC LIMIT 1""",
-                    (callsign, callsign))
-        row = cur.fetchone()
-        if not row:
+        observer = _resolve_station(cur, callsign)
+        if not observer:
             raise HTTPException(404, f"No station matching '{callsign}'.")
-        observer = row[0]
         cur.execute("""INSERT INTO push_watch (endpoint, observer, p256dh, auth)
                        VALUES (%s, %s, %s, %s)
                        ON CONFLICT (endpoint, observer) DO UPDATE SET
@@ -1188,16 +1215,10 @@ def station_health_one(callsign: str, response: Response):
     with cursor() as cur:
         # Resolve the callsign to the busiest matching observer, same match
         # rule as the receptions route below.
-        cur.execute("""SELECT observer FROM station_daily
-                       WHERE split_part(observer, '-', 1) ILIKE %s
-                          OR observer = %s
-                       GROUP BY observer ORDER BY sum(frames) DESC LIMIT 1""",
-                    (callsign, callsign))
-        row = cur.fetchone()
-        if not row:
+        observer = _resolve_station(cur, callsign)
+        if not observer:
             raise HTTPException(404, f"No station matching '{callsign}' in the "
                                      "history (tracked fleet only).")
-        observer = row[0]
         cur.execute("""
             SELECT o.day, coalesce(max(d.frames), 0) AS frames,
                    sum(o.passes) AS passes
@@ -1275,15 +1296,9 @@ def station_pass_detail(callsign: str, norad: int, aos: str,
     except ValueError:
         raise HTTPException(400, f"aos is not an ISO timestamp: {aos!r}")
     with cursor() as cur:
-        cur.execute("""SELECT observer FROM station_daily
-                       WHERE split_part(observer, '-', 1) ILIKE %s
-                          OR observer = %s
-                       GROUP BY observer ORDER BY sum(frames) DESC LIMIT 1""",
-                    (callsign, callsign))
-        row = cur.fetchone()
-        if not row:
+        observer = _resolve_station(cur, callsign)
+        if not observer:
             raise HTTPException(404, f"No station matching '{callsign}'.")
-        observer = row[0]
         # nearest pass to the given AOS: the client echoes what /health sent
         # it, and interpolated rise times shift a little between recomputes
         cur.execute("""SELECT p.aos, p.los, p.max_el_deg, s.name
