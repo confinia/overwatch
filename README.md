@@ -77,4 +77,11 @@ validation, and OpenTelemetry → Prometheus → Grafana observability.
 [AGPL-3.0](LICENSE). The core is and stays open source; managed hosting,
 SLAs and private sovereign tenants are how the project sustains itself.
 
+**Can't use AGPL?** If you want to embed Overwatch in a proprietary
+product, ship it to your customers, or run a modified version as a
+service without publishing your changes, a **commercial licence** is
+available: the copyright is held in one place, so terms other than the
+AGPL can be granted. See [NOTICE](NOTICE), then write to
+contact@confinia.io.
+
 Security reports: contact@confinia.io (please report privately first).
