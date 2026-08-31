@@ -1,8 +1,10 @@
 # overwatch — application caddy at 127.0.0.1:8090 (orbit-poc_caddy_1, see
-# orbit-poc/deploy/caddy/Caddyfile in the overwatch repo). All three hosts
+# orbit-poc/deploy/caddy/Caddyfile in the overwatch repo). All FOUR hosts
 # terminate TLS here and forward to the overwatch caddy, which routes prod +
-# staging (blue/green) and sandbox (-> the isolated ovw-sandbox stack).
-# DNS prerequisite: sandbox.overwatch.confinia.io -> this edge. TLS auto-provisions.
+# staging (blue/green), sandbox (-> the isolated ovw-sandbox stack) and the
+# grafana hostname (-> a 308 to the canonical /grafana path, #386).
+# DNS prerequisite: each host resolves to this edge. TLS auto-provisions on
+# first hit, so a host missing from the line above simply fails the handshake.
 overwatch.confinia.io, staging.overwatch.confinia.io, sandbox.overwatch.confinia.io, grafana.overwatch.confinia.io {
 	reverse_proxy 127.0.0.1:8090
 }

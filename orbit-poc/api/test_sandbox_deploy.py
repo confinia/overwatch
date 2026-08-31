@@ -33,7 +33,7 @@ def test_sandbox_up_does_clean_recreate():
 def test_sandbox_workflow_deploys_without_a_downtime_window():   # #237
     """The automatic deploy must NOT tear the stack down: `down` removes the
     caddy for the 2-4 minutes of a rebuild and everything aimed at the sandbox
-    — a prospect's browser, our own e2e walks — gets a bare 502. `up -d
+    — a visitor's browser, our own e2e walks — gets a bare 502. `up -d
     --build` recreates only what changed and the listener stays up.
 
     The Makefile's `sandbox-up` keeps its explicit down->up: that one is an
