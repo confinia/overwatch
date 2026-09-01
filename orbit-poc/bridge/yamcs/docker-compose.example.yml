@@ -1,0 +1,28 @@
+# YAMCS -> Overwatch bridge, example wiring (#423).
+#
+# `docker compose -f docker-compose.example.yml up -d` is the whole install.
+# Point it at any reachable YAMCS >= 5 instance. The parameter names below
+# are the ones the YAMCS quickstart simulator emits out of the box
+# (https://github.com/yamcs/quickstart, `mvn yamcs:run`, HTTP on :8090).
+
+services:
+  yamcs-bridge:
+    build: .
+    restart: unless-stopped
+    environment:
+      # host.docker.internal reaches a quickstart running on the docker host;
+      # replace with your YAMCS service name or address.
+      YAMCS_URL: http://host.docker.internal:8090
+      YAMCS_INSTANCE: simulator
+      YAMCS_PROCESSOR: realtime
+      YAMCS_PARAMETERS: >-
+        /YSS/SIMULATOR/BatteryVoltage1,
+        /YSS/SIMULATOR/BatteryVoltage2,
+        /YSS/SIMULATOR/Alpha,
+        /YSS/SIMULATOR/Beta
+      # Where the points land. For a self-host Overwatch on the same compose
+      # network, use its api service address instead.
+      OVERWATCH_URL: https://overwatch.confinia.io
+      TENANT_KEY: put-your-tenant-key-here
+      SATELLITE: SIMULATOR
+      POLL_SECONDS: "10"

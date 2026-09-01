@@ -14,6 +14,7 @@ orbit-poc.tar.gz
 !/orbit-poc/clemsat/README.md
 !/orbit-poc/v2/README.md
 !/selfhost/README.md
+!/orbit-poc/bridge/yamcs/README.md
 
 __pycache__/
 orbit-poc/deploy/caddy/Caddyfile
