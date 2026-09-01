@@ -1,0 +1,139 @@
+"""The YAMCS bridge (#423) against a mocked YAMCS and a mocked Overwatch.
+
+No live services: one local HTTP server plays both roles (the batchGet
+endpoint and the tenant telemetry endpoint), which exercises the bridge's
+real transport path, not monkeypatched internals.
+"""
+
+import json
+import sys
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
+
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge" / "yamcs"))
+import bridge  # noqa: E402
+
+
+# --- unit: value flattening -------------------------------------------------
+
+@pytest.mark.parametrize("eng,expected", [
+    ({"type": "FLOAT", "floatValue": 12.5}, 12.5),
+    ({"type": "DOUBLE", "doubleValue": -3.25}, -3.25),
+    ({"type": "SINT32", "sint32Value": -7}, -7.0),
+    ({"type": "UINT64", "uint64Value": 42}, 42.0),
+    ({"type": "BOOLEAN", "booleanValue": True}, 1.0),
+    ({"type": "BOOLEAN", "booleanValue": False}, 0.0),
+    ({"type": "STRING", "stringValue": "SAFE"}, "SAFE"),
+    ({"type": "ENUMERATED", "enumValue": "ON"}, "ON"),
+])
+def test_scalar_flattens_the_value_union(eng, expected):
+    assert bridge.scalar(eng) == expected
+
+
+def test_field_name_is_basename_unless_mapped():
+    assert bridge.field_name("/YSS/SIMULATOR/Alpha", {}) == "Alpha"
+    assert bridge.field_name("/YSS/SIMULATOR/Alpha",
+                             {"/YSS/SIMULATOR/Alpha": "alpha_deg"}) == "alpha_deg"
+
+
+def test_config_rejects_missing_env_and_bad_field_map():
+    with pytest.raises(SystemExit):
+        bridge.load_config(env={"YAMCS_URL": "http://x"})
+    good = {"YAMCS_URL": "http://x", "YAMCS_INSTANCE": "sim",
+            "YAMCS_PARAMETERS": "/A/B", "OVERWATCH_URL": "http://y",
+            "TENANT_KEY": "k", "SATELLITE": "S"}
+    with pytest.raises(SystemExit):
+        bridge.load_config(env={**good, "YAMCS_FIELD_MAP": "no-equals-sign"})
+    cfg = bridge.load_config(env={**good, "YAMCS_FIELD_MAP": "/A/B=b"})
+    assert cfg.processor == "realtime" and cfg.field_map == {"/A/B": "b"}
+
+
+# --- integration: one server, both seams ------------------------------------
+
+class Fake(BaseHTTPRequestHandler):
+    # class-level state, reset per test via fake_server
+    batch_values: list = []
+    pushes: list = []
+
+    def do_POST(self):
+        body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        if self.path.endswith("parameters:batchGet"):
+            payload, code = {"value": type(self).batch_values}, 200
+        elif "/v1/tenants/" in self.path and self.path.endswith("/telemetry"):
+            type(self).pushes.append(body)
+            payload, code = {"accepted": len(body["points"])}, 202
+        else:
+            payload, code = {"error": "unexpected " + self.path}, 404
+        out = json.dumps(payload).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(out)))
+        self.end_headers()
+        self.wfile.write(out)
+
+    def log_message(self, *a):        # keep pytest output clean
+        pass
+
+
+@pytest.fixture
+def fake_server():
+    Fake.batch_values, Fake.pushes = [], []
+    srv = HTTPServer(("127.0.0.1", 0), Fake)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    yield f"http://127.0.0.1:{srv.server_port}"
+    srv.shutdown()
+
+
+def _cfg(base):
+    return bridge.Config(
+        yamcs_url=base, instance="sim", processor="realtime",
+        parameters=["/YSS/SIMULATOR/BatteryVoltage1", "/YSS/SIMULATOR/Mode"],
+        field_map={}, overwatch_url=base, tenant_key="tkey", satellite="SIM")
+
+
+def _pv(name, gen, eng):
+    return {"id": {"name": name}, "generationTime": gen, "engValue": eng}
+
+
+def test_bridge_pushes_new_samples_and_dedupes(fake_server):
+    cfg, state = _cfg(fake_server), bridge.State()
+    Fake.batch_values = [
+        _pv("/YSS/SIMULATOR/BatteryVoltage1", "2026-09-02T10:00:00.123Z",
+            {"type": "FLOAT", "floatValue": 12.1}),
+        _pv("/YSS/SIMULATOR/Mode", "2026-09-02T10:00:00.123Z",
+            {"type": "ENUMERATED", "enumValue": "SAFE"}),
+    ]
+    assert bridge.run_once(cfg, state) == 2
+    assert bridge.run_once(cfg, state) == 0          # same generationTime: no re-push
+
+    Fake.batch_values[0] = _pv("/YSS/SIMULATOR/BatteryVoltage1",
+                               "2026-09-02T10:00:10.123Z",
+                               {"type": "FLOAT", "floatValue": 12.0})
+    assert bridge.run_once(cfg, state) == 1          # only the newer sample
+
+    assert [p["field"] for p in Fake.pushes[0]["points"]] == \
+        ["BatteryVoltage1", "Mode"]
+    assert Fake.pushes[0]["satellite"] == "SIM"
+    assert Fake.pushes[0]["points"][1]["value"] == "SAFE"
+    assert Fake.pushes[1]["points"][0]["value"] == 12.0
+
+
+def test_bridge_skips_malformed_values_without_dying(fake_server):
+    cfg, state = _cfg(fake_server), bridge.State()
+    Fake.batch_values = [
+        {"id": {"name": "/YSS/SIMULATOR/Mode"}},                # no time, no value
+        _pv("/YSS/SIMULATOR/BatteryVoltage1",
+            "2026-09-02T10:00:00Z", {"type": "FLOAT", "floatValue": 11.9}),
+    ]
+    assert bridge.run_once(cfg, state) == 1
+
+
+def test_push_chunks_at_the_api_limit(fake_server):
+    cfg = _cfg(fake_server)
+    points = [{"ts": "2026-09-02T10:00:00Z", "field": f"f{i}", "value": i}
+              for i in range(2500)]
+    assert bridge.push(cfg, points) == 2500
+    assert [len(p["points"]) for p in Fake.pushes] == [1000, 1000, 500]
