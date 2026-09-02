@@ -5,6 +5,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY main.py .
+COPY telemetry_sink.py .
 COPY oem.py .
 COPY metering.py .
 COPY polar.py .

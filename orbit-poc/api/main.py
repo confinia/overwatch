@@ -18,6 +18,8 @@ from __future__ import annotations
 import hashlib
 import os
 import time
+
+from telemetry_sink import TenantSeries, write_points
 from contextlib import asynccontextmanager, contextmanager
 
 import metering
@@ -2726,16 +2728,10 @@ def tenant_push(key: str, body: TenantPush):
         if cur.fetchone()[0] + len(body.points) > quota:
             raise HTTPException(429, f"Daily ingest quota reached ({quota} points/day). "
                                      "Need more? contact@confinia.io")
-        for p in body.points:
-            num = p.value if isinstance(p.value, (int, float)) else None
-            txt = None if num is not None else str(p.value)
-            cur.execute("""INSERT INTO tenant_telemetry
-                           (tenant, satellite, ts, field, value_num, value_txt)
-                           VALUES (%s::uuid, %s, %s::timestamptz, %s, %s, %s)
-                           ON CONFLICT (tenant, satellite, ts, field) DO UPDATE
-                           SET value_num = EXCLUDED.value_num,
-                               value_txt = EXCLUDED.value_txt""",
-                        (key, body.satellite, p.ts, p.field, num, txt))
+        # one shared write, routed by scope (#438): the same primitive the
+        # open-data pipeline is adopting, here on the private tenant scope.
+        write_points(cur, TenantSeries(key, body.satellite),
+                     ((p.ts, p.field, p.value) for p in body.points))
         # meter private-telemetry ingest (POLAR.md) before commit, so usage and
         # telemetry persist atomically; dry-run unless Polar is configured
         metering.record(cur, key, "frame_ingested", len(body.points),
