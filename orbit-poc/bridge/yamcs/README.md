@@ -9,6 +9,9 @@ Self-hosting is the natural fit: on-premise MCS, on-premise Overwatch,
 nothing leaves the network. It works identically against the cloud
 instance at https://overwatch.confinia.io.
 
+**Full walkthrough**, from a YAMCS quickstart to the satellite and its
+telemetry in the control room: [YAMCS → Overwatch integration guide](../../../docs/yamcs-integration.md).
+
 ## Run it
 
 ```sh
