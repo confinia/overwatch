@@ -6,6 +6,10 @@ through `POST /v1/tenants/{key}/telemetry`. The MCS is not modified; the
 Overwatch API is not modified. The bridge is only the pipe between two
 seams that already exist.
 
+Everything MCS-neutral (dedupe, field naming, the chunked tenant push)
+lives one directory up in core.py (#425); this file is only what is
+YAMCS-shaped — the value-union flattening and the two pull modes.
+
 Two pull modes (#424). The WebSocket subscription delivers every update as
 it happens; polling REST is version-tolerant and debuggable with curl.
 YAMCS_MODE=auto (the default) tries the subscription and falls back to
@@ -34,11 +38,20 @@ import json
 import os
 import sys
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from pathlib import Path
 
 import requests
 
-PUSH_CHUNK = 1000          # the tenant endpoint's hard batch limit
+try:
+    # flat layout in the container (/app/core.py next to /app/bridge.py)
+    from core import (Sample, State, field_name,          # noqa: F401
+                      to_points as core_points, push as core_push)
+except ImportError:
+    # repo layout: core.py lives one directory up
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from core import (Sample, State, field_name,          # noqa: F401
+                      to_points as core_points, push as core_push)
 
 
 @dataclass
@@ -53,14 +66,6 @@ class Config:
     satellite: str
     poll_seconds: float = 10.0
     mode: str = "auto"
-
-
-@dataclass
-class State:
-    """Last generationTime pushed, per parameter. A restart re-pushes at most
-    one sample per parameter; the tenant endpoint upserts on (satellite, ts,
-    field), so replays are harmless."""
-    last: dict[str, str] = field(default_factory=dict)
 
 
 def load_config(env=os.environ) -> Config:
@@ -109,10 +114,29 @@ def scalar(eng_value: dict):
     return None
 
 
-def field_name(qname: str, field_map: dict[str, str]) -> str:
-    """Basename by default (/YSS/SIMULATOR/BatteryVoltage1 -> BatteryVoltage1),
-    explicit override for collisions or nicer names."""
-    return field_map.get(qname) or qname.rsplit("/", 1)[-1]
+def yamcs_samples(values: list[dict]) -> list[Sample]:
+    """ParameterValue dicts -> the neutral Sample the core consumes.
+    This function IS the YAMCS adapter, in the #425 contract sense."""
+    out = []
+    for pv in values:
+        qname = (pv.get("id") or {}).get("name")
+        gen = pv.get("generationTime")
+        eng = pv.get("engValue") or pv.get("rawValue")
+        if not qname or not gen or eng is None:
+            continue
+        value = scalar(eng)
+        if value is None:
+            continue
+        out.append(Sample(qname, gen, value))
+    return out
+
+
+def to_points(values: list[dict], cfg: Config, state: State) -> list[dict]:
+    return core_points(yamcs_samples(values), cfg.field_map, state)
+
+
+def push(cfg: Config, points: list[dict]) -> int:
+    return core_push(cfg.overwatch_url, cfg.tenant_key, cfg.satellite, points)
 
 
 def fetch(cfg: Config) -> list[dict]:
@@ -124,40 +148,6 @@ def fetch(cfg: Config) -> list[dict]:
     r.raise_for_status()
     data = r.json()
     return data.get("value") or data.get("values") or []
-
-
-def to_points(values: list[dict], cfg: Config, state: State) -> list[dict]:
-    """New-samples-only conversion; advances state as it goes."""
-    points = []
-    for pv in values:
-        qname = (pv.get("id") or {}).get("name")
-        gen = pv.get("generationTime")
-        eng = pv.get("engValue") or pv.get("rawValue")
-        if not qname or not gen or eng is None:
-            continue
-        if state.last.get(qname) == gen:
-            continue                    # already pushed this sample
-        value = scalar(eng)
-        if value is None:
-            continue
-        state.last[qname] = gen
-        points.append({"ts": gen,
-                       "field": field_name(qname, cfg.field_map),
-                       "value": value})
-    return points
-
-
-def push(cfg: Config, points: list[dict]) -> int:
-    """Chunked pushes into the tenant; returns points accepted."""
-    accepted = 0
-    for i in range(0, len(points), PUSH_CHUNK):
-        chunk = points[i:i + PUSH_CHUNK]
-        r = requests.post(
-            f"{cfg.overwatch_url}/v1/tenants/{cfg.tenant_key}/telemetry",
-            json={"satellite": cfg.satellite, "points": chunk}, timeout=30)
-        r.raise_for_status()
-        accepted += r.json().get("accepted", len(chunk))
-    return accepted
 
 
 def run_once(cfg: Config, state: State) -> int:

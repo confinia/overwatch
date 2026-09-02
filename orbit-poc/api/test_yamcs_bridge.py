@@ -13,8 +13,10 @@ from pathlib import Path
 
 import pytest
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge" / "yamcs"))
 import bridge  # noqa: E402
+import core    # noqa: E402
 
 
 # --- unit: value flattening -------------------------------------------------
@@ -129,6 +131,23 @@ def test_bridge_skips_malformed_values_without_dying(fake_server):
             "2026-09-02T10:00:00Z", {"type": "FLOAT", "floatValue": 11.9}),
     ]
     assert bridge.run_once(cfg, state) == 1
+
+
+# --- the adapter seam (#425): the core is MCS-neutral -----------------------
+
+def test_core_contract_needs_no_yamcs_shapes():
+    """A SCOS-style adapter: bare Samples in, dedupe and naming out —
+    no ParameterValue dicts, no value unions, nothing YAMCS anywhere."""
+    st = core.State()
+    samples = [core.Sample("NPWD2401", "2026-09-02T10:00:00Z", 42.0),
+               core.Sample("NPWD2401", "2026-09-02T10:00:05Z", 43.0)]
+    pts = core.to_points(samples, {"NPWD2401": "power_w"}, st)
+    assert [p["value"] for p in pts] == [42.0, 43.0]
+    assert {p["field"] for p in pts} == {"power_w"}
+    # a file re-read or cache resend: the dedupe absorbs the tail sample
+    assert core.to_points(samples[1:], {}, st) == []
+    # a slashless mnemonic keeps itself as the default field name
+    assert core.field_name("NPWD2401", {}) == "NPWD2401"
 
 
 # --- WebSocket subscription (#424): the protocol pieces, no live socket -----

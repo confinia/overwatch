@@ -7,7 +7,10 @@
 
 services:
   yamcs-bridge:
-    build: .
+    build:
+      # the daemon shares core.py with every other adapter (#425)
+      context: ..
+      dockerfile: yamcs/Dockerfile
     restart: unless-stopped
     environment:
       # host.docker.internal reaches a quickstart running on the docker host;
