@@ -16,6 +16,7 @@ orbit-poc.tar.gz
 !/selfhost/README.md
 !/orbit-poc/bridge/yamcs/README.md
 !/orbit-poc/bridge/README.md
+!/docs/yamcs-integration.md
 
 __pycache__/
 orbit-poc/deploy/caddy/Caddyfile

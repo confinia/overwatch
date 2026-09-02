@@ -41,7 +41,8 @@ changing nothing on the MCS side:
   each as a small adapter ([the contract](orbit-poc/bridge/README.md)).
 
 One MCS-neutral core (`Sample(name, ts, value)` → dedupe → push) is shared; each
-MCS is one thin adapter, and the MCS is never modified.
+MCS is one thin adapter, and the MCS is never modified. Full walkthrough:
+[YAMCS → Overwatch integration guide](docs/yamcs-integration.md).
 
 ## Run it yourself
 
