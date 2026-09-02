@@ -65,8 +65,8 @@ and normalized (`battery_v / battery_i / battery_pct`) so one dashboard fits the
 whole fleet.
 
 Open data and every MCS are converging on one ingestion contract — the adapter
-seam in the diagram above, routing each source to the public or the private store
-by scope ([#438](https://github.com/confinia/overwatch/issues/438)).
+seam in the diagram above — landing in one Postgres store scoped by tenant, where
+public open data is simply the public scope ([#438](https://github.com/confinia/overwatch/issues/438)).
 
 ## Production
 

@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 760" font-family="-apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 700" font-family="-apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif">
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M0,0 L10,5 L0,10 z" fill="#55606e"/>
@@ -15,113 +15,109 @@
     </style>
   </defs>
 
-  <rect x="0" y="0" width="1080" height="760" fill="#ffffff"/>
+  <rect x="0" y="0" width="1080" height="700" fill="#ffffff"/>
 
-  <text x="540" y="38" text-anchor="middle" class="title">Overwatch — a UI layer over existing mission control systems</text>
-  <text x="540" y="62" text-anchor="middle" class="subtitle">Open data and every MCS enter through one common ingestion, route to the right store, and serve one operator view.</text>
+  <text x="540" y="34" text-anchor="middle" class="title">Overwatch — a UI layer over existing mission control systems</text>
+  <text x="540" y="57" text-anchor="middle" class="subtitle">Open data and every MCS enter through one common ingestion, land in one scoped store, and serve one operator view.</text>
 
   <!-- ===================== UI LAYER ===================== -->
-  <rect x="82" y="82" width="640" height="52" rx="10" fill="#eaf1fd" stroke="#1f5fd0" stroke-width="1.6"/>
-  <text x="402" y="106" text-anchor="middle" class="btitle" fill="#123a86">Control room (web)</text>
-  <text x="402" y="124" text-anchor="middle" class="bsub" fill="#3a4657">Grafana + MapLibre · passes · orbits · fleet &amp; station health</text>
-  <rect x="742" y="82" width="251" height="52" rx="10" fill="#eaf1fd" stroke="#1f5fd0" stroke-width="1.6"/>
-  <text x="867" y="106" text-anchor="middle" class="btitle" fill="#123a86">Mobile</text>
-  <text x="867" y="124" text-anchor="middle" class="bsub" fill="#3a4657">iOS · Android · PWA</text>
+  <rect x="82" y="76" width="640" height="50" rx="10" fill="#eaf1fd" stroke="#1f5fd0" stroke-width="1.6"/>
+  <text x="402" y="99" text-anchor="middle" class="btitle" fill="#123a86">Control room (web)</text>
+  <text x="402" y="117" text-anchor="middle" class="bsub" fill="#3a4657">Grafana + MapLibre · passes · orbits · fleet &amp; station health</text>
+  <rect x="742" y="76" width="251" height="50" rx="10" fill="#eaf1fd" stroke="#1f5fd0" stroke-width="1.6"/>
+  <text x="867" y="99" text-anchor="middle" class="btitle" fill="#123a86">Mobile</text>
+  <text x="867" y="117" text-anchor="middle" class="bsub" fill="#3a4657">iOS · Android · PWA</text>
 
-  <!-- read api -> UI -->
-  <path class="flow" d="M402,150 L402,136" marker-end="url(#arrow)"/>
-  <path class="flow" d="M867,150 L867,136" marker-end="url(#arrow)"/>
+  <path class="flow" d="M402,150 L402,128" marker-end="url(#arrow)"/>
+  <path class="flow" d="M867,150 L867,128" marker-end="url(#arrow)"/>
 
   <!-- ===================== READ API ===================== -->
-  <rect x="82" y="150" width="911" height="30" rx="8" fill="#e6eefb" stroke="#2a6fe0" stroke-width="1.4"/>
-  <text x="537" y="170" text-anchor="middle" class="bsub" fill="#123a86" font-weight="650">Read API — /api/v1 (open data)  ·  /v1/tenants/{key} (private)</text>
+  <rect x="82" y="150" width="911" height="28" rx="8" fill="#e6eefb" stroke="#2a6fe0" stroke-width="1.4"/>
+  <text x="537" y="169" text-anchor="middle" class="bsub" fill="#123a86" font-weight="650">Read API — /api/v1 (open data, unauthenticated)  ·  /v1/tenants/{key} (private, keyed)</text>
 
-  <!-- stores -> read api -->
-  <path class="flow" d="M300,206 L300,182" marker-end="url(#arrow)"/>
-  <path class="flow" d="M690,206 L690,182" marker-end="url(#arrow)"/>
+  <path class="flow" d="M310,196 L310,180" marker-end="url(#arrow)"/>
+  <path class="flow" d="M690,196 L690,180" marker-end="url(#arrow)"/>
 
-  <!-- ===================== STORES ===================== -->
-  <text x="82" y="202" class="band">OVERWATCH CORE — two stores, one boundary</text>
-  <rect x="140" y="206" width="320" height="46" rx="10" fill="#e9f7ef" stroke="#1f9d55" stroke-width="1.6"/>
-  <text x="300" y="228" text-anchor="middle" class="btitle" fill="#0f5e33">Open-data store</text>
-  <text x="300" y="244" text-anchor="middle" class="bsub" fill="#2f6b48">public</text>
-  <rect x="520" y="206" width="320" height="46" rx="10" fill="#e6eefb" stroke="#2a6fe0" stroke-width="1.6"/>
-  <text x="680" y="228" text-anchor="middle" class="btitle" fill="#123a86">Tenant store</text>
-  <text x="680" y="244" text-anchor="middle" class="bsub" fill="#3a4657">private · per key + quota</text>
+  <!-- ===================== ONE SCOPED STORE ===================== -->
+  <text x="82" y="192" class="band">OVERWATCH STORE — one Postgres, scoped by tenant (public is a scope), not split</text>
+  <rect x="100" y="196" width="880" height="70" rx="12" fill="#e6eefb" stroke="#2a6fe0" stroke-width="2"/>
+  <rect x="130" y="210" width="360" height="34" rx="8" fill="#e9f7ef" stroke="#1f9d55" stroke-width="1.4"/>
+  <text x="310" y="232" text-anchor="middle" class="bsub" fill="#0f5e33" font-weight="650">public scope · open data</text>
+  <rect x="510" y="210" width="360" height="34" rx="8" fill="#eef4fe" stroke="#2a6fe0" stroke-width="1.4"/>
+  <text x="690" y="232" text-anchor="middle" class="bsub" fill="#123a86" font-weight="650">per-tenant scope · private · key + quota</text>
+  <text x="540" y="258" text-anchor="middle" class="tag" fill="#5b6472" style="letter-spacing:.02em">the public scope also holds the open-data relations: stations · receptions · passes</text>
 
-  <!-- ingestion -> stores (route by scope) -->
-  <path class="flow" d="M300,286 L300,254" marker-end="url(#arrow)"/>
-  <path class="flow" d="M690,286 L690,254" marker-end="url(#arrow)"/>
-  <text x="537" y="272" text-anchor="middle" class="cap" font-style="italic">route by scope</text>
+  <!-- ingestion -> store (route by scope) -->
+  <path class="flow" d="M310,304 L310,266" marker-end="url(#arrow)"/>
+  <path class="flow" d="M690,304 L690,266" marker-end="url(#arrow)"/>
+  <text x="537" y="288" text-anchor="middle" class="cap" font-style="italic">route by scope</text>
 
   <!-- ===================== COMMON INGESTION ===================== -->
-  <rect x="82" y="286" width="911" height="58" rx="12" fill="#e6f6f6" stroke="#0f8a8a" stroke-width="2"/>
-  <text x="537" y="311" text-anchor="middle" class="btitle" fill="#0a5c5c">Common ingestion — the adapter seam</text>
-  <text x="537" y="331" text-anchor="middle" class="bsub" fill="#2f6a6a">Sample(name, ts, value)  →  dedupe  →  route by scope  →  store  ·  contract in bridge/README</text>
+  <rect x="82" y="304" width="911" height="56" rx="12" fill="#e6f6f6" stroke="#0f8a8a" stroke-width="2"/>
+  <text x="537" y="328" text-anchor="middle" class="btitle" fill="#0a5c5c">Common ingestion — the adapter seam</text>
+  <text x="537" y="347" text-anchor="middle" class="bsub" fill="#2f6a6a">Sample(name, ts, value)  →  dedupe  →  route by scope  →  store  ·  contract in bridge/README</text>
 
-  <!-- adapters -> ingestion -->
-  <path class="flow" d="M188,392 L188,346" marker-end="url(#arrow)"/>
-  <path class="flow" d="M421,392 L421,346" marker-end="url(#arrow)"/>
-  <path class="flow" d="M654,392 L654,346" marker-end="url(#arrow)"/>
-  <path class="flow" d="M887,392 L887,346" marker-end="url(#arrow)"/>
+  <path class="flow" d="M188,404 L188,360" marker-end="url(#arrow)"/>
+  <path class="flow" d="M421,404 L421,360" marker-end="url(#arrow)"/>
+  <path class="flow" d="M654,404 L654,360" marker-end="url(#arrow)"/>
+  <path class="flow" d="M887,404 L887,360" marker-end="url(#arrow)"/>
 
   <!-- ===================== ADAPTERS ===================== -->
-  <text x="82" y="382" class="band">ADAPTERS — one per source, the only source-specific code</text>
-  <rect x="82" y="392" width="212" height="58" rx="10" fill="#e9f7ef" stroke="#1f9d55" stroke-width="1.6"/>
-  <text x="188" y="416" text-anchor="middle" class="btitle" fill="#0f5e33">SatNOGS / CelesTrak</text>
-  <text x="188" y="434" text-anchor="middle" class="bsub" fill="#2f6b48">decode · normalize · ingest</text>
+  <text x="82" y="396" class="band">ADAPTERS — one per source, the only source-specific code</text>
+  <rect x="82" y="404" width="212" height="56" rx="10" fill="#e9f7ef" stroke="#1f9d55" stroke-width="1.6"/>
+  <text x="188" y="427" text-anchor="middle" class="btitle" fill="#0f5e33">SatNOGS / CelesTrak</text>
+  <text x="188" y="445" text-anchor="middle" class="bsub" fill="#2f6b48">decode · normalize · ingest</text>
 
-  <rect x="315" y="392" width="212" height="58" rx="10" fill="#e6f6f6" stroke="#0f8a8a" stroke-width="1.6"/>
-  <text x="421" y="416" text-anchor="middle" class="btitle" fill="#0a5c5c">YAMCS adapter</text>
-  <text x="421" y="434" text-anchor="middle" class="bsub" fill="#2f6a6a">WebSocket · REST</text>
+  <rect x="315" y="404" width="212" height="56" rx="10" fill="#e6f6f6" stroke="#0f8a8a" stroke-width="1.6"/>
+  <text x="421" y="427" text-anchor="middle" class="btitle" fill="#0a5c5c">YAMCS adapter</text>
+  <text x="421" y="445" text-anchor="middle" class="bsub" fill="#2f6a6a">WebSocket · REST</text>
 
-  <rect x="548" y="392" width="212" height="58" rx="10" fill="#e6f6f6" stroke="#0f8a8a" stroke-width="1.6"/>
-  <text x="654" y="416" text-anchor="middle" class="btitle" fill="#0a5c5c">SCOS-2000 adapter</text>
-  <text x="654" y="434" text-anchor="middle" class="bsub" fill="#2f6a6a">export / external interface</text>
+  <rect x="548" y="404" width="212" height="56" rx="10" fill="#e6f6f6" stroke="#0f8a8a" stroke-width="1.6"/>
+  <text x="654" y="427" text-anchor="middle" class="btitle" fill="#0a5c5c">SCOS-2000 adapter</text>
+  <text x="654" y="445" text-anchor="middle" class="bsub" fill="#2f6a6a">export / external interface</text>
 
-  <rect x="781" y="392" width="212" height="58" rx="10" fill="#e6f6f6" stroke="#0f8a8a" stroke-width="1.6"/>
-  <text x="887" y="416" text-anchor="middle" class="btitle" fill="#0a5c5c">CCSDS MO adapter</text>
-  <text x="887" y="434" text-anchor="middle" class="bsub" fill="#2f6a6a">MO Parameter service</text>
+  <rect x="781" y="404" width="212" height="56" rx="10" fill="#e6f6f6" stroke="#0f8a8a" stroke-width="1.6"/>
+  <text x="887" y="427" text-anchor="middle" class="btitle" fill="#0a5c5c">CCSDS MO adapter</text>
+  <text x="887" y="445" text-anchor="middle" class="bsub" fill="#2f6a6a">MO Parameter service</text>
 
-  <!-- sources -> adapters -->
-  <path class="flow" d="M188,490 L188,452" marker-end="url(#arrow)"/>
-  <path class="flow" d="M421,490 L421,452" marker-end="url(#arrow)"/>
-  <path class="flow" d="M654,490 L654,452" marker-end="url(#arrow)"/>
-  <path class="flow" d="M887,490 L887,452" marker-end="url(#arrow)"/>
+  <path class="flow" d="M188,500 L188,462" marker-end="url(#arrow)"/>
+  <path class="flow" d="M421,500 L421,462" marker-end="url(#arrow)"/>
+  <path class="flow" d="M654,500 L654,462" marker-end="url(#arrow)"/>
+  <path class="flow" d="M887,500 L887,462" marker-end="url(#arrow)"/>
 
   <!-- ===================== SOURCES ===================== -->
-  <rect x="82" y="490" width="212" height="64" rx="10" fill="#e9f7ef" stroke="#1f9d55" stroke-width="1.6"/>
-  <text x="188" y="516" text-anchor="middle" class="btitle" fill="#0f5e33">SatNOGS · CelesTrak</text>
-  <text x="188" y="534" text-anchor="middle" class="bsub" fill="#2f6b48">open networks</text>
-  <text x="188" y="548" text-anchor="middle" class="tag" fill="#1f9d55">LIVE</text>
+  <rect x="82" y="500" width="212" height="62" rx="10" fill="#e9f7ef" stroke="#1f9d55" stroke-width="1.6"/>
+  <text x="188" y="524" text-anchor="middle" class="btitle" fill="#0f5e33">SatNOGS · CelesTrak</text>
+  <text x="188" y="542" text-anchor="middle" class="bsub" fill="#2f6b48">open networks</text>
+  <text x="188" y="556" text-anchor="middle" class="tag" fill="#1f9d55">LIVE</text>
 
-  <rect x="315" y="490" width="212" height="64" rx="10" fill="#eef0f3" stroke="#9aa3b0" stroke-width="1.6"/>
-  <text x="421" y="516" text-anchor="middle" class="btitle" fill="#2b333f">YAMCS</text>
-  <text x="421" y="534" text-anchor="middle" class="bsub" fill="#5b6472">open-source MCS</text>
-  <text x="421" y="548" text-anchor="middle" class="tag" fill="#1f9d55">SHIPPED</text>
+  <rect x="315" y="500" width="212" height="62" rx="10" fill="#eef0f3" stroke="#9aa3b0" stroke-width="1.6"/>
+  <text x="421" y="524" text-anchor="middle" class="btitle" fill="#2b333f">YAMCS</text>
+  <text x="421" y="542" text-anchor="middle" class="bsub" fill="#5b6472">open-source MCS</text>
+  <text x="421" y="556" text-anchor="middle" class="tag" fill="#1f9d55">SHIPPED</text>
 
-  <rect x="548" y="490" width="212" height="64" rx="10" fill="#eef0f3" stroke="#9aa3b0" stroke-width="1.6"/>
-  <text x="654" y="516" text-anchor="middle" class="btitle" fill="#2b333f">SCOS-2000</text>
-  <text x="654" y="534" text-anchor="middle" class="bsub" fill="#5b6472">ESA institutional MCS</text>
-  <text x="654" y="548" text-anchor="middle" class="tag" fill="#8a7112">PLANNED</text>
+  <rect x="548" y="500" width="212" height="62" rx="10" fill="#eef0f3" stroke="#9aa3b0" stroke-width="1.6"/>
+  <text x="654" y="524" text-anchor="middle" class="btitle" fill="#2b333f">SCOS-2000</text>
+  <text x="654" y="542" text-anchor="middle" class="bsub" fill="#5b6472">ESA institutional MCS</text>
+  <text x="654" y="556" text-anchor="middle" class="tag" fill="#8a7112">PLANNED</text>
 
-  <rect x="781" y="490" width="212" height="64" rx="10" fill="#eef0f3" stroke="#9aa3b0" stroke-width="1.6"/>
-  <text x="887" y="516" text-anchor="middle" class="btitle" fill="#2b333f">other MCS</text>
-  <text x="887" y="534" text-anchor="middle" class="bsub" fill="#5b6472">NanoSat MO Framework, …</text>
-  <text x="887" y="548" text-anchor="middle" class="tag" fill="#8a7112">PLANNED</text>
+  <rect x="781" y="500" width="212" height="62" rx="10" fill="#eef0f3" stroke="#9aa3b0" stroke-width="1.6"/>
+  <text x="887" y="524" text-anchor="middle" class="btitle" fill="#2b333f">other MCS</text>
+  <text x="887" y="542" text-anchor="middle" class="bsub" fill="#5b6472">NanoSat MO Framework, …</text>
+  <text x="887" y="556" text-anchor="middle" class="tag" fill="#8a7112">PLANNED</text>
 
-  <text x="188" y="582" text-anchor="middle" class="cap">Open data</text>
-  <text x="654" y="582" text-anchor="middle" class="cap">Existing mission control systems — unmodified</text>
+  <text x="188" y="588" text-anchor="middle" class="cap">Open data</text>
+  <text x="654" y="588" text-anchor="middle" class="cap">Existing mission control systems — unmodified</text>
 
   <!-- legend -->
-  <g transform="translate(82,614)">
-    <rect x="0" y="0" width="14" height="14" rx="3" fill="#eaf1fd" stroke="#1f5fd0"/>
-    <text x="22" y="11" class="cap">Overwatch UI / read</text>
-    <rect x="185" y="0" width="14" height="14" rx="3" fill="#e6f6f6" stroke="#0f8a8a"/>
-    <text x="207" y="11" class="cap">common ingestion + adapters</text>
-    <rect x="430" y="0" width="14" height="14" rx="3" fill="#e9f7ef" stroke="#1f9d55"/>
-    <text x="452" y="11" class="cap">open data</text>
-    <rect x="560" y="0" width="14" height="14" rx="3" fill="#eef0f3" stroke="#9aa3b0"/>
-    <text x="582" y="11" class="cap">existing system, unmodified</text>
+  <g transform="translate(82,616)">
+    <rect x="0" y="0" width="14" height="14" rx="3" fill="#e6eefb" stroke="#2a6fe0"/>
+    <text x="22" y="11" class="cap">Overwatch UI · read · store</text>
+    <rect x="230" y="0" width="14" height="14" rx="3" fill="#e6f6f6" stroke="#0f8a8a"/>
+    <text x="252" y="11" class="cap">common ingestion + adapters</text>
+    <rect x="480" y="0" width="14" height="14" rx="3" fill="#e9f7ef" stroke="#1f9d55"/>
+    <text x="502" y="11" class="cap">open data</text>
+    <rect x="610" y="0" width="14" height="14" rx="3" fill="#eef0f3" stroke="#9aa3b0"/>
+    <text x="632" y="11" class="cap">existing system, unmodified</text>
   </g>
 </svg>
