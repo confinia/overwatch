@@ -131,6 +131,70 @@ def test_bridge_skips_malformed_values_without_dying(fake_server):
     assert bridge.run_once(cfg, state) == 1
 
 
+# --- WebSocket subscription (#424): the protocol pieces, no live socket -----
+
+def test_ws_endpoint_maps_the_scheme():
+    cfg = _cfg("http://yamcs:8090")
+    assert bridge.ws_endpoint(cfg) == "ws://yamcs:8090/api/websocket"
+    cfg = _cfg("https://mcs.example.eu")
+    assert bridge.ws_endpoint(cfg) == "wss://mcs.example.eu/api/websocket"
+
+
+def test_subscribe_msg_shape():
+    msg = bridge.subscribe_msg(_cfg("http://y:8090"))
+    assert msg["type"] == "parameters"
+    assert msg["options"]["instance"] == "sim"
+    assert msg["options"]["processor"] == "realtime"
+    assert msg["options"]["id"][0] == {"name": "/YSS/SIMULATOR/BatteryVoltage1"}
+    # one renamed parameter must not kill the whole subscription
+    assert msg["options"]["abortOnInvalid"] is False
+    assert msg["options"]["sendFromCache"] is True
+
+
+def test_ws_extract_resolves_numeric_id_indirection():
+    mapping = {}
+    # first data message: mapping + values still carrying full ids
+    first = {"mapping": {"7": {"name": "/YSS/SIMULATOR/BatteryVoltage1"}},
+             "values": [_pv("/YSS/SIMULATOR/BatteryVoltage1",
+                            "2026-09-02T10:00:00Z",
+                            {"type": "FLOAT", "floatValue": 12.1})]}
+    assert [v["id"]["name"] for v in bridge.ws_extract(first, mapping)] == \
+        ["/YSS/SIMULATOR/BatteryVoltage1"]
+    # later messages: numericId only — the accumulated mapping must resolve it
+    later = {"values": [{"numericId": 7,
+                         "generationTime": "2026-09-02T10:00:10Z",
+                         "engValue": {"type": "FLOAT", "floatValue": 12.0}}]}
+    out = bridge.ws_extract(later, mapping)
+    assert out[0]["id"]["name"] == "/YSS/SIMULATOR/BatteryVoltage1"
+    # unknown numericId: skipped, not crashed
+    orphan = {"values": [{"numericId": 99, "generationTime": "x",
+                          "engValue": {"type": "FLOAT", "floatValue": 1}}]}
+    assert bridge.ws_extract(orphan, mapping) == []
+
+
+def test_ws_extract_feeds_to_points_with_dedupe():
+    cfg, state, mapping = _cfg("http://y"), bridge.State(), {}
+    data = {"mapping": {"1": {"name": "/YSS/SIMULATOR/Alpha"}},
+            "values": [{"numericId": 1,
+                        "generationTime": "2026-09-02T10:00:00Z",
+                        "engValue": {"type": "FLOAT", "floatValue": 3.5}}]}
+    pts = bridge.to_points(bridge.ws_extract(data, mapping), cfg, state)
+    assert pts == [{"ts": "2026-09-02T10:00:00Z", "field": "Alpha",
+                    "value": 3.5}]
+    # the cache resend after a reconnect is absorbed by the dedupe
+    assert bridge.to_points(bridge.ws_extract(data, {}), cfg, state) == []
+
+
+def test_mode_config():
+    good = {"YAMCS_URL": "http://x", "YAMCS_INSTANCE": "sim",
+            "YAMCS_PARAMETERS": "/A/B", "OVERWATCH_URL": "http://y",
+            "TENANT_KEY": "k", "SATELLITE": "S"}
+    assert bridge.load_config(env=good).mode == "auto"
+    assert bridge.load_config(env={**good, "YAMCS_MODE": "WS"}).mode == "ws"
+    with pytest.raises(SystemExit):
+        bridge.load_config(env={**good, "YAMCS_MODE": "carrier-pigeon"})
+
+
 def test_push_chunks_at_the_api_limit(fake_server):
     cfg = _cfg(fake_server)
     points = [{"ts": "2026-09-02T10:00:00Z", "field": f"f{i}", "value": i}

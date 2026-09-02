@@ -46,13 +46,24 @@ bridge restart never duplicates data.
 | `OVERWATCH_URL` | yes | Overwatch base URL (cloud or your self-host) |
 | `TENANT_KEY` | yes | Your tenant key (or an org service token) |
 | `SATELLITE` | yes | Satellite name the points are filed under |
-| `POLL_SECONDS` | no | Poll interval (default 10) |
+| `POLL_SECONDS` | no | Poll interval, and the reconnect pause in ws mode (default 10) |
+| `YAMCS_MODE` | no | `auto` (default), `ws` or `poll` — see below |
+
+## Live subscription vs polling
+
+By default (`YAMCS_MODE=auto`) the bridge subscribes to the YAMCS
+WebSocket `parameters` topic and receives every update as it happens. If
+the subscription never establishes (a proxy that strips WebSocket, an old
+server), it falls back to polling `parameters:batchGet` every
+`POLL_SECONDS` — same data, resolution bounded by the interval, since
+between polls only the latest sample per parameter is seen. Force one
+behavior with `YAMCS_MODE=ws` or `YAMCS_MODE=poll`. A dropped
+subscription reconnects by itself; the per-parameter dedupe makes the
+reconnect's cache resend harmless.
 
 ## Limits
 
-- Resolution is bounded by the poll interval: between polls, only the
-  latest sample per parameter is seen. The WebSocket subscription
-  ([#424](https://github.com/confinia/overwatch/issues/424)) lifts this.
+- In `poll` mode, resolution is bounded by the poll interval (see above).
 - The tenant API accepts 1000 points per request; the bridge chunks
   automatically. Daily ingest quotas are the tenant's, not the bridge's.
 - Other MCS flavors: the seam is designed to take more adapters;
