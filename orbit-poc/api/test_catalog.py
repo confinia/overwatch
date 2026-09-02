@@ -818,18 +818,27 @@ def test_pass_detail_survives_an_unencoded_plus(db):   # #369
 def test_station_endpoints_are_cacheable():   # #372
     """First operator feedback on the app: "faster data loading", from a
     connection where RTT is the whole cost. These are aggregates over open
-    data; a phone reusing them briefly is free speed. A completed pass never
-    changes at all, so it caches hard."""
+    data; a phone reusing them briefly is free speed."""
     src = open(os.path.join(os.path.dirname(__file__), "main.py"),
                encoding="utf-8").read()
-    for fn, age in (("stations_list", 300), ("station_health_one", 60),
-                    ("station_pass_detail", 3600)):
+    for fn, age in (("stations_list", 300), ("station_health_one", 60)):
         body = src[src.index(f"def {fn}("):]
         body = body[:body.index("\n@app.")]
         assert f'"public, max-age={age}"' in body, \
             f"{fn} must let the client cache for {age}s"
         assert "response: Response" in body.split(")")[0] + ")", \
             f"{fn} must take the Response to set headers on"
+    # A pass is NOT immutable the moment it ends: SatNOGS uploads lag by hours
+    # (#433). So the detail caches hard only once it is settled, and stays
+    # fresh while young. It is still cacheable and still takes the Response.
+    body = src[src.index("def station_pass_detail("):]
+    body = body[:body.index("\n@app.")]
+    assert "response: Response" in body.split(")")[0] + ")", \
+        "station_pass_detail must take the Response to set headers on"
+    assert '"public, max-age=86400"' in body, \
+        "a settled pass detail should cache hard (a day)"
+    assert '"public, max-age=3600"' not in body, \
+        "the flat hour-long cache froze passes still gaining late uploads (#433)"
 
 
 # ---------------------------------------------------------------------------
