@@ -64,6 +64,10 @@ with the community's 161 [Kaitai Struct decoders](https://gitlab.com/librespacef
 and normalized (`battery_v / battery_i / battery_pct`) so one dashboard fits the
 whole fleet.
 
+Open data and every MCS are converging on one ingestion contract — the adapter
+seam in the diagram above — landing in one Postgres store scoped by tenant, where
+public open data is simply the public scope ([#438](https://github.com/confinia/overwatch/issues/438)).
+
 ## Production
 
 Rootless podman behind a layered Caddy edge: two blue/green stacks with
