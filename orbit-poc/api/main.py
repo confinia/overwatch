@@ -1283,8 +1283,11 @@ def station_pass_detail(callsign: str, norad: int, aos: str,
     how many telemetry fields each decoded into. WHERE the frames sit in the
     window is the diagnostic part — hearing only around max elevation is a
     horizon problem; frames across the whole window is a healthy chain."""
-    # a completed pass never changes: cache hard
-    response.headers["Cache-Control"] = "public, max-age=3600"
+    # Cache is set AFTER we know the pass age (below): a pass is NOT immutable
+    # the moment it ends — SatNOGS uploads lag by hours, so a pass that closed
+    # at 07:25 was still gaining frames at 10:18. Hard-caching a young pass is
+    # what made a phone show 3 frames in the detail while the station row,
+    # fetched fresh, already said 16 (#433). Old passes really are frozen.
     # "+00:00" arrives as " 00:00" from any client that does not percent-
     # encode the plus — query-string decoding turns + into a space, Swift's
     # URLComponents leaves + literal, and the bare curl in the docs does too.
@@ -1320,6 +1323,13 @@ def station_pass_detail(callsign: str, norad: int, aos: str,
                            AND %s + interval '2 minutes'
             ORDER BY r.ts""", (observer, norad, p_aos, p_los))
         frames = [{"ts": t.isoformat(), "fields": f} for t, f in cur.fetchall()]
+    # Freeze only once the late-upload window has passed. SatNOGS stragglers
+    # land within a day; before that, keep it fresh so the detail and the
+    # station row can never disagree (#433). now(tz) because p_los is aware.
+    from datetime import datetime as _now, timezone as _tz
+    settled = (_now.now(_tz.utc) - p_los).total_seconds() > 86400
+    response.headers["Cache-Control"] = ("public, max-age=86400" if settled
+                                         else "public, max-age=30")
     dur = (p_los - p_aos).total_seconds()
     return {"observer": observer, "norad": norad, "satellite": name,
             "aos": p_aos.isoformat(), "los": p_los.isoformat(),
