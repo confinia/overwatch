@@ -261,6 +261,11 @@ CREATE TABLE IF NOT EXISTS tenant_telemetry (
 );
 CREATE INDEX IF NOT EXISTS tenant_tlm_idx
     ON tenant_telemetry (tenant, satellite, field, ts DESC);
+-- A tenant may be flagged as the public demo (#432): its data is safe to
+-- expose read-only and unauthenticated through /v1/demo, so the web app can
+-- show a YAMCS-fed satellite in the control room without a key. Off by
+-- default; self-host with no demo tenant simply serves nothing there.
+ALTER TABLE IF EXISTS tenant ADD COLUMN IF NOT EXISTS demo boolean NOT NULL DEFAULT false;
 -- Row-level security: per-org DB roles (provisioned on org creation) may
 -- read ONLY their own org's rows — the isolation guarantee behind each
 -- tenant's Grafana datasource, enforced by Postgres, not the app.
@@ -2770,6 +2775,42 @@ def tenant_read(key: str, satellite: str, field: str,
         metering.record(cur, customer, "tm_request", 1, {"satellite": satellite, "field": field})
         cur.connection.commit()
         return out
+
+
+@app.get("/v1/demo/satellite")
+def demo_satellite(response: Response, hours: int = Query(2, ge=1, le=48)):
+    """Public, read-only view of the demo tenant's satellite (#432): its recent
+    ground track (from the Latitude/Longitude telemetry) and its latest field
+    values, so the web app can show a YAMCS-fed satellite in the control room
+    with no key. 404 when no demo tenant is flagged (self-host default), which
+    the app treats as "no demo available" and hides the entry."""
+    response.headers["Cache-Control"] = "public, max-age=15"
+    with cursor() as cur:
+        cur.execute("SELECT key, name FROM tenant WHERE demo ORDER BY created_at LIMIT 1")
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "No demo satellite configured.")
+        key, tname = row
+        cur.execute("SELECT DISTINCT satellite FROM tenant_telemetry WHERE tenant = %s::uuid LIMIT 1", (key,))
+        sat = (cur.fetchone() or ["QuickSat"])[0]
+        # ground track: pair Latitude/Longitude by timestamp
+        cur.execute("""SELECT la.ts, la.value_num AS lat, lo.value_num AS lon
+                       FROM tenant_telemetry la
+                       JOIN tenant_telemetry lo
+                         ON lo.tenant = la.tenant AND lo.satellite = la.satellite AND lo.ts = la.ts
+                       WHERE la.tenant = %s::uuid AND la.satellite = %s
+                         AND la.field = 'Latitude' AND lo.field = 'Longitude'
+                         AND la.ts > now() - %s * interval '1 hour'
+                       ORDER BY la.ts""", (key, sat, hours))
+        track = [{"ts": t.isoformat(), "lat": la, "lon": lo} for t, la, lo in cur.fetchall()]
+        # latest value per field
+        cur.execute("""SELECT DISTINCT ON (field) field, value_num, value_txt, ts
+                       FROM tenant_telemetry WHERE tenant = %s::uuid AND satellite = %s
+                       ORDER BY field, ts DESC""", (key, sat))
+        fields = [{"field": f, "value": n if n is not None else t2, "ts": ts.isoformat()}
+                  for f, n, t2, ts in cur.fetchall()]
+    return {"satellite": sat, "source": "YAMCS", "tenant_name": tname,
+            "track": track, "fields": fields, "grafana_uid": "yamcs-demo"}
 
 
 # --- Billing (Polar) — POLAR.md sandbox spike ------------------------------
