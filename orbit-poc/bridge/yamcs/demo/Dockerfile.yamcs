@@ -1,0 +1,28 @@
+# A self-contained YAMCS for the demo: the official quickstart plus its
+# simulator, so telemetry flows the moment the container starts. The plain
+# quickstart emits nothing until simulator.py is run separately (a gap the
+# first live run surfaced), so this image runs both.
+FROM maven:3-eclipse-temurin-17
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends git python3 curl \
+ && rm -rf /var/lib/apt/lists/*
+
+# Pinned so the parameter names in the guide stay valid (the quickstart has
+# renamed its instance and parameters before). Override with --build-arg.
+ARG QUICKSTART_REF=61e94169687f8729832c754e0813bf90271e4800
+RUN git clone https://github.com/yamcs/quickstart /qs \
+ && git -C /qs checkout ${QUICKSTART_REF}
+WORKDIR /qs
+
+# Warm the Maven cache at build time so `up` is fast: build the project,
+# which pulls the yamcs-maven-plugin and all runtime dependencies.
+RUN mvn -q -B -DskipTests package || true
+
+COPY start.sh /start.sh
+RUN chmod +x /start.sh
+
+# No EXPOSE / published ports: the bridge reaches YAMCS over the compose
+# network as http://yamcs:8090. Add a mapping yourself only to open the
+# YAMCS web UI locally, and bind it to 127.0.0.1 if you do.
+CMD ["/start.sh"]

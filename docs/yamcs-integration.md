@@ -38,8 +38,11 @@ private satellite on the globe.
 If you already run YAMCS, skip to step 2 and note your instance name,
 processor (usually `realtime`) and the parameter qualified names you want.
 
-To try it from nothing, use the official quickstart, which runs a full
-simulated mission:
+**Fastest path:** the [demo compose](../orbit-poc/bridge/yamcs/demo/) runs a
+quickstart YAMCS, its simulator, and the bridge together, so you can skip
+straight to seeing data. The steps below are the manual walkthrough.
+
+To try it from nothing, use the official quickstart:
 
 ```sh
 git clone https://github.com/yamcs/quickstart
@@ -47,14 +50,25 @@ cd quickstart
 mvn yamcs:run
 ```
 
-- Web UI: <http://localhost:8090>
-- Instance: `simulator`
-- Example parameters emitted out of the box:
-  `/YSS/SIMULATOR/BatteryVoltage1`, `/YSS/SIMULATOR/BatteryVoltage2`,
-  `/YSS/SIMULATOR/Alpha`, `/YSS/SIMULATOR/Beta`
+This starts YAMCS but **emits no telemetry on its own**. The quickstart
+ships a simulator that plays back test packets over UDP; run it in a second
+terminal, or the parameters stay empty:
 
-Confirm parameters are live in the YAMCS web UI (Telemetry → Parameters)
-before wiring the bridge.
+```sh
+python3 simulator.py     # sends TM to the udp-in link on port 10015
+```
+
+- Web UI: <http://localhost:8090>
+- Instance: `myproject`, processor `realtime`
+- Parameters the simulator populates:
+  `/myproject/Battery1_Voltage`, `/myproject/Battery2_Voltage`,
+  `/myproject/Battery1_Temp`, `/myproject/Battery2_Temp`, `/myproject/A`
+
+(The instance and parameter names come from the current quickstart; older
+versions used `simulator` and `/YSS/SIMULATOR/...`. Check your own instance
+under Telemetry → Parameters.)
+
+Confirm values are live in the YAMCS web UI before wiring the bridge.
 
 ---
 
@@ -87,11 +101,11 @@ cd orbit-poc/bridge/yamcs
 | Variable | Required | Meaning |
 | --- | --- | --- |
 | `YAMCS_URL` | yes | Base URL of the YAMCS HTTP API, e.g. `http://yamcs:8090` |
-| `YAMCS_INSTANCE` | yes | YAMCS instance name (`simulator`) |
+| `YAMCS_INSTANCE` | yes | YAMCS instance name (`myproject` in the quickstart) |
 | `YAMCS_PROCESSOR` | no | Processor to read (default `realtime`) |
 | `YAMCS_PARAMETERS` | yes | Comma-separated parameter qualified names |
 | `YAMCS_FIELD_MAP` | no | Comma-separated `qname=field` overrides for nicer names |
-| `OVERWATCH_URL` | yes | Overwatch base URL (cloud or your self-host) |
+| `OVERWATCH_URL` | yes | Overwatch base URL. Cloud: `https://overwatch.confinia.io/api`. Self-host: your api's base. If the bridge runs on the same host as Overwatch, point it at the internal service address, not the public URL (a host often cannot reach its own public edge). |
 | `TENANT_KEY` | yes | Your tenant key from step 2 |
 | `SATELLITE` | yes | The name your satellite appears under |
 | `POLL_SECONDS` | no | Poll interval, and the reconnect pause in ws mode (default 10) |
@@ -106,14 +120,14 @@ services:
     restart: unless-stopped
     environment:
       YAMCS_URL: http://host.docker.internal:8090
-      YAMCS_INSTANCE: simulator
+      YAMCS_INSTANCE: myproject
       YAMCS_PROCESSOR: realtime
       YAMCS_PARAMETERS: >-
-        /YSS/SIMULATOR/BatteryVoltage1,/YSS/SIMULATOR/BatteryVoltage2,
-        /YSS/SIMULATOR/Alpha,/YSS/SIMULATOR/Beta
-      OVERWATCH_URL: https://overwatch.confinia.io
+        /myproject/Battery1_Voltage,/myproject/Battery2_Voltage,
+        /myproject/Battery1_Temp,/myproject/Battery2_Temp,/myproject/A
+      OVERWATCH_URL: https://overwatch.confinia.io/api
       TENANT_KEY: <your tenant key>
-      SATELLITE: SIMULATOR
+      SATELLITE: QuickSat
       YAMCS_MODE: auto
 ```
 
@@ -137,9 +151,9 @@ docker compose logs -f yamcs-bridge
 ### Field naming
 
 A parameter's basename becomes the telemetry field:
-`/YSS/SIMULATOR/BatteryVoltage1` → `BatteryVoltage1`. Override collisions or
+`/myproject/Battery1_Voltage` → `Battery1_Voltage`. Override collisions or
 give nicer names with `YAMCS_FIELD_MAP`, e.g.
-`YAMCS_FIELD_MAP=/YSS/SIMULATOR/Alpha=alpha_deg`.
+`YAMCS_FIELD_MAP=/myproject/A=alpha_deg`.
 
 ---
 
@@ -149,15 +163,15 @@ Two checks confirm data is flowing:
 
 1. **Bridge logs** show pushes:
    ```
-   yamcs-bridge [auto]: 4 parameters from http://... -> https://... as 'SIMULATOR'
-   pushed 4 points
+   yamcs-bridge [auto]: 5 parameters from http://... -> https://... as 'QuickSat'
+   pushed 5 points
    ```
 2. **Tenant API** shows the satellite and its fields:
    ```sh
    curl -s "$OVERWATCH_URL/v1/tenants/$TENANT_KEY/satellites"
-   # -> [{"satellite":"SIMULATOR","field":"BatteryVoltage1","points":123,"last":"..."}, ...]
+   # -> [{"satellite":"QuickSat","field":"Battery1_Voltage","points":123,"last":"..."}, ...]
 
-   curl -s "$OVERWATCH_URL/v1/tenants/$TENANT_KEY/telemetry?satellite=SIMULATOR&field=BatteryVoltage1&hours=1"
+   curl -s "$OVERWATCH_URL/v1/tenants/$TENANT_KEY/telemetry?satellite=QuickSat&field=Battery1_Voltage&hours=1"
    # -> [{"ts":"...","value":12.1}, ...]
    ```
 

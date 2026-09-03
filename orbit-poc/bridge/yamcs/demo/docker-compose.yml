@@ -1,0 +1,37 @@
+# Self-contained OW-over-YAMCS demo (#445): a YAMCS quickstart with its
+# simulator feeding the bridge, which pushes into your Overwatch tenant.
+#
+#   TENANT_KEY=<your tenant key> docker compose up --build
+#
+# Watch Overwatch fill from a simulated satellite, no hardware, no manual
+# steps. No host ports are published; the bridge reaches YAMCS over the
+# compose network.
+
+services:
+  yamcs:
+    build:
+      context: .
+      dockerfile: Dockerfile.yamcs
+    restart: unless-stopped
+    # To open the YAMCS web UI locally, uncomment (bound to loopback):
+    # ports: ["127.0.0.1:8090:8090"]
+
+  bridge:
+    build:
+      context: ../..            # the bridge shares core.py one dir up (#425)
+      dockerfile: yamcs/Dockerfile
+    restart: unless-stopped
+    depends_on: [yamcs]
+    environment:
+      YAMCS_URL: http://yamcs:8090
+      YAMCS_INSTANCE: myproject
+      YAMCS_PROCESSOR: realtime
+      YAMCS_PARAMETERS: >-
+        /myproject/Battery1_Voltage,/myproject/Battery2_Voltage,
+        /myproject/Battery1_Temp,/myproject/Battery2_Temp,/myproject/A
+      SATELLITE: QuickSat
+      YAMCS_MODE: auto
+      # Where the telemetry lands. Defaults to the cloud; point it at your
+      # own self-host instead if you run one.
+      OVERWATCH_URL: ${OVERWATCH_URL:-https://overwatch.confinia.io/api}
+      TENANT_KEY: ${TENANT_KEY:?set TENANT_KEY to your Overwatch tenant key}
