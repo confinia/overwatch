@@ -495,6 +495,7 @@ function hashOem(){
 }
 
 window.addEventListener("hashchange", () => {
+  if (location.hash === "#demo") { selectDemo(); return; }
   const n = hashNorad();
   if (n && n !== activeNorad && satsByNorad[n]) select(satsByNorad[n]);
   const st = hashStation();
@@ -505,6 +506,63 @@ window.addEventListener("hashchange", () => {
     if (os) selectOrgSat(os);
   }
 });
+
+// --- YAMCS demo (#432): a private mission, fed by the bridge from a YAMCS
+// quickstart, shown in the control room next to the open-data world. Fully
+// additive — its own map layer and panel, never touches the open-data select()
+// path. Reached via #demo; the trigger link is revealed only when the API
+// actually serves a demo tenant (hidden on self-host with none).
+let activeDemo = false;
+async function selectDemo(){
+  let d;
+  try {
+    const r = await fetch(`${API_BASE}/api/v1/demo/satellite`);
+    if (!r.ok) return;                 // no demo configured -> ignore quietly
+    d = await r.json();
+  } catch { return; }
+  activeDemo = true; activeNorad = null; activeStation = null; activeOrgSat = null;
+  if (location.hash !== "#demo") history.replaceState(null, "", "#demo");
+  document.querySelectorAll(".sat").forEach(e => e.classList.remove("active"));
+  // orange ground track, drawn from the mission's own lat/lon telemetry
+  const coords = (d.track || []).map(p => [p.lon, p.lat])
+                                .filter(c => c[0] != null && c[1] != null);
+  const geo = { type: "Feature", geometry: { type: "LineString", coordinates: coords } };
+  if (!map.getSource("demo-track")) {
+    map.addSource("demo-track", { type: "geojson", data: geo });
+    map.addLayer({ id: "demo-track", type: "line", source: "demo-track",
+      paint: { "line-color": "#f5a623", "line-width": 2.6, "line-opacity": 0.95 } });
+  } else {
+    map.getSource("demo-track").setData(geo);
+  }
+  if (coords.length) map.flyTo({ center: coords[coords.length - 1],
+                                 zoom: Math.max(map.getZoom(), 2.4), duration: 1500 });
+  const head = document.getElementById("panelHead");
+  const body = document.getElementById("panelBody");
+  const name = escapeHTML(d.satellite || "QuickSat");
+  head.innerHTML = `${name} — ` +
+    `<span class="fbadge" title="Private mission telemetry via the YAMCS bridge">YAMCS mission (demo)</span> · ` +
+    `<span style="color:var(--dim)">live from a YAMCS quickstart through the Overwatch bridge — private, not open data</span>`;
+  const rows = (d.fields || []).map(f =>
+    `<tr><td>${escapeHTML(f.field)}</td><td style="text-align:right">` +
+    `${typeof f.value === "number" ? f.value : escapeHTML(String(f.value))}</td></tr>`).join("");
+  body.innerHTML = `<div class="ggrid">` +
+    `<div class="gcell"><b>${name} — fields (latest)</b>` +
+    `<table style="width:100%;border-collapse:collapse">${rows}</table></div>` +
+    `<div class="gcell wide"><iframe src="${GRAFANA}/d/${encodeURIComponent(d.grafana_uid)}/?theme=dark&kiosk&refresh=5s"></iframe></div>` +
+    `</div>`;
+}
+
+// reveal the demo entry only if the API serves one
+async function revealDemoLink(){
+  try {
+    const r = await fetch(`${API_BASE}/api/v1/demo/satellite`);
+    if (!r.ok) return;
+    const el = document.getElementById("demoLink");
+    if (el) el.style.display = "inline";
+    if (location.hash === "#demo") selectDemo();
+  } catch {}
+}
+revealDemoLink();
 
 // --- open-network picker (#230) ---------------------------------------------
 let catalogSeq = 0;           // drop responses that arrive after a newer query
