@@ -15,6 +15,7 @@ orbit-poc.tar.gz
 !/orbit-poc/v2/README.md
 !/selfhost/README.md
 !/orbit-poc/bridge/yamcs/README.md
+!/orbit-poc/bridge/yamcs/demo/README.md
 !/orbit-poc/bridge/README.md
 !/docs/yamcs-integration.md
 
