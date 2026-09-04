@@ -30,6 +30,7 @@ exec podman run --rm \
   --add-host network.satnogs.org:127.0.0.1 \
   -e SATNOGS_BASE="http://satnogs-gateway:8088/api" \
   -e SATNOGS_TOKEN="$(val SATNOGS_TOKEN)" \
+  -e TOKEN="$(val SATNOGS_TOKEN)" \
   -e DB_DSN="$(val DB_DSN)" \
   -v "$HERE":/work:rw -w /work \
   "$IMAGE" sh -c 'pip install -q '"$PKGS"' && python -u "$@"' _ "$@"

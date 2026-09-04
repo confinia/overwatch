@@ -2,6 +2,8 @@
 decode locally, gate on frames heard in the last 7 days."""
 import os, json, time, requests, importlib, datetime
 
+SATNOGS_BASE = os.environ.get("SATNOGS_BASE", "https://db.satnogs.org/api").rstrip("/")
+
 H = {"Authorization": f"Token {os.environ['TOKEN']}", "User-Agent": "orbit-poc/0.1"}
 
 CANDIDATES = [
@@ -74,7 +76,7 @@ for name, norads, mod in CANDIDATES:
     try:
         sat = None
         for norad in norads:
-            sats = get("https://db.satnogs.org/api/satellites/", norad_cat_id=norad, format="json")
+            sats = get(f"{SATNOGS_BASE}/satellites/", norad_cat_id=norad, format="json")
             if sats:
                 sat = (sats["results"] if isinstance(sats, dict) else sats)
                 sat = sat[0] if sat else None
@@ -84,7 +86,7 @@ for name, norads, mod in CANDIDATES:
             print(f"-- {name}: not in catalog", flush=True)
             time.sleep(3)
             continue
-        d = get("https://db.satnogs.org/api/telemetry/", sat_id=sat["sat_id"], format="json")
+        d = get(f"{SATNOGS_BASE}/telemetry/", sat_id=sat["sat_id"], format="json")
         results = (d["results"] if isinstance(d, dict) else d) if d else []
         if not results:
             print(f"-- {name}: no frames", flush=True)

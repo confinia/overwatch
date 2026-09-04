@@ -2,6 +2,8 @@
 frames we can decode LOCALLY with satnogs-decoders. Runs in a container."""
 import os, json, time, requests, importlib, datetime
 
+SATNOGS_BASE = os.environ.get("SATNOGS_BASE", "https://db.satnogs.org/api").rstrip("/")
+
 H = {"Authorization": f"Token {os.environ['TOKEN']}", "User-Agent": "orbit-poc/0.1"}
 matches = json.load(open("/work/matches.json"))
 
@@ -31,7 +33,7 @@ for norad, name, sat_id, mod in matches:
     if norad in seen or norad > 90000:  # skip temporary ids
         continue
     try:
-        r = requests.get("https://db.satnogs.org/api/telemetry/",
+        r = requests.get(f"{SATNOGS_BASE}/telemetry/",
                          params={"sat_id": sat_id, "format": "json"},
                          headers=H, timeout=20)
         if r.status_code != 200:
