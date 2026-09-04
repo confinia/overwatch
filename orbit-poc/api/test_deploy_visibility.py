@@ -39,7 +39,7 @@ def test_the_recorder_bootstraps_the_schema_and_rejects_junk():
 
 def test_ops_ro_gets_the_table():
     src = _read("orbit-poc", "api", "main.py")
-    tables = src[src.index("OPS_TABLES = ("):][:600]
+    tables = src[src.index("OPS_TABLES = ("):][:900]
     assert '"deploy_event"' in tables, \
         "a table ops_ro cannot read renders as an empty board, not an error"
 

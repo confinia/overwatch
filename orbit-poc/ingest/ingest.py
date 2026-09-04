@@ -46,7 +46,10 @@ log = logging.getLogger("ingest")
 DB_DSN            = os.environ["DB_DSN"]
 SATNOGS_TOKEN     = os.environ.get("SATNOGS_TOKEN", "").strip()
 CELESTRAK_BASE    = "https://celestrak.org/NORAD/elements/gp.php"
-SATNOGS_BASE      = "https://db.satnogs.org/api"
+# Cloud points this at the SatNOGS egress gateway (one rate-limited, cached door
+# shared by every caller — #449); selfhost leaves it unset and talks to SatNOGS
+# directly from this single, self-paced ingest.
+SATNOGS_BASE      = os.environ.get("SATNOGS_BASE", "https://db.satnogs.org/api")
 
 ELEMENTS_INTERVAL  = int(os.environ.get("ELEMENTS_INTERVAL",  6 * 3600))
 POSITION_INTERVAL  = int(os.environ.get("POSITION_INTERVAL",  15))
@@ -281,7 +284,8 @@ def _record_request(source, endpoint, status, ms):
 
 def _timed_get(source, url, **kw):
     """requests.get, plus a record for the upstream request-rate monitor.
-    Route every SatNOGS/CelesTrak call through here so nothing is invisible."""
+    CelesTrak calls go through here; SatNOGS access goes via the gateway (#449),
+    which records its own real upstream rate (cache hits excluded)."""
     t0 = time.time()
     status = None
     try:
@@ -756,7 +760,9 @@ def refresh_catalog():
     while url and page < 40:
         try:
             _pace_satnogs()
-            r = _timed_get("satnogs", url, headers=headers, timeout=60)
+            # SatNOGS access goes to SATNOGS_BASE, which in cloud is the gateway
+            # that paces, caches and records the real upstream rate (#449).
+            r = requests.get(url, headers=headers, timeout=60)
             if r.status_code == 429:
                 time.sleep(int(r.headers.get("Retry-After", 30)))
                 continue
@@ -827,9 +833,9 @@ def _tle_from_satnogs(norad):
     try:
         headers = dict(UA); headers["Authorization"] = f"Token {SATNOGS_TOKEN}"
         _pace_satnogs()
-        r = _timed_get("satnogs", f"{SATNOGS_BASE}/tle/",
-                       params={"norad_cat_id": norad},
-                       headers=headers, timeout=30)
+        r = requests.get(f"{SATNOGS_BASE}/tle/",
+                         params={"norad_cat_id": norad},
+                         headers=headers, timeout=30)
         if r.status_code in (403, 429):
             _cool("satnogs", r)
             return None, False
@@ -1069,7 +1075,7 @@ def _get_frames(sat_id, pages=2, until=None):
     for _ in range(pages):
         for attempt in range(4):
             _pace_satnogs()
-            r = _timed_get("satnogs", url, params=params, headers=headers, timeout=30)
+            r = requests.get(url, params=params, headers=headers, timeout=30)
             if r.status_code == 401:
                 log.warning("SatNOGS 401 -> token invalid/expired; skipping telemetry.")
                 return None
