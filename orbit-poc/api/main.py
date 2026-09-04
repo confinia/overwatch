@@ -189,6 +189,19 @@ CREATE TABLE IF NOT EXISTS provider_refusal (
     ts     timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS provider_refusal_ts_idx ON provider_refusal (ts DESC);
+-- Every outbound call to an upstream (SatNOGS, CelesTrak, ...), so our request
+-- RATE is visible on Grafana and we can prove we are a considerate consumer —
+-- the missing half of provider_refusal, which only records refusals. Written
+-- by the ingest after each call; kept to a short window (pruned by the ingest).
+CREATE TABLE IF NOT EXISTS upstream_request (
+    id       BIGSERIAL PRIMARY KEY,
+    source   TEXT NOT NULL,
+    endpoint TEXT,
+    status   INTEGER,
+    ms       INTEGER,
+    ts       timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS upstream_request_ts_idx ON upstream_request (source, ts DESC);
 -- Web Push subscriptions (#373): "alert me when MY station goes quiet". One
 -- row per (browser, station); endpoint is the push service URL and is unique
 -- per browser+app. notified_at throttles to one alert per station per day —
@@ -1631,6 +1644,9 @@ OPS_DS_UID = "orbitcache-ops"
 OPS_TABLES = ("organization", "org_user", "org_token", "api_key",
               "api_usage", "visitor_daily", "registered_user",
               "telemetry", "position", "elements", "provider_refusal",
+              # our OUTBOUND request rate to upstreams, so ops can SEE we stay
+              # a considerate consumer, after the SatNOGS IPv4 block
+              "upstream_request",
               # written by deploy/record-deploy-event.sh, read by the ops
               # deploys board (#382); granted once the first deploy after
               # this change has created it

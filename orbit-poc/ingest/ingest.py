@@ -264,6 +264,34 @@ def _cool(source, response=None, hours=6, reason="refused us"):
         log.warning("could not record the %s refusal: %s", source, e)
 
 
+def _record_request(source, endpoint, status, ms):
+    """Log one outbound upstream call so our request RATE is visible on Grafana
+    (the missing half of provider_refusal). Best-effort; never breaks a fetch."""
+    try:
+        with db() as conn, conn.cursor() as cur:
+            cur.execute("INSERT INTO upstream_request (source, endpoint, status, ms) "
+                        "VALUES (%s, %s, %s, %s)",
+                        (source, (endpoint or "")[:200], status, ms))
+            # keep only a short window so the table stays small
+            cur.execute("DELETE FROM upstream_request WHERE ts < now() - interval '14 days'")
+            conn.commit()
+    except Exception as e:
+        log.debug("could not record %s request: %s", source, e)
+
+
+def _timed_get(source, url, **kw):
+    """requests.get, plus a record for the upstream request-rate monitor.
+    Route every SatNOGS/CelesTrak call through here so nothing is invisible."""
+    t0 = time.time()
+    status = None
+    try:
+        r = requests.get(url, **kw)
+        status = getattr(r, "status_code", None)
+        return r
+    finally:
+        _record_request(source, url, status, int((time.time() - t0) * 1000))
+
+
 def _spacetrack_bulk(norads):
     """The whole fleet's current element sets in ONE query.
 
@@ -323,8 +351,8 @@ def _refresh_bulk_tles():
             # generous read budget, but a connect to a host that is dropping
             # our packets must fail in seconds. A single 120s value here cost
             # 120s PER SATELLITE inside fetch_elements — see below.
-            r = requests.get(CELESTRAK_BASE, params={"GROUP": group, "FORMAT": "TLE"},
-                             headers=UA, timeout=(CONNECT_TIMEOUT, 120))
+            r = _timed_get("celestrak", CELESTRAK_BASE, params={"GROUP": group, "FORMAT": "TLE"},
+                           headers=UA, timeout=(CONNECT_TIMEOUT, 120))
             if r.status_code in (403, 429):
                 _cool("celestrak", r)
                 break
@@ -619,9 +647,9 @@ def fetch_elements():
     seen = set()
     for group in CELESTRAK_GROUPS:
         try:
-            r = requests.get(CELESTRAK_BASE,
-                             params={"GROUP": group, "FORMAT": "TLE"},
-                             headers=UA, timeout=60)
+            r = _timed_get("celestrak", CELESTRAK_BASE,
+                           params={"GROUP": group, "FORMAT": "TLE"},
+                           headers=UA, timeout=60)
             r.raise_for_status()
             triples = _parse_tle_file(r.text)
             with db() as conn, conn.cursor() as cur:
@@ -728,7 +756,7 @@ def refresh_catalog():
     while url and page < 40:
         try:
             _pace_satnogs()
-            r = requests.get(url, headers=headers, timeout=60)
+            r = _timed_get("satnogs", url, headers=headers, timeout=60)
             if r.status_code == 429:
                 time.sleep(int(r.headers.get("Retry-After", 30)))
                 continue
@@ -799,9 +827,9 @@ def _tle_from_satnogs(norad):
     try:
         headers = dict(UA); headers["Authorization"] = f"Token {SATNOGS_TOKEN}"
         _pace_satnogs()
-        r = requests.get(f"{SATNOGS_BASE}/tle/",
-                         params={"norad_cat_id": norad},
-                         headers=headers, timeout=30)
+        r = _timed_get("satnogs", f"{SATNOGS_BASE}/tle/",
+                       params={"norad_cat_id": norad},
+                       headers=headers, timeout=30)
         if r.status_code in (403, 429):
             _cool("satnogs", r)
             return None, False
@@ -1041,7 +1069,7 @@ def _get_frames(sat_id, pages=2, until=None):
     for _ in range(pages):
         for attempt in range(4):
             _pace_satnogs()
-            r = requests.get(url, params=params, headers=headers, timeout=30)
+            r = _timed_get("satnogs", url, params=params, headers=headers, timeout=30)
             if r.status_code == 401:
                 log.warning("SatNOGS 401 -> token invalid/expired; skipping telemetry.")
                 return None
