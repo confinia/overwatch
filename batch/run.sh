@@ -22,7 +22,9 @@ PKGS="${OW_BATCH_PKGS:-requests psycopg2-binary satnogs-decoders}"
 [ $# -ge 1 ] || { echo "usage: $(basename "$0") <script.py> [args...]" >&2; exit 2; }
 [ -f "$ENV_FILE" ] || { echo "no env file at $ENV_FILE (set OW_ENV)" >&2; exit 2; }
 
-val() { grep -oE "^$1=.*" "$ENV_FILE" | head -1 | cut -d= -f2- ; }
+# sed -n 1p (not head -1): under `set -o pipefail`, head closing the pipe early
+# SIGPIPEs grep and fails the whole pipeline even on success (#288).
+val() { grep -oE "^$1=.*" "$ENV_FILE" | sed -n '1p' | cut -d= -f2- ; }
 
 exec podman run --rm \
   --network "$NET" \
