@@ -12,6 +12,8 @@ import os
 import re
 import urllib.request
 
+SATNOGS_BASE = os.environ.get("SATNOGS_BASE", "https://db.satnogs.org/api").rstrip("/")
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "..", "orbit-poc", "web", "satellite_countries.json")
 SATS_URL = os.environ.get("OVERWATCH_SATS", "https://overwatch.confinia.io/api/satellites")
@@ -25,7 +27,7 @@ def fetch(url):
 
 def main():
     ours = {s["norad"] for s in fetch(SATS_URL)}
-    catalog = fetch("https://db.satnogs.org/api/satellites/?format=json")
+    catalog = fetch(f"{SATNOGS_BASE}/satellites/?format=json")
     out = {}
     for s in catalog:
         norad = s.get("norad_cat_id")

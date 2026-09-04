@@ -149,6 +149,12 @@ def test_no_unbounded_per_object_loop_remains():
 def _lift(*names, **stubs):
     """Exec the named top-level functions from ingest.py in a stub namespace."""
     ns = {"Exception": Exception}
+    # CelesTrak calls go through _timed_get (records the request rate). In
+    # isolation the record is a no-op and _timed_get just delegates to the
+    # injected `requests` mock, so lifted functions behave as their raw
+    # requests.get form under test. A caller can override either via **stubs.
+    ns["_record_request"] = lambda *a, **k: None
+    ns["_timed_get"] = lambda source, url, **kw: ns["requests"].get(url, **kw)
     ns.update(stubs)
     for name in names:
         start = INGEST.index("def %s(" % name)

@@ -3,11 +3,13 @@ Wider: alias matching, 14-day window, up to 25 frames tried per satellite."""
 import os, json, re, time, requests, importlib, datetime, pkgutil
 import satnogsdecoders.decoder as dec
 
+SATNOGS_BASE = os.environ.get("SATNOGS_BASE", "https://db.satnogs.org/api").rstrip("/")
+
 H = {"Authorization": f"Token {os.environ['TOKEN']}", "User-Agent": "orbit-poc/0.1"}
 norm = lambda s: re.sub(r'[^a-z0-9]', '', (s or '').lower())
 
 # full alive catalog, matching against name AND names (aliases)
-sats, url = [], "https://db.satnogs.org/api/satellites/?format=json&in_orbit=true&status=alive"
+sats, url = [], f"{SATNOGS_BASE}/satellites/?format=json&in_orbit=true&status=alive"
 while url:
     r = requests.get(url, headers=H, timeout=30); r.raise_for_status()
     d = r.json()
@@ -38,7 +40,7 @@ for norad, (name, sat_id, mod) in sorted(cands.items()):
     if norad > 90000:
         continue
     try:
-        r = requests.get("https://db.satnogs.org/api/telemetry/",
+        r = requests.get(f"{SATNOGS_BASE}/telemetry/",
                          params={"sat_id": sat_id, "format": "json"}, headers=H, timeout=20)
         if r.status_code != 200:
             stats["http"] += 1; continue

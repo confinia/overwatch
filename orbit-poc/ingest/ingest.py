@@ -46,7 +46,10 @@ log = logging.getLogger("ingest")
 DB_DSN            = os.environ["DB_DSN"]
 SATNOGS_TOKEN     = os.environ.get("SATNOGS_TOKEN", "").strip()
 CELESTRAK_BASE    = "https://celestrak.org/NORAD/elements/gp.php"
-SATNOGS_BASE      = "https://db.satnogs.org/api"
+# Cloud points this at the SatNOGS egress gateway (one rate-limited, cached door
+# shared by every caller — #449); selfhost leaves it unset and talks to SatNOGS
+# directly from this single, self-paced ingest.
+SATNOGS_BASE      = os.environ.get("SATNOGS_BASE", "https://db.satnogs.org/api")
 
 ELEMENTS_INTERVAL  = int(os.environ.get("ELEMENTS_INTERVAL",  6 * 3600))
 POSITION_INTERVAL  = int(os.environ.get("POSITION_INTERVAL",  15))
@@ -264,6 +267,35 @@ def _cool(source, response=None, hours=6, reason="refused us"):
         log.warning("could not record the %s refusal: %s", source, e)
 
 
+def _record_request(source, endpoint, status, ms):
+    """Log one outbound upstream call so our request RATE is visible on Grafana
+    (the missing half of provider_refusal). Best-effort; never breaks a fetch."""
+    try:
+        with db() as conn, conn.cursor() as cur:
+            cur.execute("INSERT INTO upstream_request (source, endpoint, status, ms) "
+                        "VALUES (%s, %s, %s, %s)",
+                        (source, (endpoint or "")[:200], status, ms))
+            # keep only a short window so the table stays small
+            cur.execute("DELETE FROM upstream_request WHERE ts < now() - interval '14 days'")
+            conn.commit()
+    except Exception as e:
+        log.debug("could not record %s request: %s", source, e)
+
+
+def _timed_get(source, url, **kw):
+    """requests.get, plus a record for the upstream request-rate monitor.
+    CelesTrak calls go through here; SatNOGS access goes via the gateway (#449),
+    which records its own real upstream rate (cache hits excluded)."""
+    t0 = time.time()
+    status = None
+    try:
+        r = requests.get(url, **kw)
+        status = getattr(r, "status_code", None)
+        return r
+    finally:
+        _record_request(source, url, status, int((time.time() - t0) * 1000))
+
+
 def _spacetrack_bulk(norads):
     """The whole fleet's current element sets in ONE query.
 
@@ -323,8 +355,8 @@ def _refresh_bulk_tles():
             # generous read budget, but a connect to a host that is dropping
             # our packets must fail in seconds. A single 120s value here cost
             # 120s PER SATELLITE inside fetch_elements — see below.
-            r = requests.get(CELESTRAK_BASE, params={"GROUP": group, "FORMAT": "TLE"},
-                             headers=UA, timeout=(CONNECT_TIMEOUT, 120))
+            r = _timed_get("celestrak", CELESTRAK_BASE, params={"GROUP": group, "FORMAT": "TLE"},
+                           headers=UA, timeout=(CONNECT_TIMEOUT, 120))
             if r.status_code in (403, 429):
                 _cool("celestrak", r)
                 break
@@ -619,9 +651,9 @@ def fetch_elements():
     seen = set()
     for group in CELESTRAK_GROUPS:
         try:
-            r = requests.get(CELESTRAK_BASE,
-                             params={"GROUP": group, "FORMAT": "TLE"},
-                             headers=UA, timeout=60)
+            r = _timed_get("celestrak", CELESTRAK_BASE,
+                           params={"GROUP": group, "FORMAT": "TLE"},
+                           headers=UA, timeout=60)
             r.raise_for_status()
             triples = _parse_tle_file(r.text)
             with db() as conn, conn.cursor() as cur:
@@ -728,6 +760,8 @@ def refresh_catalog():
     while url and page < 40:
         try:
             _pace_satnogs()
+            # SatNOGS access goes to SATNOGS_BASE, which in cloud is the gateway
+            # that paces, caches and records the real upstream rate (#449).
             r = requests.get(url, headers=headers, timeout=60)
             if r.status_code == 429:
                 time.sleep(int(r.headers.get("Retry-After", 30)))

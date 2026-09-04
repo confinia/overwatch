@@ -1,0 +1,54 @@
+{
+  "uid": "upstream-requests",
+  "title": "Upstream request rate",
+  "description": "Our OUTBOUND request rate to SatNOGS / CelesTrak, so we can prove we stay a considerate consumer (the lesson of the SatNOGS IPv4 block). The other half of provider-refusal, which only shows when we get refused.",
+  "tags": ["ops", "upstream"],
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "1m",
+  "time": {"from": "now-24h", "to": "now"},
+  "panels": [
+    {
+      "id": 1, "type": "timeseries", "title": "Requests per 5 min, by upstream",
+      "gridPos": {"h": 10, "w": 24, "x": 0, "y": 0},
+      "datasource": {"type": "postgres", "uid": "orbitcache-ops"},
+      "fieldConfig": {"defaults": {"custom": {"lineWidth": 2, "fillOpacity": 12, "drawStyle": "bars"}}, "overrides": []},
+      "targets": [
+        {"refId": "A", "datasource": {"type": "postgres", "uid": "orbitcache-ops"}, "format": "time_series", "rawQuery": true,
+         "rawSql": "SELECT $__timeGroup(ts, '5m') AS \"time\", source AS metric, count(*) AS value FROM upstream_request WHERE $__timeFilter(ts) GROUP BY 1, source ORDER BY 1"}
+      ]
+    },
+    {
+      "id": 2, "type": "stat", "title": "SatNOGS requests (last hour)",
+      "gridPos": {"h": 6, "w": 8, "x": 0, "y": 10},
+      "datasource": {"type": "postgres", "uid": "orbitcache-ops"},
+      "options": {"colorMode": "value", "graphMode": "area"},
+      "targets": [
+        {"refId": "A", "datasource": {"type": "postgres", "uid": "orbitcache-ops"}, "format": "table", "rawQuery": true,
+         "rawSql": "SELECT count(*) AS value FROM upstream_request WHERE source = 'satnogs' AND ts > now() - interval '1 hour'"}
+      ]
+    },
+    {
+      "id": 3, "type": "stat", "title": "SatNOGS refusals (24h)",
+      "gridPos": {"h": 6, "w": 8, "x": 8, "y": 10},
+      "datasource": {"type": "postgres", "uid": "orbitcache-ops"},
+      "options": {"colorMode": "value", "graphMode": "area"},
+      "fieldConfig": {"defaults": {"thresholds": {"steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}},
+      "targets": [
+        {"refId": "A", "datasource": {"type": "postgres", "uid": "orbitcache-ops"}, "format": "table", "rawQuery": true,
+         "rawSql": "SELECT count(*) AS value FROM provider_refusal WHERE source = 'satnogs' AND ts > now() - interval '24 hours'"}
+      ]
+    },
+    {
+      "id": 4, "type": "table", "title": "By upstream (last 24 h)",
+      "gridPos": {"h": 6, "w": 8, "x": 16, "y": 10},
+      "datasource": {"type": "postgres", "uid": "orbitcache-ops"},
+      "options": {"showHeader": true},
+      "targets": [
+        {"refId": "A", "datasource": {"type": "postgres", "uid": "orbitcache-ops"}, "format": "table", "rawQuery": true,
+         "rawSql": "SELECT source AS \"Upstream\", count(*) AS \"Requests\", round(avg(ms)) AS \"Avg ms\", to_char(max(ts), 'HH24:MI') AS \"Last\" FROM upstream_request WHERE ts > now() - interval '24 hours' GROUP BY source ORDER BY 2 DESC"}
+      ]
+    }
+  ]
+}

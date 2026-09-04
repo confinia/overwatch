@@ -8,8 +8,9 @@
 #              │   touching                 (embedded per-satellite panels)
 #              │   upstream)
 #
-# Nothing but `ingest` ever calls an external API. The browser talks to `web`
-# and to `grafana`; both read exclusively from the local cache in `db`.
+# Only `ingest` (CelesTrak) and `satnogs-gateway` (SatNOGS, the shared rate-
+# limited door — #449) call external APIs. The browser talks to `web` and to
+# `grafana`; both read exclusively from the local cache in `db`.
 
 # Production (VM OVH, podman + podman-compose): everything binds to
 # 127.0.0.1 only; the public entrypoint is the shared caddy edge in
@@ -39,6 +40,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      satnogs-gateway:
+        condition: service_started
     environment:
       # DB_DSN comes from .env (never committed) — see .env.example
       ELEMENTS_INTERVAL: "21600"   # 6h — respect CelesTrak update cadence
@@ -47,8 +50,34 @@ services:
       CELESTRAK_GROUPS: ""
       POSITION_INTERVAL: "15"      # local propagation only, no external calls
       TELEMETRY_INTERVAL: "1800"   # 30m
+      # All SatNOGS access goes through the egress gateway (#449): one
+      # rate-limited, cached door shared by every caller. Blackholed below so
+      # the ingest cannot reach db.satnogs.org except through it.
+      SATNOGS_BASE: "http://satnogs-gateway:8088/api"
     # SATNOGS_TOKEN lives in .env (podman-compose does not interpolate
     # ${VAR:-default}, hence env_file rather than inline interpolation).
+    env_file:
+      - .env
+    extra_hosts:
+      # sole-egress: if a code path or batch job tries db.satnogs.org directly
+      # it fails fast instead of overspending the shared per-user budget.
+      - "db.satnogs.org:127.0.0.1"
+      - "network.satnogs.org:127.0.0.1"
+    restart: unless-stopped
+
+  # SatNOGS egress gateway (#449): the ONLY process that reaches db.satnogs.org.
+  # Every caller (ingest, batch tooling) points at it via SATNOGS_BASE, so the
+  # per-user 6/min limit is enforced in one place no new caller can bypass; it
+  # also caches responses and persists a cooldown when refused. Cloud-only:
+  # selfhost's single ingest talks to SatNOGS directly.
+  satnogs-gateway:
+    build: ./gateway
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      SATNOGS_MIN_GAP: "11"   # 6/min per-user limit + margin (satnogs-db settings)
+    # SATNOGS_TOKEN + DB_DSN come from .env (never committed).
     env_file:
       - .env
     restart: unless-stopped

@@ -5,6 +5,8 @@ Writes /work/sweep_full.json; validated entries go into satellites.py."""
 import os, json, re, time, requests, importlib, datetime, pkgutil
 import satnogsdecoders.decoder as dec
 
+SATNOGS_BASE = os.environ.get("SATNOGS_BASE", "https://db.satnogs.org/api").rstrip("/")
+
 H = {"Authorization": f"Token {os.environ['TOKEN']}", "User-Agent": "orbit-poc/0.1"}
 norm = lambda s: re.sub(r'[^a-z0-9]', '', (s or '').lower())
 KNOWN = {25544, 40967, 43017, 43137, 60237, 57175, 55104, 60246, 40931}
@@ -55,7 +57,7 @@ def flatten(obj, prefix="", depth=0, out=None, seen=None):
     return out
 
 
-sats, url = [], "https://db.satnogs.org/api/satellites/?format=json&in_orbit=true&status=alive"
+sats, url = [], f"{SATNOGS_BASE}/satellites/?format=json&in_orbit=true&status=alive"
 while url:
     d = get(url)
     if d is None:
@@ -86,10 +88,10 @@ for norad, (name, sat_id, mod) in sorted(cands.items()):
     if norad in KNOWN or norad > 90000:
         continue
     try:
-        d = get("https://db.satnogs.org/api/telemetry/", sat_id=sat_id, format="json")
+        d = get(f"{SATNOGS_BASE}/telemetry/", sat_id=sat_id, format="json")
         results = (d["results"] if isinstance(d, dict) else d) if d else []
         if not results:  # sat_id sometimes stale — retry by norad
-            d = get("https://db.satnogs.org/api/telemetry/", norad_cat_id=norad, format="json")
+            d = get(f"{SATNOGS_BASE}/telemetry/", norad_cat_id=norad, format="json")
             results = (d["results"] if isinstance(d, dict) else d) if d else []
         if not results:
             time.sleep(5)
