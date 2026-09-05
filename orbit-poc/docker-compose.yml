@@ -34,6 +34,11 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
+    # Shared, DISK-bound VM: cap the prod database above its measured steady
+    # state (~40 MB idle, more under ingest write load). shared_buffers / work_mem
+    # should also be tuned for a shared box (platform rule 3) — follow-up.
+    cpus: "2.0"
+    mem_limit: 1g
 
   ingest:
     build: ./ingest
@@ -63,6 +68,8 @@ services:
       # it fails fast instead of overspending the shared per-user budget.
       - "db.satnogs.org:127.0.0.1"
       - "network.satnogs.org:127.0.0.1"
+    cpus: "1.0"
+    mem_limit: 512m
     restart: unless-stopped
 
   # SatNOGS egress gateway (#449): the ONLY process that reaches db.satnogs.org.
@@ -119,6 +126,8 @@ services:
     # NOTE: the ovw-sandbox network is attached OUT OF BAND by `make sandbox-up`
     # (podman network connect), NOT declared here — so base ops never depend on
     # the sandbox stack existing (a down sandbox must never break prod caddy).
+    cpus: "1.0"
+    mem_limit: 256m
     restart: unless-stopped
 
   grafana:
@@ -156,6 +165,8 @@ services:
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
     ports:
       - "127.0.0.1:12040:3000"  # 1PESI: overwatch(2)·prod(0)·grafana(4) (#213)
+    cpus: "1.0"
+    mem_limit: 512m
     restart: unless-stopped
 
   # --- Access observability: web traces -> collector (spanmetrics) ->
@@ -165,6 +176,8 @@ services:
     command: ["--config=/etc/otelcol/config.yaml"]
     volumes:
       - ./deploy/otel-collector.yaml:/etc/otelcol/config.yaml:ro
+    cpus: "0.5"
+    mem_limit: 256m
     restart: unless-stopped
 
   prometheus:
@@ -172,6 +185,8 @@ services:
     volumes:
       - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prom_data:/prometheus
+    cpus: "1.0"
+    mem_limit: 1g
     restart: unless-stopped
 
 networks:

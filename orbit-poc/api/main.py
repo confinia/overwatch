@@ -1821,11 +1821,16 @@ def _ops_alert_rules() -> list:
     host = PUBLIC_BASE.split("://")[-1].split("/")[0].split(".")[0]
     env = host if host in ("staging", "sandbox") else "production"
 
-    def rule(uid, title, sql, summary=None, group="signups"):
+    def rule(uid, title, sql, summary=None, group="signups", keep_firing_for="0s"):
         return {
             "uid": uid, "title": title, "condition": "C",
             "folderUID": "ops-alerts", "ruleGroup": group,
-            "for": "0s", "noDataState": "OK", "execErrState": "OK",
+            # keep_firing_for holds a sustained alert in the firing state across a
+            # brief resolve, so a condition that flaps around its threshold does
+            # not re-notify as a fresh alert every time (the repeat_interval only
+            # governs a continuously-firing one). 0s for one-shot signup events.
+            "for": "0s", "keep_firing_for": keep_firing_for,
+            "noDataState": "OK", "execErrState": "OK",
             "labels": {"env": env},
             "annotations": {"summary": f"[{env}] " + (summary or title)},
             "data": [
@@ -1845,7 +1850,10 @@ def _ops_alert_rules() -> list:
             ],
         }
     return [rule(r["uid"], r["title"], r["sql"], r.get("summary"),
-                 r.get("group", "signups"))
+                 r.get("group", "signups"),
+                 # sustained conditions (freshness, providers) get an anti-flap
+                 # hold; one-shot signup events do not need it.
+                 "1h" if r.get("group") in ("freshness", "providers") else "0s")
             for r in _ops_alert_spec()["rules"]]
 
 
