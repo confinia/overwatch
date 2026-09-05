@@ -80,6 +80,19 @@ services:
     # SATNOGS_TOKEN + DB_DSN come from .env (never committed).
     env_file:
       - .env
+    # Resource ceiling so this can never starve the shared, DISK-bound VM. It is
+    # a tiny single-process HTTP pacer that serialises requests, so 0.25 CPU /
+    # 128 MB is generous. podman-compose maps these to --cpus / --memory; verify
+    # with `podman inspect satnogs-gateway --format '{{.HostConfig.Memory}} {{.HostConfig.NanoCpus}}'`.
+    cpus: "0.25"
+    mem_limit: 128m
+    # A restart policy needs a healthcheck, or a crash-on-boot becomes a loop
+    # that hammers the disk with logs. /healthz is a static reply, no upstream.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8088/healthz', timeout=3).status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     restart: unless-stopped
 
   # NOTE: web + api are NOT here — they live in the color stacks

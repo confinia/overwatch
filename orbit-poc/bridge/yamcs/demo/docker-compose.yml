@@ -13,6 +13,17 @@ services:
       context: .
       dockerfile: Dockerfile.yamcs
     restart: unless-stopped
+    environment:
+      # Explicit JVM heap ceiling (the real fix): without -Xmx a JVM helps
+      # itself to ~1/4 of host RAM and then trips the container limit as a
+      # "crash". JAVA_TOOL_OPTIONS caps every JVM in the container; the
+      # quickstart + simulator run fine in this. mem_limit is only the backstop.
+      JAVA_TOOL_OPTIONS: "-Xmx640m"
+    # Ceiling so the demo can never starve the shared, DISK-bound host.
+    # podman-compose maps these to --cpus / --memory; verify they landed with
+    # `podman inspect <c> --format '{{.HostConfig.Memory}} {{.HostConfig.NanoCpus}}'`.
+    cpus: "1.0"
+    mem_limit: 1280m
     # To open the YAMCS web UI locally, uncomment (bound to loopback):
     # ports: ["127.0.0.1:8090:8090"]
 
@@ -21,6 +32,8 @@ services:
       context: ../..            # the bridge shares core.py one dir up (#425)
       dockerfile: yamcs/Dockerfile
     restart: unless-stopped
+    cpus: "0.25"
+    mem_limit: 128m
     depends_on: [yamcs]
     environment:
       YAMCS_URL: http://yamcs:8090

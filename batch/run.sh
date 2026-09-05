@@ -18,6 +18,12 @@ ENV_FILE="${OW_ENV:-$HERE/../orbit-poc/.env}"
 NET="${OW_NET:-orbit-poc_default}"
 IMAGE="${OW_BATCH_IMAGE:-docker.io/library/python:3.12-slim}"
 PKGS="${OW_BATCH_PKGS:-requests psycopg2-binary satnogs-decoders}"
+# Resource ceiling so a batch job can never starve the shared VM.
+CPUS="${OW_BATCH_CPUS:-1.0}"
+MEM="${OW_BATCH_MEM:-1g}"
+# Hard timeout: a one-shot job that cannot finish must die, not sit for days
+# holding the machine (platform rule 4). Override for a legitimately long run.
+TIMEOUT="${OW_BATCH_TIMEOUT:-1800}"
 
 [ $# -ge 1 ] || { echo "usage: $(basename "$0") <script.py> [args...]" >&2; exit 2; }
 [ -f "$ENV_FILE" ] || { echo "no env file at $ENV_FILE (set OW_ENV)" >&2; exit 2; }
@@ -26,7 +32,8 @@ PKGS="${OW_BATCH_PKGS:-requests psycopg2-binary satnogs-decoders}"
 # SIGPIPEs grep and fails the whole pipeline even on success (#288).
 val() { grep -oE "^$1=.*" "$ENV_FILE" | sed -n '1p' | cut -d= -f2- ; }
 
-exec podman run --rm \
+exec timeout --signal=TERM --kill-after=30 "$TIMEOUT" podman run --rm \
+  --cpus "$CPUS" --memory "$MEM" \
   --network "$NET" \
   --add-host db.satnogs.org:127.0.0.1 \
   --add-host network.satnogs.org:127.0.0.1 \
