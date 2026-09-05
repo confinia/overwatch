@@ -30,6 +30,8 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
+    cpus: "0.5"
+    mem_limit: 256m
     restart: unless-stopped
 
   keycloak:
@@ -44,6 +46,11 @@ services:
       KC_PROXY_HEADERS: xforwarded
       KC_HOSTNAME: https://overwatch.confinia.io/auth
       KC_HEALTH_ENABLED: "true"
+      # Explicit JVM heap (platform rule 3): KC 26 otherwise sizes from HOST RAM
+      # (~1/4 of 31 GB) and then gets OOM-killed by the 2g container cap under
+      # load — which looks like a crash, not a config error. 1024m heap + ~400m
+      # non-heap fits under 2g. The container mem_limit is only the backstop.
+      JAVA_OPTS_KC_HEAP: "-Xms512m -Xmx1024m"
     # KC_DB_PASSWORD + KC_BOOTSTRAP_ADMIN_* via .env (VM-side only).
     env_file:
       - .env
@@ -54,6 +61,8 @@ services:
     depends_on:
       kc-db:
         condition: service_healthy
+    cpus: "1.0"
+    mem_limit: 2g
     restart: unless-stopped
 
   # Declarative realm config (#181): reconciles ONLY the smtpServer + verifyEmail
