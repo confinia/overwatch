@@ -19,19 +19,24 @@ one counter that sees the whole footprint.
 - **Honours refusal.** Respects `Retry-After`, persists a cooldown to disk (so a
   restart cannot resume hammering), backs off on timeouts too.
 - **Injects the token** — callers never hold it.
-- **Records every real upstream request** (`upstream_request`) for the ops
-  Grafana dashboard; cache hits are not counted, so the chart is the true rate.
+- **Records every request** two ways: a per-request row in `upstream_request`
+  (the ops Grafana dashboard, cache hits excluded so the chart is the true rate)
+  AND OTel metrics through the collector (`ovw.satnogs.requests` counter with a
+  `disposition` label HIT/MISS/COOL/ERR, + a duration histogram) → prometheus →
+  Grafana OpsMetrics, the same pipeline the api uses.
 
 ## Using it
 
-Point a caller at the gateway instead of the provider:
+The SPOT proxies **any db.satnogs.org path** verbatim — the JSON API and the
+plain pages alike — so a caller just sends the full path to the gateway host:
 
-    SATNOGS_BASE=http://satnogs-gateway:8088/api
+    SATNOGS_BASE=http://satnogs-gateway:8088/api   # the JSON API  (/api/telemetry/, …)
+    SATNOGS_HOST=http://satnogs-gateway:8088        # the plain pages (/satellite/<norad>)
 
-The path after `/api` is forwarded verbatim, e.g. a caller GETting
-`http://satnogs-gateway:8088/api/telemetry/?sat_id=…` reaches
-`https://db.satnogs.org/api/telemetry/?sat_id=…`, paced and cached. Only `GET`
-is proxied — nothing writes upstream. `/healthz` returns `{"ok":true}`.
+A GET to `…:8088/api/telemetry/?sat_id=…` reaches
+`https://db.satnogs.org/api/telemetry/?sat_id=…`, and `…:8088/satellite/57175`
+reaches `https://db.satnogs.org/satellite/57175` — both paced and cached. Only
+`GET` is proxied — nothing writes upstream. `/healthz` returns `{"ok":true}`.
 
 **All** SatNOGS access must go through the gateway, including one-off batch and
 sweep tooling. In the deployment, non-gateway containers have `db.satnogs.org`

@@ -46,6 +46,9 @@ def test_ttl_for_matches_the_published_cadences():
     assert gateway.ttl_for("/tle/") == 21600
     assert gateway.ttl_for("/satellites/") == 86400
     assert gateway.ttl_for("/unknown/") == gateway.DEFAULT_TTL
+    # full-proxy: the /api/ prefix is stripped, and non-api pages are proxied too
+    assert gateway.ttl_for("/api/telemetry/") == 1800
+    assert gateway.ttl_for("/satellite/57175") == 86400
 
 
 def test_cache_hit_never_touches_upstream(tmp_path):

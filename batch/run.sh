@@ -38,6 +38,7 @@ exec timeout --signal=TERM --kill-after=30 "$TIMEOUT" podman run --rm \
   --add-host db.satnogs.org:127.0.0.1 \
   --add-host network.satnogs.org:127.0.0.1 \
   -e SATNOGS_BASE="http://satnogs-gateway:8088/api" \
+  -e SATNOGS_HOST="http://satnogs-gateway:8088" \
   -e SATNOGS_TOKEN="$(val SATNOGS_TOKEN)" \
   -e TOKEN="$(val SATNOGS_TOKEN)" \
   -e DB_DSN="$(val DB_DSN)" \

@@ -38,7 +38,7 @@ def _http_get(url, headers, timeout):
     import requests
     return requests.get(url, headers=headers, timeout=timeout)
 
-UPSTREAM = os.environ.get("SATNOGS_UPSTREAM", "https://db.satnogs.org/api").rstrip("/")
+UPSTREAM = os.environ.get("SATNOGS_UPSTREAM", "https://db.satnogs.org").rstrip("/")
 TOKEN = os.environ.get("SATNOGS_TOKEN", "").strip()
 MIN_GAP = float(os.environ.get("SATNOGS_MIN_GAP", 11))   # 6/min = one per 10s, + margin
 PORT = int(os.environ.get("GATEWAY_PORT", 8088))
@@ -54,13 +54,19 @@ TTL = {
     "telemetry":  int(os.environ.get("TTL_TELEMETRY", 1800)),    # 30m
     "tle":        int(os.environ.get("TTL_TLE", 21600)),         # 6h
     "satellites": int(os.environ.get("TTL_SATELLITES", 86400)),  # 24h
+    "satellite":  int(os.environ.get("TTL_SATELLITE", 86400)),   # 24h (the /satellite/<norad> page)
 }
 DEFAULT_TTL = int(os.environ.get("TTL_DEFAULT", 300))
 
 
 def ttl_for(path):
-    """Freshness for an upstream path like /telemetry/ or /satellites/."""
-    seg = path.strip("/").split("/", 1)[0] if path.strip("/") else ""
+    """Freshness for an upstream path. Handles both the JSON API
+    (/api/<endpoint>/) and the plain pages (/satellite/<norad>), so the SPOT can
+    proxy ANY db.satnogs.org path, not only /api."""
+    parts = [p for p in path.split("/") if p]
+    if parts and parts[0] == "api":
+        parts = parts[1:]
+    seg = parts[0] if parts else ""
     return TTL.get(seg, DEFAULT_TTL)
 
 
@@ -236,12 +242,12 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         if parsed.path == "/healthz":
             return self._reply(200, b'{"ok":true}', "application/json", "-")
-        if not parsed.path.startswith("/api/"):
-            return self._reply(404, b'{"detail":"only /api/ is proxied"}',
-                               "application/json", "-")
-        upstream_path = parsed.path[len("/api"):]     # /api/telemetry/ -> /telemetry/
+        # Proxy ANY db.satnogs.org path verbatim: the JSON API (/api/...) and the
+        # plain pages (/satellite/<norad>) alike, so the SPOT is the one door for
+        # every Overwatch SatNOGS request. Callers hit gateway/<the full path>.
+        path = parsed.path
         status, body, ctype, disp = self.gateway.fetch(
-            upstream_path, parsed.query, ttl_for(upstream_path))
+            path, parsed.query, ttl_for(path))
         self._reply(status or 502, body, ctype, disp)
 
     def do_POST(self):   # SatNOGS reads are GET; nothing writes upstream

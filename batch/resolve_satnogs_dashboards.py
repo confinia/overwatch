@@ -21,6 +21,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "..", "orbit-poc", "web", "satnogs_dashboards.json")
 SATS_URL = os.environ.get(
     "OVERWATCH_SATS", "https://overwatch.confinia.io/api/satellites")
+# db.satnogs.org goes through the SPOT (rate-limited, cached) like every other
+# SatNOGS request. Default direct for standalone dev; run.sh sets the gateway.
+SATNOGS_HOST = os.environ.get("SATNOGS_HOST", "https://db.satnogs.org").rstrip("/")
 UA = {"User-Agent": "overwatch-dashboard-resolver/1.0 "
       "(+https://overwatch.confinia.io)"}
 HREF = re.compile(r'href="(https://dashboard\.satnogs\.org/d/[^"]+)"', re.I)
@@ -43,7 +46,7 @@ def main():
     for s in sats:
         norad = s["norad"]
         try:
-            html = fetch(f"https://db.satnogs.org/satellite/{norad}")
+            html = fetch(f"{SATNOGS_HOST}/satellite/{norad}")
         except Exception as e:                                    # noqa: BLE001
             print(f"  {norad} fetch failed: {e}", file=sys.stderr)
             continue
