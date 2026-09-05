@@ -64,6 +64,52 @@ def ttl_for(path):
     return TTL.get(seg, DEFAULT_TTL)
 
 
+# --- OpenTelemetry metrics (optional): the SPOT emits its request rate to the
+# otel-collector -> prometheus -> grafana, the same path the api uses for
+# ovw.api.requests. The disposition attribute (HIT/MISS/COOL/ERR) makes the
+# cache-vs-resend split a query, not a schema change. Guarded: no OTEL endpoint
+# means no-op, and observability never breaks a fetch. ---
+REQ_COUNTER = None
+DUR_HIST = None
+_OTLP = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
+if _OTLP:
+    try:
+        from opentelemetry import metrics as _otel_metrics
+        from opentelemetry.sdk.metrics import MeterProvider
+        from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
+        from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
+        from opentelemetry.sdk.resources import Resource
+        _reader = PeriodicExportingMetricReader(
+            OTLPMetricExporter(endpoint=f"{_OTLP}/v1/metrics"),
+            export_interval_millis=15000)
+        _otel_metrics.set_meter_provider(MeterProvider(
+            resource=Resource.create({"service.name": os.environ.get(
+                "OTEL_SERVICE_NAME", "overwatch-satnogs-gateway")}),
+            metric_readers=[_reader]))
+        _meter = _otel_metrics.get_meter("overwatch")
+        REQ_COUNTER = _meter.create_counter(
+            "ovw.satnogs.requests",
+            description="SatNOGS requests through the SPOT, by disposition/status")
+        DUR_HIST = _meter.create_histogram(
+            "ovw.satnogs.request.duration", unit="ms",
+            description="Duration of real SatNOGS upstream attempts")
+    except Exception as e:  # noqa: BLE001
+        log.warning("OpenTelemetry not initialized: %s", e)
+
+
+def _otel(disposition, status, ms):
+    """Record one request to OTel. HIT/COOL are cache/cooldown short-circuits;
+    MISS/ERR are real upstream attempts (only those carry a meaningful duration)."""
+    if REQ_COUNTER is None:
+        return
+    try:
+        REQ_COUNTER.add(1, {"disposition": disposition, "status": str(status)})
+        if ms is not None and disposition in ("MISS", "ERR"):
+            DUR_HIST.record(ms, {"disposition": disposition})
+    except Exception:  # noqa: BLE001 — metrics must never break a fetch
+        pass
+
+
 def make_recorder(dsn):
     """A callback that logs one real upstream request to `upstream_request`,
     so the ops dashboard charts our true SatNOGS rate (cache hits never call
@@ -147,8 +193,10 @@ class Gateway:
         key = path + "?" + query
         hit = self.cache_get(key)
         if hit:
+            _otel("HIT", hit[1], 0)
             return hit[1], hit[2], hit[3], "HIT"
         if self.cooling() > 0:
+            _otel("COOL", 503, 0)
             return (503, b'{"detail":"upstream cooling down"}',
                     "application/json", "COOL")
         self.pace()
@@ -158,6 +206,7 @@ class Gateway:
             headers["Authorization"] = "Token " + self.token
         t0 = self._now()
         status = None
+        disp = "ERR"
         try:
             r = self._get(url, headers=headers, timeout=(5, 30))
             status = getattr(r, "status_code", None)
@@ -167,6 +216,7 @@ class Gateway:
                 self.set_cooldown(int(r.headers.get("Retry-After", 30)) + 1)
             elif status == 200:
                 self.cache_put(key, ttl, status, body, ctype)
+            disp = "MISS"
             return status, body, ctype, "MISS"
         except Exception as e:  # noqa: BLE001 — a timeout is also a refusal to honour
             log.warning("upstream error for %s: %s", path, e)
@@ -174,7 +224,9 @@ class Gateway:
             return (502, b'{"detail":"upstream unreachable"}',
                     "application/json", "ERR")
         finally:
-            self._record(path, status, int((self._now() - t0) * 1000))
+            ms = int((self._now() - t0) * 1000)
+            self._record(path, status, ms)   # detailed per-request DB log
+            _otel(disp, status, ms)          # aggregated metric -> prometheus
 
 
 class Handler(BaseHTTPRequestHandler):

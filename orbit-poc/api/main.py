@@ -1829,7 +1829,7 @@ def _ops_alert_rules() -> list:
             # brief resolve, so a condition that flaps around its threshold does
             # not re-notify as a fresh alert every time (the repeat_interval only
             # governs a continuously-firing one). 0s for one-shot signup events.
-            "for": "0s", "keep_firing_for": keep_firing_for,
+            "for": "0s", "keepFiringFor": keep_firing_for,   # camelCase; snake_case is silently ignored (platform-verified)
             "noDataState": "OK", "execErrState": "OK",
             "labels": {"env": env},
             "annotations": {"summary": f"[{env}] " + (summary or title)},

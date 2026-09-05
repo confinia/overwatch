@@ -84,6 +84,11 @@ services:
         condition: service_healthy
     environment:
       SATNOGS_MIN_GAP: "11"   # 6/min per-user limit + margin (satnogs-db settings)
+      # Emit request-rate metrics through the same OTel pipeline the api uses
+      # (otel-collector -> prometheus -> grafana OpsMetrics). ovw.satnogs.requests
+      # carries a disposition label (HIT/MISS/COOL/ERR) for the cache-vs-resend split.
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318"
+      OTEL_SERVICE_NAME: "overwatch-satnogs-gateway"
     # SATNOGS_TOKEN + DB_DSN come from .env (never committed).
     env_file:
       - .env
