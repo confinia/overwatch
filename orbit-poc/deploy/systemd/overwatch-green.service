@@ -1,0 +1,17 @@
+# Reboot survival for the green colour stack (web + api). Same shape as blue;
+# both colours run normally, the app caddy routes to whichever is live.
+[Unit]
+Description=Overwatch green colour stack (web + api)
+Wants=network-online.target overwatch-core.service overwatch-ovw2.service
+After=network-online.target overwatch-core.service overwatch-ovw2.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=%h/projects/overwatch/orbit-poc
+ExecStart=/usr/bin/podman-compose -p green -f docker-compose.green.yml up -d
+ExecStop=/usr/bin/podman-compose -p green -f docker-compose.green.yml down
+TimeoutStartSec=600
+
+[Install]
+WantedBy=default.target

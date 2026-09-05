@@ -1,0 +1,19 @@
+# Reboot survival for the orbit-poc core: db, ingest, the SatNOGS SPOT gateway,
+# caddy, grafana, prometheus, otel. Ordered AFTER ovw2 because caddy joins the
+# ovw2_default (v2net) external network. Wants (not Requires) so a slow ovw2
+# doesn't hard-fail the whole core; caddy's restart policy covers the race.
+[Unit]
+Description=Overwatch core stack: data, ingest, SatNOGS SPOT, observability
+Wants=network-online.target overwatch-ovw2.service
+After=network-online.target overwatch-ovw2.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=%h/projects/overwatch/orbit-poc
+ExecStart=/usr/bin/podman-compose -p orbit-poc up -d
+ExecStop=/usr/bin/podman-compose -p orbit-poc down
+TimeoutStartSec=600
+
+[Install]
+WantedBy=default.target

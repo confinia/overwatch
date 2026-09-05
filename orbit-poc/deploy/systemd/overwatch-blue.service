@@ -1,0 +1,18 @@
+# Reboot survival for the blue colour stack (web + api). Ordered AFTER core +
+# ovw2 (it reads the db, grafana, and the Keycloak network). Both colours run
+# normally (one live, one standby); the app caddy routes to whichever is live.
+[Unit]
+Description=Overwatch blue colour stack (web + api)
+Wants=network-online.target overwatch-core.service overwatch-ovw2.service
+After=network-online.target overwatch-core.service overwatch-ovw2.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=%h/projects/overwatch/orbit-poc
+ExecStart=/usr/bin/podman-compose -p blue -f docker-compose.blue.yml up -d
+ExecStop=/usr/bin/podman-compose -p blue -f docker-compose.blue.yml down
+TimeoutStartSec=600
+
+[Install]
+WantedBy=default.target
