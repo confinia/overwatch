@@ -97,7 +97,7 @@ services:
     # 128 MB is generous. podman-compose maps these to --cpus / --memory; verify
     # with `podman inspect satnogs-gateway --format '{{.HostConfig.Memory}} {{.HostConfig.NanoCpus}}'`.
     cpus: "0.25"
-    mem_limit: 128m
+    mem_limit: 192m   # headroom for the OTel SDK loaded at import
     # A restart policy needs a healthcheck, or a crash-on-boot becomes a loop
     # that hammers the disk with logs. /healthz is a static reply, no upstream.
     healthcheck:
