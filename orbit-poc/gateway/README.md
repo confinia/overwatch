@@ -32,6 +32,11 @@ one counter that sees the whole footprint.
   and pace themselves at the gateway's gap; otherwise they give up while the
   gateway still burns the slot on a reply nobody reads (#450). `COOL` replies
   carry `Retry-After` too.
+- **Keeps pagination inside the door.** SatNOGS replies carry absolute
+  `next`/`previous` links to `db.satnogs.org`; the gateway rewrites them in
+  JSON bodies to `GATEWAY_PUBLIC_BASE` (default `http://satnogs-gateway:8088`)
+  so a caller following them stays paced and cached instead of hitting the
+  blackhole on page 2 (#450).
 - **Backs off hard on a block.** A plain timeout earns `SATNOGS_TIMEOUT_COOLDOWN`
   (60s). A firewall signature (network unreachable, administratively prohibited,
   connection refused) earns `SATNOGS_BLOCK_COOLDOWN` (1h): a blocked gateway

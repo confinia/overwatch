@@ -63,6 +63,11 @@ BLOCK_COOLDOWN = float(os.environ.get("SATNOGS_BLOCK_COOLDOWN", 3600))       # 1
 # still burn the slot on a reply nobody reads (the ingest starvation of #450).
 # Rule for callers: client timeout > SATNOGS_MAX_WAIT + upstream time (~30s).
 MAX_WAIT = float(os.environ.get("SATNOGS_MAX_WAIT", 120))                     # 2 slots
+# How callers reach THIS gateway. Paginated SatNOGS replies carry absolute
+# `next`/`previous` links to db.satnogs.org; a caller that follows them
+# verbatim leaves the door (and hits the blackhole). Links in JSON bodies are
+# rewritten to this base so page 2 stays paced, cached and recorded (#450).
+PUBLIC_BASE = os.environ.get("GATEWAY_PUBLIC_BASE", "http://satnogs-gateway:8088").rstrip("/")
 
 # Per-endpoint freshness, matched on the first path segment after /api/. A
 # backfill re-reading the same satellite's telemetry inside the window is served
@@ -209,12 +214,15 @@ class Gateway:
                  record=None, upstream=UPSTREAM, token=TOKEN, min_gap=MIN_GAP,
                  cooldown_file=COOLDOWN_FILE,
                  timeout_cooldown=TIMEOUT_COOLDOWN, block_cooldown=BLOCK_COOLDOWN,
-                 max_wait=MAX_WAIT):
+                 max_wait=MAX_WAIT, public_base=PUBLIC_BASE):
         self._get = get or _http_get
         self._sleep = sleep
         self._now = now
         self._record = record or (lambda *a: None)
         self.upstream = upstream.rstrip("/")
+        self.public_base = public_base.rstrip("/")
+        u = urllib.parse.urlsplit(self.upstream)
+        self._origin = f"{u.scheme}://{u.netloc}" if u.netloc else ""
         self.token = token
         self.min_gap = min_gap
         self.max_wait = max_wait
@@ -309,6 +317,11 @@ class Gateway:
             status = getattr(r, "status_code", None)
             body = r.content
             ctype = r.headers.get("Content-Type", "application/json")
+            if "json" in ctype and self._origin:
+                # keep pagination inside the door: next/previous -> this gateway
+                body = body.replace(self._origin.encode(), self.public_base.encode())
+                body = body.replace(self._origin.replace("/", "\\/").encode(),
+                                    self.public_base.replace("/", "\\/").encode())
             if status == 429:
                 self.set_cooldown(int(r.headers.get("Retry-After", 30)) + 1)
             elif status == 200:

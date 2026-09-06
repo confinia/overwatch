@@ -122,6 +122,31 @@ def test_busy_refuses_at_once_without_spending_a_slot(tmp_path):
     assert hits["n"] == 1
 
 
+def test_pagination_links_are_rewritten_to_the_gateway(tmp_path):
+    """#450: SatNOGS answers with absolute next/previous links. Followed
+    verbatim they leave the door (and hit the blackhole); rewritten they keep
+    page 2 paced, cached and recorded like page 1."""
+    upstream = b'{"next":"https://db.satnogs.org/api/telemetry/?cursor=abc&sat_id=A",' \
+               b'"previous":null,"results":[{"a":1}]}'
+
+    def get(url, headers, timeout):
+        return FakeResp(200, upstream)
+
+    g, _, _ = _gw(tmp_path, get)
+    g.public_base = "http://satnogs-gateway:8088"
+    _, body, _, _ = g.fetch("/api/telemetry/", "sat_id=A", 1800)
+    assert b'"next":"http://satnogs-gateway:8088/api/telemetry/?cursor=abc&sat_id=A"' in body
+    assert b"db.satnogs.org" not in body
+    # the rewritten body is what the cache serves too
+    _, body2, _, disp = g.fetch("/api/telemetry/", "sat_id=A", 1800)
+    assert disp == "HIT" and body2 == body
+    # non-JSON bodies (the /satellite/<norad> pages) are passed through untouched
+    html = b'<a href="https://db.satnogs.org/satellite/1">x</a>'
+    g2, _, _ = _gw(tmp_path, lambda u, headers, timeout: FakeResp(200, html, {"Content-Type": "text/html"}))
+    _, body3, _, _ = g2.fetch("/satellite/1", "", 86400)
+    assert body3 == html
+
+
 def test_429_sets_cooldown_then_short_circuits(tmp_path):
     def get(url, headers, timeout):
         return FakeResp(429, b'{"detail":"throttled"}', {"Retry-After": "40",
