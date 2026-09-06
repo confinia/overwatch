@@ -24,6 +24,17 @@ one counter that sees the whole footprint.
   AND OTel metrics through the collector (`ovw.satnogs.requests` counter with a
   `disposition` label HIT/MISS/COOL/ERR, + a duration histogram) → prometheus →
   Grafana OpsMetrics, the same pipeline the api uses.
+- **Backs off hard on a block.** A plain timeout earns `SATNOGS_TIMEOUT_COOLDOWN`
+  (60s). A firewall signature (network unreachable, administratively prohibited,
+  connection refused) earns `SATNOGS_BLOCK_COOLDOWN` (1h): a blocked gateway
+  knocks about 24 times a day, not 1440.
+- **Attributes internally, never outward.** A caller may send
+  `X-Overwatch-Caller: ingest` / `batch-sweep_full` / … (else its User-Agent
+  product token is used, else `unknown`). The value is sanitised, stored in
+  `upstream_request.caller` and set as the `caller` OTel label, so the ops
+  dashboard shows who inside Overwatch generated the load. It is **never**
+  forwarded: SatNOGS always sees the gateway's single User-Agent and token.
+  Several outward identities from one IP would read as UA rotation.
 
 ## Using it
 

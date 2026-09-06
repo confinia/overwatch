@@ -199,8 +199,13 @@ CREATE TABLE IF NOT EXISTS upstream_request (
     endpoint TEXT,
     status   INTEGER,
     ms       INTEGER,
+    -- WHO asked, for our attribution only (ingest, batch-<script>, ...). The
+    -- gateway records it and never forwards it: SatNOGS sees one identity.
+    caller   TEXT,
     ts       timestamptz NOT NULL DEFAULT now()
 );
+-- existing deployments: the column was added after the table shipped
+ALTER TABLE upstream_request ADD COLUMN IF NOT EXISTS caller TEXT;
 CREATE INDEX IF NOT EXISTS upstream_request_ts_idx ON upstream_request (source, ts DESC);
 -- Web Push subscriptions (#373): "alert me when MY station goes quiet". One
 -- row per (browser, station); endpoint is the push service URL and is unique

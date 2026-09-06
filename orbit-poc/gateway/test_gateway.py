@@ -36,7 +36,7 @@ def _gw(tmp_path, get, clock=None, token="tok", calls=None):
         get=get, sleep=clock.sleep, now=clock.now, token=token,
         upstream="https://db.satnogs.org/api", min_gap=11,
         cooldown_file=str(tmp_path / "cooldown"),
-        record=lambda ep, st, ms: calls.append((ep, st)),
+        record=lambda ep, st, ms, caller="unknown": calls.append((ep, st)),
     )
     return g, clock, calls
 
@@ -167,6 +167,41 @@ def test_cooldown_persists_across_restart(tmp_path):
     g2 = gateway.Gateway(get=get, sleep=clock.sleep, now=clock.now,
                          cooldown_file=str(tmp_path / "cooldown"))
     assert g2.cooling() >= 119, "a restart must not resume hammering a cooled provider"
+
+
+def test_caller_of_prefers_header_then_ua_token_then_unknown():
+    assert gateway.caller_of({"X-Overwatch-Caller": "ingest"}) == "ingest"
+    assert gateway.caller_of({"X-Overwatch-Caller": "batch-sweep_full"}) == "batch-sweep_full"
+    # no header: an unlabelled script still attributes by its UA product token
+    assert gateway.caller_of({"User-Agent": "python-requests/2.32.3"}) == "python-requests/2.32.3"
+    assert gateway.caller_of({"User-Agent": "overwatch/1.0 (+https://x; c@x)"}) == "overwatch/1.0"
+    # sanitised + capped: safe as a metric label, bounded cardinality
+    assert gateway.caller_of({"X-Overwatch-Caller": "Bad Caller!!<script>"}) == "bad-caller-script"
+    assert len(gateway.caller_of({"X-Overwatch-Caller": "x" * 200})) == 40
+    assert gateway.caller_of({}) == "unknown"
+
+
+def test_caller_is_recorded_but_never_forwarded_upstream(tmp_path):
+    """The whole point: SatNOGS sees ONE identity (the gateway's UA + token),
+    while OUR attribution knows who asked. A per-caller header on the wire would
+    read as UA rotation to a provider that blocked us twice."""
+    upstream_headers = {}
+    recorded = []
+
+    def get(url, headers, timeout):
+        upstream_headers.update(headers)
+        return FakeResp(200, b"[]")
+
+    g = gateway.Gateway(get=get, sleep=lambda s: None, now=lambda: 1000.0,
+                        token="tok", upstream="https://db.satnogs.org/api", min_gap=0,
+                        cooldown_file=str(tmp_path / "cooldown"),
+                        record=lambda ep, st, ms, caller: recorded.append(caller))
+    g.fetch("/telemetry/", "sat_id=A", 1800, caller="batch-sweep_full")
+    assert recorded == ["batch-sweep_full"], "the caller must reach our own recorder"
+    assert "X-Overwatch-Caller" not in upstream_headers, "attribution must NOT go upstream"
+    assert upstream_headers["User-Agent"] == gateway.UA, \
+        "upstream always sees the gateway's own stable UA, never the caller's"
+    assert upstream_headers["Authorization"] == "Token tok"
 
 
 def test_every_real_request_is_recorded(tmp_path):

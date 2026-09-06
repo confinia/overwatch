@@ -4,7 +4,7 @@ import os, json, time, requests, importlib, datetime
 
 SATNOGS_BASE = os.environ.get("SATNOGS_BASE", "https://db.satnogs.org/api").rstrip("/")
 
-H = {"Authorization": f"Token {os.environ['TOKEN']}", "User-Agent": "orbit-poc/0.1"}
+H = {"Authorization": f"Token {os.environ['TOKEN']}", "User-Agent": "orbit-poc/0.1", "X-Overwatch-Caller": os.environ.get("OVERWATCH_CALLER", "batch")}
 matches = json.load(open("/work/matches.json"))
 
 

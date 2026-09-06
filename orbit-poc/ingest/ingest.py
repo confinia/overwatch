@@ -75,6 +75,12 @@ from flatten import flatten_decoded
 UA = {"User-Agent": os.environ.get(
     "HTTP_USER_AGENT",
     "overwatch/1.0 (+https://overwatch.confinia.io; contact@confinia.io)")}
+# Internal attribution for the SatNOGS SPOT (#449): tells the gateway WHO is
+# asking, so Grafana can split our footprint by caller (ingest vs batch tooling,
+# the split that would have caught the 2nd block early). The gateway records it
+# and never forwards it upstream. SatNOGS-only: CelesTrak is called directly and
+# gets the plain UA.
+SATNOGS_CALLER = {"X-Overwatch-Caller": os.environ.get("OVERWATCH_CALLER", "ingest")}
 
 
 def db():
@@ -754,7 +760,7 @@ def refresh_catalog():
         return
     url, page, rows = f"{SATNOGS_BASE}/satellites/", 0, 0
     seen = set()                       # every norad this pass delivered (#384)
-    headers = dict(UA)
+    headers = dict(UA, **SATNOGS_CALLER)
     if SATNOGS_TOKEN:
         headers["Authorization"] = f"Token {SATNOGS_TOKEN}"
     while url and page < 40:
@@ -831,7 +837,7 @@ def _tle_from_satnogs(norad):
     if not SATNOGS_TOKEN:
         return None, False
     try:
-        headers = dict(UA); headers["Authorization"] = f"Token {SATNOGS_TOKEN}"
+        headers = dict(UA, **SATNOGS_CALLER); headers["Authorization"] = f"Token {SATNOGS_TOKEN}"
         _pace_satnogs()
         r = requests.get(f"{SATNOGS_BASE}/tle/",
                          params={"norad_cat_id": norad},
@@ -1070,7 +1076,7 @@ def _get_frames(sat_id, pages=2, until=None):
     ({next, previous, results}); older deployments returned a bare list.
     Honors 429 Retry-After — SatNOGS throttles aggressively. Stops paginating
     once frames get older than `until` (our newest stored frame)."""
-    headers = dict(UA); headers["Authorization"] = f"Token {SATNOGS_TOKEN}"
+    headers = dict(UA, **SATNOGS_CALLER); headers["Authorization"] = f"Token {SATNOGS_TOKEN}"
     frames, url, params = [], f"{SATNOGS_BASE}/telemetry/", {"sat_id": sat_id}
     for _ in range(pages):
         for attempt in range(4):

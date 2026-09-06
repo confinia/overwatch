@@ -17,9 +17,7 @@ SATNOGS_BASE = os.environ.get("SATNOGS_BASE", "https://db.satnogs.org/api").rstr
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "..", "orbit-poc", "web", "satellite_countries.json")
 SATS_URL = os.environ.get("OVERWATCH_SATS", "https://overwatch.confinia.io/api/satellites")
-UA = {"User-Agent": "overwatch-country-resolver/1.0 (+https://overwatch.confinia.io)"}
-
-
+UA = {"User-Agent": "overwatch-country-resolver/1.0 (+https://overwatch.confinia.io)", "X-Overwatch-Caller": os.environ.get("OVERWATCH_CALLER", "batch")}
 def fetch(url):
     with urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=40) as r:
         return json.loads(r.read().decode("utf-8", "replace"))

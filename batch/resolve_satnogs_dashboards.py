@@ -25,7 +25,8 @@ SATS_URL = os.environ.get(
 # SatNOGS request. Default direct for standalone dev; run.sh sets the gateway.
 SATNOGS_HOST = os.environ.get("SATNOGS_HOST", "https://db.satnogs.org").rstrip("/")
 UA = {"User-Agent": "overwatch-dashboard-resolver/1.0 "
-      "(+https://overwatch.confinia.io)"}
+      "(+https://overwatch.confinia.io)",
+      "X-Overwatch-Caller": os.environ.get("OVERWATCH_CALLER", "batch")}
 HREF = re.compile(r'href="(https://dashboard\.satnogs\.org/d/[^"]+)"', re.I)
 
 

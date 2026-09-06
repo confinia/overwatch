@@ -7,7 +7,7 @@ import satnogsdecoders.decoder as dec
 
 SATNOGS_BASE = os.environ.get("SATNOGS_BASE", "https://db.satnogs.org/api").rstrip("/")
 
-H = {"Authorization": f"Token {os.environ['TOKEN']}", "User-Agent": "orbit-poc/0.1"}
+H = {"Authorization": f"Token {os.environ['TOKEN']}", "User-Agent": "orbit-poc/0.1", "X-Overwatch-Caller": os.environ.get("OVERWATCH_CALLER", "batch")}
 norm = lambda s: re.sub(r'[^a-z0-9]', '', (s or '').lower())
 KNOWN = {25544, 40967, 43017, 43137, 60237, 57175, 55104, 60246, 40931}
 

@@ -25,6 +25,7 @@ more than one process shares one token and one IP.
 import errno
 import logging
 import os
+import re
 import threading
 import time
 import urllib.parse
@@ -105,6 +106,27 @@ def is_block(exc):
     return False
 
 
+# --- caller attribution: WHO is asking, for OUR monitoring only. SatNOGS sees
+# one stable identity (the gateway's User-Agent + token) whatever the caller —
+# several User-Agents from one IP/token is the signature of UA rotation, the
+# last thing to show a provider that blocked us twice. So the split by caller
+# (ingest, batch-<script>, sandbox, ...) lives in upstream_request.caller and
+# an OTel label, and is NEVER forwarded upstream. ---
+_CALLER_JUNK = re.compile(r"[^a-z0-9._/-]+")
+
+
+def caller_of(headers):
+    """Explicit X-Overwatch-Caller wins; else the caller's own User-Agent
+    product token, so an unlabelled script still shows up as e.g.
+    python-requests/2.32.3 rather than vanishing; else 'unknown'. Sanitised and
+    capped so it is safe as a metric label (bounded cardinality)."""
+    raw = (headers.get("X-Overwatch-Caller") or "").strip()
+    if not raw:
+        raw = (headers.get("User-Agent") or "").strip().split(" ")[0]
+    raw = _CALLER_JUNK.sub("-", raw.lower()).strip("-")[:40]
+    return raw or "unknown"
+
+
 # --- OpenTelemetry metrics (optional): the SPOT emits its request rate to the
 # otel-collector -> prometheus -> grafana, the same path the api uses for
 # ovw.api.requests. The disposition attribute (HIT/MISS/COOL/ERR) makes the
@@ -138,15 +160,17 @@ if _OTLP:
         log.warning("OpenTelemetry not initialized: %s", e)
 
 
-def _otel(disposition, status, ms):
+def _otel(disposition, status, ms, caller="unknown"):
     """Record one request to OTel. HIT/COOL are cache/cooldown short-circuits;
-    MISS/ERR are real upstream attempts (only those carry a meaningful duration)."""
+    MISS/ERR are real upstream attempts (only those carry a meaningful duration).
+    `caller` splits the footprint by who asked (ingest, batch-<script>, ...)."""
     if REQ_COUNTER is None:
         return
     try:
-        REQ_COUNTER.add(1, {"disposition": disposition, "status": str(status)})
+        REQ_COUNTER.add(1, {"disposition": disposition, "status": str(status),
+                            "caller": caller})
         if ms is not None and disposition in ("MISS", "ERR"):
-            DUR_HIST.record(ms, {"disposition": disposition})
+            DUR_HIST.record(ms, {"disposition": disposition, "caller": caller})
     except Exception:  # noqa: BLE001 — metrics must never break a fetch
         pass
 
@@ -157,12 +181,12 @@ def make_recorder(dsn):
     this). Best-effort: monitoring must never break a fetch."""
     import psycopg2
 
-    def record(endpoint, status, ms):
+    def record(endpoint, status, ms, caller="unknown"):
         try:
             with psycopg2.connect(dsn) as conn, conn.cursor() as cur:
-                cur.execute("INSERT INTO upstream_request (source, endpoint, status, ms) "
-                            "VALUES ('satnogs', %s, %s, %s)",
-                            ((endpoint or "")[:200], status, ms))
+                cur.execute("INSERT INTO upstream_request (source, endpoint, status, ms, caller) "
+                            "VALUES ('satnogs', %s, %s, %s, %s)",
+                            ((endpoint or "")[:200], status, ms, caller))
                 cur.execute("DELETE FROM upstream_request WHERE ts < now() - interval '14 days'")
                 conn.commit()
         except Exception as e:  # noqa: BLE001 — never let the monitor break a fetch
@@ -231,20 +255,23 @@ class Gateway:
     def cache_put(self, key, ttl, status, body, ctype):
         self._cache[key] = (self._now() + ttl, status, body, ctype)
 
-    def fetch(self, path, query, ttl):
+    def fetch(self, path, query, ttl, caller="unknown"):
         """Serve a SatNOGS GET: cache -> cooldown -> gate -> upstream.
-        Returns (status, body_bytes, content_type, disposition)."""
+        Returns (status, body_bytes, content_type, disposition). `caller` is
+        recorded for our attribution only; it never reaches upstream."""
         key = path + "?" + query
         hit = self.cache_get(key)
         if hit:
-            _otel("HIT", hit[1], 0)
+            _otel("HIT", hit[1], 0, caller)
             return hit[1], hit[2], hit[3], "HIT"
         if self.cooling() > 0:
-            _otel("COOL", 503, 0)
+            _otel("COOL", 503, 0, caller)
             return (503, b'{"detail":"upstream cooling down"}',
                     "application/json", "COOL")
         self.pace()
         url = self.upstream + path + (("?" + query) if query else "")
+        # ONE identity outward, whoever asked: the gateway's UA and token only.
+        # The caller's headers (its UA, X-Overwatch-Caller) stop here.
         headers = {"User-Agent": UA}
         if self.token:
             headers["Authorization"] = "Token " + self.token
@@ -272,8 +299,8 @@ class Gateway:
                     "application/json", "ERR")
         finally:
             ms = int((self._now() - t0) * 1000)
-            self._record(path, status, ms)   # detailed per-request DB log
-            _otel(disp, status, ms)          # aggregated metric -> prometheus
+            self._record(path, status, ms, caller)   # detailed per-request DB log
+            _otel(disp, status, ms, caller)          # aggregated metric -> prometheus
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -288,7 +315,7 @@ class Handler(BaseHTTPRequestHandler):
         # every Overwatch SatNOGS request. Callers hit gateway/<the full path>.
         path = parsed.path
         status, body, ctype, disp = self.gateway.fetch(
-            path, parsed.query, ttl_for(path))
+            path, parsed.query, ttl_for(path), caller_of(self.headers))
         self._reply(status or 502, body, ctype, disp)
 
     def do_POST(self):   # SatNOGS reads are GET; nothing writes upstream
