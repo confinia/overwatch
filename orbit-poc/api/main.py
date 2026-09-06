@@ -1655,7 +1655,10 @@ OPS_TABLES = ("organization", "org_user", "org_token", "api_key",
               # written by deploy/record-deploy-event.sh, read by the ops
               # deploys board (#382); granted once the first deploy after
               # this change has created it
-              "deploy_event")
+              "deploy_event",
+              # the SatNOGS gateway board (#450): which satellites we poll and
+              # whether the plan delivers frames for them
+              "satellite", "catalog")
 OPS_ALERT_EMAIL = os.environ.get("OPS_ALERT_EMAIL", "contact@confinia.io")
 # How long the OIDC CSRF nonce stays valid. Must outlive a registration with
 # e-mail verification, not merely a login (#343).

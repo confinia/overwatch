@@ -233,7 +233,9 @@ def _satnogs(resp, token="tok"):
             return resp
     return _lift("_tle_from_satnogs",
                  requests=_Req, log=_Log(), UA={}, SATNOGS_BASE="x",
-                 SATNOGS_TOKEN=token, _cool=lambda *a, **k: None,
+                 SATNOGS_TOKEN=token, SATNOGS_TIMEOUT=30,
+                 _satnogs_headers=lambda loop: {},
+                 _cool=lambda *a, **k: None,
                  _pace_satnogs=lambda: None)
 
 

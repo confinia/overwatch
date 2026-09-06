@@ -109,6 +109,12 @@ services:
     # SATNOGS_TOKEN + DB_DSN come from .env (never committed).
     env_file:
       - .env
+    # Loopback only, for the platform's blackbox prober: rootless podman
+    # networks are per-user namespaces, so the platform cannot join
+    # orbit-poc_default and reaches us via host.containers.internal instead.
+    # It probes /upstream (passive reachability, sends nothing to SatNOGS).
+    ports:
+      - "127.0.0.1:12080:8088"  # 1PESI: overwatch(2)·prod(0)·satnogs-gateway(8) (#213)
     # Resource ceiling so this can never starve the shared, DISK-bound VM. It is
     # a tiny single-process HTTP pacer that serialises requests, so 0.25 CPU /
     # 128 MB is generous. podman-compose maps these to --cpus / --memory; verify

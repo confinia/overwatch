@@ -47,7 +47,7 @@
           },
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT extract(epoch FROM now() - max(ts)) AS value FROM upstream_request WHERE source = 'satnogs' AND status = 200"
+          "rawSql": "SELECT date_part('epoch', now() - max(ts)) AS value FROM upstream_request WHERE source = 'satnogs' AND status = 200"
         }
       ],
       "description": "Age of the newest successful real upstream reply. This IS the reachability signal: it comes from the gateway's own traffic, so no extra probe hits db.satnogs.org. Red past 1 h = blocked, down, or the ingest is not asking.",
@@ -275,7 +275,7 @@
           },
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT extract(epoch FROM now() - max(ts)) AS value FROM telemetry"
+          "rawSql": "SELECT date_part('epoch', now() - max(ts)) AS value FROM telemetry"
         }
       ],
       "description": "Age of the newest telemetry row users can see. Green upstream + red here = SatNOGS answers but the ingest drops what it gets (pagination, decoder, DB).",
@@ -782,7 +782,7 @@
           },
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT s.norad AS \"NORAD\", s.name AS \"Satellite\", to_char(s.last_telemetry_fetch, 'MM-DD HH24:MI') AS \"Last fetch attempt\", to_char(n.newest, 'MM-DD HH24:MI') AS \"Newest frame\", round(extract(epoch FROM now() - n.newest) / 3600) AS \"Frame age (h)\", coalesce(d.frames_24h, 0) AS \"Frames 24 h\", coalesce(c.is_violator, false) AS \"Held (violator)\" FROM satellite s LEFT JOIN (SELECT norad, max(ts) AS newest FROM telemetry GROUP BY norad) n USING (norad) LEFT JOIN (SELECT norad, count(*) AS frames_24h FROM telemetry            WHERE ts > now() - interval '24 hours' GROUP BY norad) d USING (norad) LEFT JOIN catalog c USING (norad) WHERE s.has_telemetry AND s.sat_id IS NOT NULL ORDER BY n.newest NULLS FIRST"
+          "rawSql": "SELECT s.norad AS \"NORAD\", s.name AS \"Satellite\", to_char(s.last_telemetry_fetch, 'MM-DD HH24:MI') AS \"Last fetch attempt\", to_char(n.newest, 'MM-DD HH24:MI') AS \"Newest frame\", round(date_part('epoch', now() - n.newest) / 3600) AS \"Frame age (h)\", coalesce(d.frames_24h, 0) AS \"Frames 24 h\", coalesce(c.is_violator, false) AS \"Held (violator)\" FROM satellite s LEFT JOIN (SELECT norad, max(ts) AS newest FROM telemetry GROUP BY norad) n USING (norad) LEFT JOIN (SELECT norad, count(*) AS frames_24h FROM telemetry            WHERE ts > now() - interval '24 hours' GROUP BY norad) d USING (norad) LEFT JOIN catalog c USING (norad) WHERE s.has_telemetry AND s.sat_id IS NOT NULL ORDER BY n.newest NULLS FIRST"
         }
       ],
       "description": "One row per satellite the ingest polls. 'Last fetch attempt' moves every cycle (stamped before the call); 'Newest frame' moves only when a fetch succeeded AND decoded. Attempt fresh + frame stale on many rows at once = the ingest is losing replies (the page-2 bug of #450 looked exactly like this).",
