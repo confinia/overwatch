@@ -54,11 +54,21 @@ services:
       # Empty = telemetry-only showcase (product decision 2026-07-18).
       CELESTRAK_GROUPS: ""
       POSITION_INTERVAL: "15"      # local propagation only, no external calls
-      TELEMETRY_INTERVAL: "1800"   # 30m
+      # Re-entry slack (#450): 24 polled satellites x 48 cycles/day was 80% of
+      # the 1/min ceiling. 1h while the gateway pace is 60s; back to "1800"
+      # (30m) together with SATNOGS_MIN_GAP going back toward 11.
+      TELEMETRY_INTERVAL: "3600"   # 1h re-entry (normal: 1800 = 30m)
       # All SatNOGS access goes through the egress gateway (#449): one
       # rate-limited, cached door shared by every caller. Blackholed below so
       # the ingest cannot reach db.satnogs.org except through it.
       SATNOGS_BASE: "http://satnogs-gateway:8088/api"
+      # The ingest paces itself at the gateway's gap so it never stacks
+      # requests behind the gate, and its read timeout exceeds
+      # SATNOGS_MAX_WAIT + upstream time so a held request is still read
+      # when it comes back (#450: at 11s/30s, 23 of 24 satellites timed out
+      # while the gateway spent the slot anyway). Keep the three in step.
+      SATNOGS_MIN_GAP: "60"
+      SATNOGS_TIMEOUT: "160"
     # SATNOGS_TOKEN lives in .env (podman-compose does not interpolate
     # ${VAR:-default}, hence env_file rather than inline interpolation).
     env_file:
@@ -88,6 +98,9 @@ services:
       # trust with LSF. Raise back toward 11s (~5.5/min) once settled and once
       # LSF confirms an acceptable rate. One env var, applied globally.
       SATNOGS_MIN_GAP: "60"   # 1/min re-entry (was 11 = ~5.5/min)
+      # Longest a caller is held for a slot; beyond it: 503 + Retry-After at
+      # once, no slot spent (#450). Callers' timeouts must exceed this + ~30s.
+      SATNOGS_MAX_WAIT: "120"
       # Emit request-rate metrics through the same OTel pipeline the api uses
       # (otel-collector -> prometheus -> grafana OpsMetrics). ovw.satnogs.requests
       # carries a disposition label (HIT/MISS/COOL/ERR) for the cache-vs-resend split.

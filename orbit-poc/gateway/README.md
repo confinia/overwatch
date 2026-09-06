@@ -24,6 +24,14 @@ one counter that sees the whole footprint.
   AND OTel metrics through the collector (`ovw.satnogs.requests` counter with a
   `disposition` label HIT/MISS/COOL/ERR, + a duration histogram) → prometheus →
   Grafana OpsMetrics, the same pipeline the api uses.
+- **Never holds a caller longer than it can afford.** Slots are reserved in
+  arrival order, one per gap. A request whose wait would exceed
+  `SATNOGS_MAX_WAIT` (120s) gets `503` + `Retry-After` at once, disposition
+  `BUSY`, and no upstream slot is spent on it. Callers must set their read
+  timeout above `SATNOGS_MAX_WAIT` + ~30s (the ingest: `SATNOGS_TIMEOUT=160`)
+  and pace themselves at the gateway's gap; otherwise they give up while the
+  gateway still burns the slot on a reply nobody reads (#450). `COOL` replies
+  carry `Retry-After` too.
 - **Backs off hard on a block.** A plain timeout earns `SATNOGS_TIMEOUT_COOLDOWN`
   (60s). A firewall signature (network unreachable, administratively prohibited,
   connection refused) earns `SATNOGS_BLOCK_COOLDOWN` (1h): a blocked gateway

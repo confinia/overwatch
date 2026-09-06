@@ -77,6 +77,51 @@ def test_one_global_gate_paces_real_requests(tmp_path):
         "a second real request inside the gap must be held to min_gap"
 
 
+def test_slots_are_reserved_in_arrival_order_one_per_gap(tmp_path):
+    """Three arrivals at the same instant get slots at 0, gap, 2*gap: the
+    queue is deterministic, nobody starves behind a lucky latecomer."""
+    def get(url, headers, timeout):
+        return FakeResp(200)
+
+    g, clock, _ = _gw(tmp_path, get)
+    g.max_wait = 1000
+    assert g.pace() == 0
+    assert g.pace() == 11            # clock.sleep advanced the clock by 11
+    assert g.pace() == 11            # then the next one, another 11 later
+    assert g.retry_after() == 11
+
+
+def test_busy_refuses_at_once_without_spending_a_slot(tmp_path):
+    """#450: a caller that would wait longer than max_wait gets 503 BUSY now,
+    no upstream request is made for it, and the queue is unchanged, so the
+    slot goes to a caller that is still there to read the reply."""
+    hits = {"n": 0}
+
+    def get(url, headers, timeout):
+        hits["n"] += 1
+        return FakeResp(200, b"[]")
+
+    clock = Clock()
+    g, _, calls = _gw(tmp_path, get, clock=clock)
+    g.max_wait = 15
+    g.fetch("/telemetry/", "sat_id=A", 1800)          # slot at t0
+    # a second caller holds the next slot (t0+11) and is still sleeping for it;
+    # simulate that reservation without advancing the clock
+    g._next_slot = clock.now() + 22
+    # a third arrival would wait 22s > 15: refused at once
+    st, body, _, disp = g.fetch("/telemetry/", "sat_id=C", 1800)
+    assert (st, disp) == (503, "BUSY")
+    assert b"busy" in body
+    assert hits["n"] == 1, "BUSY must not touch upstream"
+    assert calls == [("/telemetry/", 200)], "BUSY is not a real request, not recorded"
+    assert g.retry_after() == 22, "Retry-After says when the queue is drained"
+    assert clock.slept == [], "the refused caller was not held"
+    # queue untouched: once max_wait allows it, the next arrival gets that slot
+    g.max_wait = 60
+    assert g.pace() == 22
+    assert hits["n"] == 1
+
+
 def test_429_sets_cooldown_then_short_circuits(tmp_path):
     def get(url, headers, timeout):
         return FakeResp(429, b'{"detail":"throttled"}', {"Retry-After": "40",

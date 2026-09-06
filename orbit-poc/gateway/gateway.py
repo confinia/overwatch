@@ -57,6 +57,12 @@ COOLDOWN_FILE = os.environ.get("COOLDOWN_FILE", "/tmp/satnogs_cooldown")
 # to a provider that has explicitly shut us out. Both tunable by env.
 TIMEOUT_COOLDOWN = float(os.environ.get("SATNOGS_TIMEOUT_COOLDOWN", 60))     # 1m
 BLOCK_COOLDOWN = float(os.environ.get("SATNOGS_BLOCK_COOLDOWN", 3600))       # 1h
+# Longest a caller may be held for a slot (#450). A request that would wait
+# longer gets 503 + Retry-After AT ONCE, with no upstream slot spent: a caller
+# whose own timeout is shorter than the queue would otherwise give up while we
+# still burn the slot on a reply nobody reads (the ingest starvation of #450).
+# Rule for callers: client timeout > SATNOGS_MAX_WAIT + upstream time (~30s).
+MAX_WAIT = float(os.environ.get("SATNOGS_MAX_WAIT", 120))                     # 2 slots
 
 # Per-endpoint freshness, matched on the first path segment after /api/. A
 # backfill re-reading the same satellite's telemetry inside the window is served
@@ -202,7 +208,8 @@ class Gateway:
     def __init__(self, get=None, sleep=time.sleep, now=time.time,
                  record=None, upstream=UPSTREAM, token=TOKEN, min_gap=MIN_GAP,
                  cooldown_file=COOLDOWN_FILE,
-                 timeout_cooldown=TIMEOUT_COOLDOWN, block_cooldown=BLOCK_COOLDOWN):
+                 timeout_cooldown=TIMEOUT_COOLDOWN, block_cooldown=BLOCK_COOLDOWN,
+                 max_wait=MAX_WAIT):
         self._get = get or _http_get
         self._sleep = sleep
         self._now = now
@@ -210,11 +217,12 @@ class Gateway:
         self.upstream = upstream.rstrip("/")
         self.token = token
         self.min_gap = min_gap
+        self.max_wait = max_wait
         self.cooldown_file = cooldown_file
         self.timeout_cooldown = timeout_cooldown
         self.block_cooldown = block_cooldown
         self._lock = threading.Lock()
-        self._last = 0.0
+        self._next_slot = 0.0       # when the next upstream request may start
         self._cache = {}            # key -> (expires_at, status, body, ctype)
         self._cooldown_until = self._read_cooldown()
 
@@ -239,11 +247,25 @@ class Gateway:
 
     # --- one global gate: the whole deployment shares this gap ---
     def pace(self):
+        """Reserve the next upstream slot and wait for it. Slots are handed out
+        in arrival order, one per min_gap. Returns the seconds waited, or None
+        when the wait would exceed max_wait: the slot is NOT taken and the
+        caller must answer 503 at once instead of holding the connection."""
         with self._lock:
-            wait = self.min_gap - (self._now() - self._last)
-            if wait > 0:
-                self._sleep(wait)
-            self._last = self._now()
+            now = self._now()
+            slot = max(self._next_slot, now)
+            wait = slot - now
+            if wait > self.max_wait:
+                return None
+            self._next_slot = slot + self.min_gap
+        if wait > 0:
+            self._sleep(wait)
+        return wait
+
+    def retry_after(self):
+        """Seconds until the queue is drained: the Retry-After for a BUSY 503."""
+        with self._lock:
+            return max(1, int(self._next_slot - self._now() + 0.999))
 
     # --- cache ---
     def cache_get(self, key):
@@ -258,7 +280,8 @@ class Gateway:
     def fetch(self, path, query, ttl, caller="unknown"):
         """Serve a SatNOGS GET: cache -> cooldown -> gate -> upstream.
         Returns (status, body_bytes, content_type, disposition). `caller` is
-        recorded for our attribution only; it never reaches upstream."""
+        recorded for our attribution only; it never reaches upstream.
+        Dispositions HIT/COOL/BUSY never spend an upstream slot."""
         key = path + "?" + query
         hit = self.cache_get(key)
         if hit:
@@ -268,7 +291,10 @@ class Gateway:
             _otel("COOL", 503, 0, caller)
             return (503, b'{"detail":"upstream cooling down"}',
                     "application/json", "COOL")
-        self.pace()
+        if self.pace() is None:
+            _otel("BUSY", 503, 0, caller)
+            return (503, b'{"detail":"gateway busy, retry after the queue drains"}',
+                    "application/json", "BUSY")
         url = self.upstream + path + (("?" + query) if query else "")
         # ONE identity outward, whoever asked: the gateway's UA and token only.
         # The caller's headers (its UA, X-Overwatch-Caller) stop here.
@@ -316,16 +342,24 @@ class Handler(BaseHTTPRequestHandler):
         path = parsed.path
         status, body, ctype, disp = self.gateway.fetch(
             path, parsed.query, ttl_for(path), caller_of(self.headers))
-        self._reply(status or 502, body, ctype, disp)
+        # Tell the caller WHEN to come back, so it need not guess (or spin).
+        retry = None
+        if disp == "BUSY":
+            retry = self.gateway.retry_after()
+        elif disp == "COOL":
+            retry = max(1, int(self.gateway.cooling() + 0.999))
+        self._reply(status or 502, body, ctype, disp, retry)
 
     def do_POST(self):   # SatNOGS reads are GET; nothing writes upstream
         self._reply(405, b'{"detail":"read-only gateway"}', "application/json", "-")
 
-    def _reply(self, status, body, ctype, disp):
+    def _reply(self, status, body, ctype, disp, retry_after=None):
         self.send_response(status)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("X-Cache", disp)
+        if retry_after is not None:
+            self.send_header("Retry-After", str(retry_after))
         self.end_headers()
         self.wfile.write(body)
 
