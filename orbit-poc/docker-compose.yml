@@ -83,7 +83,11 @@ services:
       db:
         condition: service_healthy
     environment:
-      SATNOGS_MIN_GAP: "11"   # 6/min per-user limit + margin (satnogs-db settings)
+      # Conservative re-entry pace after the 2nd block: 1/min, far under the
+      # 6/min satnogs-db limit, as a visible good-faith gesture while we rebuild
+      # trust with LSF. Raise back toward 11s (~5.5/min) once settled and once
+      # LSF confirms an acceptable rate. One env var, applied globally.
+      SATNOGS_MIN_GAP: "60"   # 1/min re-entry (was 11 = ~5.5/min)
       # Emit request-rate metrics through the same OTel pipeline the api uses
       # (otel-collector -> prometheus -> grafana OpsMetrics). ovw.satnogs.requests
       # carries a disposition label (HIT/MISS/COOL/ERR) for the cache-vs-resend split.

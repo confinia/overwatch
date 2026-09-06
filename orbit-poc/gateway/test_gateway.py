@@ -103,6 +103,47 @@ def test_timeout_backs_off_too(tmp_path):
     assert calls == [("/tle/", None)], "the failed attempt is still recorded (status None)"
 
 
+def test_block_signature_backs_off_hard_not_every_minute(tmp_path):
+    """A firewall block (network unreachable / admin-prohibited) must earn the
+    LONG backoff, so a blocked gateway probes ~hourly instead of knocking every
+    minute on a provider that has deliberately shut us out."""
+    import errno as _errno
+
+    def get(url, headers, timeout):
+        raise OSError(_errno.ENETUNREACH, "Network is unreachable")
+
+    g, _, calls = _gw(tmp_path, get)
+    g.timeout_cooldown, g.block_cooldown = 60, 3600
+    st, _, _, disp = g.fetch("/telemetry/", "sat_id=A", 1800)
+    assert (st, disp) == (502, "ERR")
+    assert g.cooling() >= 3599, "an admin-prohibited block must arm the 1h backoff"
+    assert calls == [("/telemetry/", None)], "the blocked attempt is still recorded"
+
+
+def test_transient_timeout_keeps_the_short_backoff(tmp_path):
+    def get(url, headers, timeout):
+        raise RuntimeError("HTTPSConnectionPool: Read timed out")
+
+    g, _, _ = _gw(tmp_path, get)
+    g.timeout_cooldown, g.block_cooldown = 60, 3600
+    g.fetch("/tle/", "norad_cat_id=25544", 21600)
+    assert 59 <= g.cooling() <= 61, \
+        "a plain timeout is a blip: the short backoff, not the 1h block one"
+
+
+def test_is_block_classifies_by_errno_and_by_message():
+    import errno as _errno
+    assert gateway.is_block(OSError(_errno.ENETUNREACH, "Network is unreachable"))
+    assert gateway.is_block(OSError(_errno.ECONNREFUSED, "Connection refused"))
+    # requests wraps the socket error; the __cause__ chain must be walked
+    wrapped = RuntimeError("connect failed")
+    wrapped.__cause__ = OSError(_errno.EHOSTUNREACH, "No route to host")
+    assert gateway.is_block(wrapped)
+    # a plain read timeout is NOT a block — it stays transient
+    assert not gateway.is_block(RuntimeError("Read timed out"))
+    assert not gateway.is_block(TimeoutError("timed out"))
+
+
 def test_token_is_injected_callers_never_hold_it(tmp_path):
     seen = {}
 

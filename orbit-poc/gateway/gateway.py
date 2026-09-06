@@ -22,6 +22,7 @@ Selfhost does NOT run this: a single-tenant install talks to SatNOGS directly
 from its own paced ingest. The gateway exists for the multi-caller cloud, where
 more than one process shares one token and one IP.
 """
+import errno
 import logging
 import os
 import threading
@@ -46,6 +47,15 @@ DB_DSN = os.environ.get("DB_DSN", "")
 UA = os.environ.get("HTTP_USER_AGENT",
                     "overwatch/1.0 (+https://overwatch.confinia.io; contact@confinia.io)")
 COOLDOWN_FILE = os.environ.get("COOLDOWN_FILE", "/tmp/satnogs_cooldown")
+# Two kinds of refusal, two backoffs. A transient timeout is a blip: wait a
+# minute and try again. But the network being administratively shut to us (the
+# ICMP admin-prohibited firewall block we hit twice) will not lift on its own —
+# only a human at LSF removes it — so knocking every minute is both pointless
+# and impolite. On that signature the gateway backs off HARD (default 1h): it
+# stays quiet, probes ~hourly to notice the unblock, and adds no needless load
+# to a provider that has explicitly shut us out. Both tunable by env.
+TIMEOUT_COOLDOWN = float(os.environ.get("SATNOGS_TIMEOUT_COOLDOWN", 60))     # 1m
+BLOCK_COOLDOWN = float(os.environ.get("SATNOGS_BLOCK_COOLDOWN", 3600))       # 1h
 
 # Per-endpoint freshness, matched on the first path segment after /api/. A
 # backfill re-reading the same satellite's telemetry inside the window is served
@@ -68,6 +78,31 @@ def ttl_for(path):
         parts = parts[1:]
     seg = parts[0] if parts else ""
     return TTL.get(seg, DEFAULT_TTL)
+
+
+# Errnos that mean the path to SatNOGS is administratively shut (a firewall
+# block), not a transient timeout: ENETUNREACH/EHOSTUNREACH surface an ICMP
+# admin-prohibited, ECONNREFUSED an outright reject. These earn the long backoff.
+_BLOCK_ERRNOS = {errno.ENETUNREACH, errno.EHOSTUNREACH, errno.ECONNREFUSED}
+
+
+def is_block(exc):
+    """True if `exc` is a reachability refusal (network/host unreachable,
+    connection refused, admin-prohibited) rather than a transient timeout.
+    Walks the __cause__/__context__ chain `requests` wraps the socket error in,
+    checking errno first and falling back to the message text."""
+    seen = set()
+    e = exc
+    while e is not None and id(e) not in seen:
+        seen.add(id(e))
+        if getattr(e, "errno", None) in _BLOCK_ERRNOS:
+            return True
+        m = str(e).lower()
+        if ("unreachable" in m or "administratively prohibited" in m
+                or "connection refused" in m):
+            return True
+        e = getattr(e, "__cause__", None) or getattr(e, "__context__", None)
+    return False
 
 
 # --- OpenTelemetry metrics (optional): the SPOT emits its request rate to the
@@ -142,7 +177,8 @@ class Gateway:
 
     def __init__(self, get=None, sleep=time.sleep, now=time.time,
                  record=None, upstream=UPSTREAM, token=TOKEN, min_gap=MIN_GAP,
-                 cooldown_file=COOLDOWN_FILE):
+                 cooldown_file=COOLDOWN_FILE,
+                 timeout_cooldown=TIMEOUT_COOLDOWN, block_cooldown=BLOCK_COOLDOWN):
         self._get = get or _http_get
         self._sleep = sleep
         self._now = now
@@ -151,6 +187,8 @@ class Gateway:
         self.token = token
         self.min_gap = min_gap
         self.cooldown_file = cooldown_file
+        self.timeout_cooldown = timeout_cooldown
+        self.block_cooldown = block_cooldown
         self._lock = threading.Lock()
         self._last = 0.0
         self._cache = {}            # key -> (expires_at, status, body, ctype)
@@ -225,8 +263,11 @@ class Gateway:
             disp = "MISS"
             return status, body, ctype, "MISS"
         except Exception as e:  # noqa: BLE001 — a timeout is also a refusal to honour
-            log.warning("upstream error for %s: %s", path, e)
-            self.set_cooldown(60)   # back off on timeout too — the gap that hurt us
+            blocked = is_block(e)
+            cooldown = self.block_cooldown if blocked else self.timeout_cooldown
+            log.warning("upstream error for %s: %s (%s; backing off %.0fs)",
+                        path, e, "BLOCKED" if blocked else "transient", cooldown)
+            self.set_cooldown(cooldown)   # hard on a firewall block, short on a blip
             return (502, b'{"detail":"upstream unreachable"}',
                     "application/json", "ERR")
         finally:
