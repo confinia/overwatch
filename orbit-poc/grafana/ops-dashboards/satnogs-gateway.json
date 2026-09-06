@@ -1,0 +1,872 @@
+{
+  "uid": "satnogs-gateway",
+  "title": "SatNOGS gateway (SPOT)",
+  "description": "Is db.satnogs.org reachable, what does the gateway do with each request (cache / pace / refuse), and does the telemetry plan actually deliver frames per satellite. Reachability is derived from the gateway's own traffic: no probe of ours touches SatNOGS outside the gate.",
+  "tags": [
+    "ops",
+    "upstream",
+    "satnogs"
+  ],
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "1m",
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "links": [
+    {
+      "title": "Upstream request rate (all providers, by caller)",
+      "type": "link",
+      "url": "/grafana/d/upstream-requests",
+      "keepTime": true
+    }
+  ],
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Last 200 from SatNOGS",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "orbitcache-ops"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "orbitcache-ops"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT date_part('epoch', now() - max(ts)) AS value FROM upstream_request WHERE source = 'satnogs' AND status = 200"
+        }
+      ],
+      "description": "Age of the newest successful real upstream reply. This IS the reachability signal: it comes from the gateway's own traffic, so no extra probe hits db.satnogs.org. Red past 1 h = blocked, down, or the ingest is not asking.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 900
+              },
+              {
+                "color": "red",
+                "value": 3600
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Real requests (last hour)",
+      "gridPos": {
+        "x": 4,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "orbitcache-ops"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "orbitcache-ops"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT count(*) AS value FROM upstream_request WHERE source = 'satnogs' AND ts > now() - interval '1 hour'"
+        }
+      ],
+      "description": "Cache hits excluded: what SatNOGS actually saw. The gate is 1/min (SATNOGS_MIN_GAP=60), so anything above ~62 means the gate is being bypassed.",
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 55
+              },
+              {
+                "color": "red",
+                "value": 63
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Failed upstream calls (last hour)",
+      "gridPos": {
+        "x": 8,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "orbitcache-ops"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "orbitcache-ops"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT count(*) AS value FROM upstream_request WHERE source = 'satnogs' AND ts > now() - interval '1 hour' AND (status IS NULL OR status >= 400)"
+        }
+      ],
+      "description": "status NULL = timeout / connection failure (a firewall block looks like this), >= 400 = SatNOGS refused (429 = rate limit, 401 = token).",
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Gateway gate (last 15 min)",
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "promops"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "promops"
+          },
+          "expr": "sum(increase(ovw_satnogs_requests_total{disposition=~\"COOL|BUSY\"}[15m])) or vector(0)",
+          "legendFormat": "held"
+        }
+      ],
+      "description": "Callers turned away in the last 15 min: COOL = SatNOGS refused us and the gateway is standing down, BUSY = the queue exceeded SATNOGS_MAX_WAIT. 0 = the door is open.",
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 20
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "open",
+                  "color": "green"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Newest decoded frame",
+      "gridPos": {
+        "x": 16,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "orbitcache-ops"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "orbitcache-ops"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT date_part('epoch', now() - max(ts)) AS value FROM telemetry"
+        }
+      ],
+      "description": "Age of the newest telemetry row users can see. Green upstream + red here = SatNOGS answers but the ingest drops what it gets (pagination, decoder, DB).",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 7200
+              },
+              {
+                "color": "red",
+                "value": 21600
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Satellites with a frame in 24 h",
+      "gridPos": {
+        "x": 20,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "orbitcache-ops"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "orbitcache-ops"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT count(DISTINCT t.norad) AS value FROM telemetry t JOIN satellite s USING (norad) WHERE s.has_telemetry AND s.sat_id IS NOT NULL AND t.ts > now() - interval '24 hours'"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "postgres",
+            "uid": "orbitcache-ops"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT count(*) AS value FROM satellite WHERE has_telemetry AND sat_id IS NOT NULL"
+        }
+      ],
+      "description": "Left: polled satellites that produced a decoded frame in the last 24 h. Right: how many we poll. Not every satellite transmits daily, so compare with the table below rather than expecting equality.",
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 7,
+      "type": "state-timeline",
+      "title": "SatNOGS reachability (from real traffic, 5 min bins)",
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 24,
+        "h": 4
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "orbitcache-ops"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "orbitcache-ops"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT $__timeGroup(ts, '5m') AS \"time\", CASE WHEN bool_or(status = 200) THEN 'reachable' WHEN bool_or(status IS NULL) THEN 'unreachable' ELSE 'refused' END AS satnogs FROM upstream_request WHERE source = 'satnogs' AND $__timeFilter(ts) GROUP BY 1 ORDER BY 1"
+        }
+      ],
+      "description": "Derived from what the gateway really sent, not from a probe. A gap means the gateway sent nothing in that bin (idle or cooling), not that SatNOGS was down. Replaces the platform blackbox row 'overwatch -> satnogs-api', which bypassed the gateway and added to our footprint.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "fillOpacity": 80,
+            "lineWidth": 0
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "reachable": {
+                  "color": "green",
+                  "index": 0
+                },
+                "refused": {
+                  "color": "orange",
+                  "index": 1
+                },
+                "unreachable": {
+                  "color": "red",
+                  "index": 2
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "showValue": "never",
+        "mergeValues": true,
+        "rowHeight": 0.9
+      }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Gateway answers per minute, by disposition",
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 12,
+        "h": 9
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "promops"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "promops"
+          },
+          "expr": "sum by (disposition) (rate(ovw_satnogs_requests_total[$__rate_interval])) * 60",
+          "legendFormat": "{{disposition}}"
+        }
+      ],
+      "description": "HIT = served from cache (free). MISS = real upstream call, ERR = real call that failed: only those two count against the 1/min budget (dashed line). COOL/BUSY = refused locally, nothing sent.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "thresholdsStyle": {
+              "mode": "dashed"
+            }
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "transparent",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "HIT"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "MISS"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "ERR"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "COOL"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "BUSY"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "yellow"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Cache hit ratio",
+      "gridPos": {
+        "x": 12,
+        "y": 8,
+        "w": 6,
+        "h": 9
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "promops"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "promops"
+          },
+          "expr": "sum(rate(ovw_satnogs_requests_total{disposition=\"HIT\"}[$__rate_interval])) / sum(rate(ovw_satnogs_requests_total{disposition=~\"HIT|MISS|ERR\"}[$__rate_interval]))",
+          "legendFormat": "hit ratio"
+        }
+      ],
+      "description": "Share of answered requests that never reached SatNOGS. Low is normal for the ingest alone (each satellite is asked once per TTL); batch re-runs push it up.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 15
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Upstream latency (real calls)",
+      "gridPos": {
+        "x": 18,
+        "y": 8,
+        "w": 6,
+        "h": 9
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "promops"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "promops"
+          },
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(ovw_satnogs_request_duration_milliseconds_bucket[$__rate_interval])))",
+          "legendFormat": "p50"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "promops"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(ovw_satnogs_request_duration_milliseconds_bucket[$__rate_interval])))",
+          "legendFormat": "p95"
+        }
+      ],
+      "description": "Time to get an answer from db.satnogs.org (MISS/ERR only). A climb toward the read timeout precedes a block; a firewall drop pins it at the timeout.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Real requests per 5 min, by endpoint",
+      "gridPos": {
+        "x": 0,
+        "y": 17,
+        "w": 12,
+        "h": 9
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "orbitcache-ops"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "orbitcache-ops"
+          },
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT $__timeGroup(ts, '5m') AS \"time\", regexp_replace(coalesce(endpoint, '?'), '\\?.*$', '') AS metric, count(*) AS value FROM upstream_request WHERE source = 'satnogs' AND $__timeFilter(ts) GROUP BY 1, 2 ORDER BY 1"
+        }
+      ],
+      "description": "The plan (SatNOGS-api.md): /telemetry/ once per polled satellite per cycle, /tle/ hourly, /satellites/ + /telemetry/ catalogue sweeps daily. Anything else here is a call path that was not planned.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "drawStyle": "bars",
+            "stacking": {
+              "mode": "normal"
+            }
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Failed real requests per 5 min, by outcome",
+      "gridPos": {
+        "x": 12,
+        "y": 17,
+        "w": 12,
+        "h": 9
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "orbitcache-ops"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "orbitcache-ops"
+          },
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT $__timeGroup(ts, '5m') AS \"time\", coalesce(status::text, 'timeout') AS metric, count(*) AS value FROM upstream_request WHERE source = 'satnogs' AND $__timeFilter(ts) AND (status IS NULL OR status >= 400) GROUP BY 1, 2 ORDER BY 1"
+        }
+      ],
+      "description": "'timeout' = no HTTP answer at all (network drop, firewall, DNS). 429 = rate limited (we overspent), 401 = token, 5xx = SatNOGS side.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "drawStyle": "bars",
+            "stacking": {
+              "mode": "normal"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "timeout"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "429"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": 13,
+      "type": "table",
+      "title": "Polled satellites: last fetch vs newest frame",
+      "gridPos": {
+        "x": 0,
+        "y": 26,
+        "w": 24,
+        "h": 12
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "orbitcache-ops"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "orbitcache-ops"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT s.norad AS \"NORAD\", s.name AS \"Satellite\", to_char(s.last_telemetry_fetch, 'MM-DD HH24:MI') AS \"Last fetch attempt\", to_char(n.newest, 'MM-DD HH24:MI') AS \"Newest frame\", round(date_part('epoch', now() - n.newest) / 3600) AS \"Frame age (h)\", coalesce(d.frames_24h, 0) AS \"Frames 24 h\", coalesce(c.is_violator, false) AS \"Held (violator)\" FROM satellite s LEFT JOIN (SELECT norad, max(ts) AS newest FROM telemetry GROUP BY norad) n USING (norad) LEFT JOIN (SELECT norad, count(*) AS frames_24h FROM telemetry            WHERE ts > now() - interval '24 hours' GROUP BY norad) d USING (norad) LEFT JOIN catalog c USING (norad) WHERE s.has_telemetry AND s.sat_id IS NOT NULL ORDER BY n.newest NULLS FIRST"
+        }
+      ],
+      "description": "One row per satellite the ingest polls. 'Last fetch attempt' moves every cycle (stamped before the call); 'Newest frame' moves only when a fetch succeeded AND decoded. Attempt fresh + frame stale on many rows at once = the ingest is losing replies (the page-2 bug of #450 looked exactly like this).",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Frame age (h)"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "gradient"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 24
+                    },
+                    {
+                      "color": "red",
+                      "value": 96
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Frames 24 h"
+            },
+            "properties": [
+              {
+                "id": "thresholds",
+                "value": {
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "green",
+                      "value": 1
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "Newest frame",
+            "desc": false
+          }
+        ]
+      }
+    }
+  ]
+}

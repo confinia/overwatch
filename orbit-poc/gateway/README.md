@@ -19,19 +19,59 @@ one counter that sees the whole footprint.
 - **Honours refusal.** Respects `Retry-After`, persists a cooldown to disk (so a
   restart cannot resume hammering), backs off on timeouts too.
 - **Injects the token** — callers never hold it.
-- **Records every real upstream request** (`upstream_request`) for the ops
-  Grafana dashboard; cache hits are not counted, so the chart is the true rate.
+- **Records every request** two ways: a per-request row in `upstream_request`
+  (the ops Grafana dashboard, cache hits excluded so the chart is the true rate)
+  AND OTel metrics through the collector (`ovw.satnogs.requests` counter with a
+  `disposition` label HIT/MISS/COOL/ERR, + a duration histogram) → prometheus →
+  Grafana OpsMetrics, the same pipeline the api uses.
+- **Never holds a caller longer than it can afford.** Slots are reserved in
+  arrival order, one per gap. A request whose wait would exceed
+  `SATNOGS_MAX_WAIT` (120s) gets `503` + `Retry-After` at once, disposition
+  `BUSY`, and no upstream slot is spent on it. Callers must set their read
+  timeout above `SATNOGS_MAX_WAIT` + ~30s (the ingest: `SATNOGS_TIMEOUT=160`)
+  and pace themselves at the gateway's gap; otherwise they give up while the
+  gateway still burns the slot on a reply nobody reads (#450). `COOL` replies
+  carry `Retry-After` too.
+- **Keeps pagination inside the door.** SatNOGS replies carry absolute
+  `next`/`previous` links to `db.satnogs.org`; the gateway rewrites them in
+  JSON bodies to `GATEWAY_PUBLIC_BASE` (default `http://satnogs-gateway:8088`)
+  so a caller following them stays paced and cached instead of hitting the
+  blackhole on page 2 (#450).
+- **Backs off hard on a block.** A plain timeout earns `SATNOGS_TIMEOUT_COOLDOWN`
+  (60s). A firewall signature (network unreachable, administratively prohibited,
+  connection refused) earns `SATNOGS_BLOCK_COOLDOWN` (1h): a blocked gateway
+  knocks about 24 times a day, not 1440.
+- **Attributes internally, never outward.** A caller may send
+  `X-Overwatch-Caller: ingest` / `batch-sweep_full` / … (else its User-Agent
+  product token is used, else `unknown`). The value is sanitised, stored in
+  `upstream_request.caller` and set as the `caller` OTel label, so the ops
+  dashboard shows who inside Overwatch generated the load. It is **never**
+  forwarded: SatNOGS always sees the gateway's single User-Agent and token.
+  Several outward identities from one IP would read as UA rotation.
 
 ## Using it
 
-Point a caller at the gateway instead of the provider:
+The SPOT proxies **any db.satnogs.org path** verbatim — the JSON API and the
+plain pages alike — so a caller just sends the full path to the gateway host:
 
-    SATNOGS_BASE=http://satnogs-gateway:8088/api
+    SATNOGS_BASE=http://satnogs-gateway:8088/api   # the JSON API  (/api/telemetry/, …)
+    SATNOGS_HOST=http://satnogs-gateway:8088        # the plain pages (/satellite/<norad>)
 
-The path after `/api` is forwarded verbatim, e.g. a caller GETting
-`http://satnogs-gateway:8088/api/telemetry/?sat_id=…` reaches
-`https://db.satnogs.org/api/telemetry/?sat_id=…`, paced and cached. Only `GET`
-is proxied — nothing writes upstream. `/healthz` returns `{"ok":true}`.
+A GET to `…:8088/api/telemetry/?sat_id=…` reaches
+`https://db.satnogs.org/api/telemetry/?sat_id=…`, and `…:8088/satellite/57175`
+reaches `https://db.satnogs.org/satellite/57175` — both paced and cached. Only
+`GET` is proxied — nothing writes upstream. `/healthz` returns `{"ok":true}`.
+
+`/upstream` is the reachability signal for external monitors (the platform's
+"overwatch → satnogs-api" row). It is **passive**: it reports the outcome of
+the gateway's own real traffic (`state` reachable / degraded / down / idle,
+last success and failure ages, cooldown left) and sends nothing to SatNOGS.
+`503` once the latest real attempt failed and no success is younger than
+`SATNOGS_STALE_AFTER`. Never point a blackbox probe at `db.satnogs.org`
+directly: it bypasses the gate and adds to the very footprint we are limiting.
+The ops Grafana dashboard `satnogs-gateway` (org "Overwatch Ops") shows the same
+signal over time, plus dispositions, cache ratio, latency and per-satellite
+frame freshness.
 
 **All** SatNOGS access must go through the gateway, including one-off batch and
 sweep tooling. In the deployment, non-gateway containers have `db.satnogs.org`
@@ -51,6 +91,10 @@ exists for the multi-caller cloud.
 | `SATNOGS_UPSTREAM` | `https://db.satnogs.org/api` | real provider base |
 | `SATNOGS_TOKEN` | — | injected as `Authorization: Token …` |
 | `SATNOGS_MIN_GAP` | `11` | seconds between real upstream requests |
+| `SATNOGS_MAX_WAIT` | `120` | longest a caller is held for a slot before `503 BUSY` |
+| `SATNOGS_TIMEOUT_COOLDOWN` / `SATNOGS_BLOCK_COOLDOWN` | `60` / `3600` | stand-down after a timeout / a firewall block |
+| `SATNOGS_STALE_AFTER` | `3600` | `/upstream` turns `503` once the last success is older than this and the latest attempt failed |
+| `GATEWAY_PUBLIC_BASE` | `http://satnogs-gateway:8088` | what pagination links are rewritten to |
 | `GATEWAY_PORT` | `8088` | listen port |
 | `DB_DSN` | — | where `upstream_request` rows are written |
 | `TTL_TELEMETRY` / `TTL_TLE` / `TTL_SATELLITES` | `1800` / `21600` / `86400` | cache windows (s) |

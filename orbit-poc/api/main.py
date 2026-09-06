@@ -199,8 +199,13 @@ CREATE TABLE IF NOT EXISTS upstream_request (
     endpoint TEXT,
     status   INTEGER,
     ms       INTEGER,
+    -- WHO asked, for our attribution only (ingest, batch-<script>, ...). The
+    -- gateway records it and never forwards it: SatNOGS sees one identity.
+    caller   TEXT,
     ts       timestamptz NOT NULL DEFAULT now()
 );
+-- existing deployments: the column was added after the table shipped
+ALTER TABLE upstream_request ADD COLUMN IF NOT EXISTS caller TEXT;
 CREATE INDEX IF NOT EXISTS upstream_request_ts_idx ON upstream_request (source, ts DESC);
 -- Web Push subscriptions (#373): "alert me when MY station goes quiet". One
 -- row per (browser, station); endpoint is the push service URL and is unique
@@ -1650,7 +1655,10 @@ OPS_TABLES = ("organization", "org_user", "org_token", "api_key",
               # written by deploy/record-deploy-event.sh, read by the ops
               # deploys board (#382); granted once the first deploy after
               # this change has created it
-              "deploy_event")
+              "deploy_event",
+              # the SatNOGS gateway board (#450): which satellites we poll and
+              # whether the plan delivers frames for them
+              "satellite", "catalog")
 OPS_ALERT_EMAIL = os.environ.get("OPS_ALERT_EMAIL", "contact@confinia.io")
 # How long the OIDC CSRF nonce stays valid. Must outlive a registration with
 # e-mail verification, not merely a login (#343).
@@ -1821,11 +1829,16 @@ def _ops_alert_rules() -> list:
     host = PUBLIC_BASE.split("://")[-1].split("/")[0].split(".")[0]
     env = host if host in ("staging", "sandbox") else "production"
 
-    def rule(uid, title, sql, summary=None, group="signups"):
+    def rule(uid, title, sql, summary=None, group="signups", keep_firing_for="0s"):
         return {
             "uid": uid, "title": title, "condition": "C",
             "folderUID": "ops-alerts", "ruleGroup": group,
-            "for": "0s", "noDataState": "OK", "execErrState": "OK",
+            # keep_firing_for holds a sustained alert in the firing state across a
+            # brief resolve, so a condition that flaps around its threshold does
+            # not re-notify as a fresh alert every time (the repeat_interval only
+            # governs a continuously-firing one). 0s for one-shot signup events.
+            "for": "0s", "keepFiringFor": keep_firing_for,   # camelCase; snake_case is silently ignored (platform-verified)
+            "noDataState": "OK", "execErrState": "OK",
             "labels": {"env": env},
             "annotations": {"summary": f"[{env}] " + (summary or title)},
             "data": [
@@ -1845,7 +1858,10 @@ def _ops_alert_rules() -> list:
             ],
         }
     return [rule(r["uid"], r["title"], r["sql"], r.get("summary"),
-                 r.get("group", "signups"))
+                 r.get("group", "signups"),
+                 # sustained conditions (freshness, providers) get an anti-flap
+                 # hold; one-shot signup events do not need it.
+                 "1h" if r.get("group") in ("freshness", "providers") else "0s")
             for r in _ops_alert_spec()["rules"]]
 
 

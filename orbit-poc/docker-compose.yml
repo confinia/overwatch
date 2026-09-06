@@ -34,6 +34,11 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
+    # Shared, DISK-bound VM: cap the prod database above its measured steady
+    # state (~40 MB idle, more under ingest write load). shared_buffers / work_mem
+    # should also be tuned for a shared box (platform rule 3) — follow-up.
+    cpus: "2.0"
+    mem_limit: 1g
 
   ingest:
     build: ./ingest
@@ -49,11 +54,21 @@ services:
       # Empty = telemetry-only showcase (product decision 2026-07-18).
       CELESTRAK_GROUPS: ""
       POSITION_INTERVAL: "15"      # local propagation only, no external calls
-      TELEMETRY_INTERVAL: "1800"   # 30m
+      # Re-entry slack (#450): 24 polled satellites x 48 cycles/day was 80% of
+      # the 1/min ceiling. 1h while the gateway pace is 60s; back to "1800"
+      # (30m) together with SATNOGS_MIN_GAP going back toward 11.
+      TELEMETRY_INTERVAL: "3600"   # 1h re-entry (normal: 1800 = 30m)
       # All SatNOGS access goes through the egress gateway (#449): one
       # rate-limited, cached door shared by every caller. Blackholed below so
       # the ingest cannot reach db.satnogs.org except through it.
       SATNOGS_BASE: "http://satnogs-gateway:8088/api"
+      # The ingest paces itself at the gateway's gap so it never stacks
+      # requests behind the gate, and its read timeout exceeds
+      # SATNOGS_MAX_WAIT + upstream time so a held request is still read
+      # when it comes back (#450: at 11s/30s, 23 of 24 satellites timed out
+      # while the gateway spent the slot anyway). Keep the three in step.
+      SATNOGS_MIN_GAP: "60"
+      SATNOGS_TIMEOUT: "160"
     # SATNOGS_TOKEN lives in .env (podman-compose does not interpolate
     # ${VAR:-default}, hence env_file rather than inline interpolation).
     env_file:
@@ -63,6 +78,8 @@ services:
       # it fails fast instead of overspending the shared per-user budget.
       - "db.satnogs.org:127.0.0.1"
       - "network.satnogs.org:127.0.0.1"
+    cpus: "1.0"
+    mem_limit: 512m
     restart: unless-stopped
 
   # SatNOGS egress gateway (#449): the ONLY process that reaches db.satnogs.org.
@@ -76,10 +93,41 @@ services:
       db:
         condition: service_healthy
     environment:
-      SATNOGS_MIN_GAP: "11"   # 6/min per-user limit + margin (satnogs-db settings)
+      # Conservative re-entry pace after the 2nd block: 1/min, far under the
+      # 6/min satnogs-db limit, as a visible good-faith gesture while we rebuild
+      # trust with LSF. Raise back toward 11s (~5.5/min) once settled and once
+      # LSF confirms an acceptable rate. One env var, applied globally.
+      SATNOGS_MIN_GAP: "60"   # 1/min re-entry (was 11 = ~5.5/min)
+      # Longest a caller is held for a slot; beyond it: 503 + Retry-After at
+      # once, no slot spent (#450). Callers' timeouts must exceed this + ~30s.
+      SATNOGS_MAX_WAIT: "120"
+      # Emit request-rate metrics through the same OTel pipeline the api uses
+      # (otel-collector -> prometheus -> grafana OpsMetrics). ovw.satnogs.requests
+      # carries a disposition label (HIT/MISS/COOL/ERR) for the cache-vs-resend split.
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318"
+      OTEL_SERVICE_NAME: "overwatch-satnogs-gateway"
     # SATNOGS_TOKEN + DB_DSN come from .env (never committed).
     env_file:
       - .env
+    # Loopback only, for the platform's blackbox prober: rootless podman
+    # networks are per-user namespaces, so the platform cannot join
+    # orbit-poc_default and reaches us via host.containers.internal instead.
+    # It probes /upstream (passive reachability, sends nothing to SatNOGS).
+    ports:
+      - "127.0.0.1:12080:8088"  # 1PESI: overwatch(2)·prod(0)·satnogs-gateway(8) (#213)
+    # Resource ceiling so this can never starve the shared, DISK-bound VM. It is
+    # a tiny single-process HTTP pacer that serialises requests, so 0.25 CPU /
+    # 128 MB is generous. podman-compose maps these to --cpus / --memory; verify
+    # with `podman inspect satnogs-gateway --format '{{.HostConfig.Memory}} {{.HostConfig.NanoCpus}}'`.
+    cpus: "0.25"
+    mem_limit: 192m   # headroom for the OTel SDK loaded at import
+    # A restart policy needs a healthcheck, or a crash-on-boot becomes a loop
+    # that hammers the disk with logs. /healthz is a static reply, no upstream.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8088/healthz', timeout=3).status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     restart: unless-stopped
 
   # NOTE: web + api are NOT here — they live in the color stacks
@@ -106,6 +154,8 @@ services:
     # NOTE: the ovw-sandbox network is attached OUT OF BAND by `make sandbox-up`
     # (podman network connect), NOT declared here — so base ops never depend on
     # the sandbox stack existing (a down sandbox must never break prod caddy).
+    cpus: "1.0"
+    mem_limit: 256m
     restart: unless-stopped
 
   grafana:
@@ -143,6 +193,8 @@ services:
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
     ports:
       - "127.0.0.1:12040:3000"  # 1PESI: overwatch(2)·prod(0)·grafana(4) (#213)
+    cpus: "1.0"
+    mem_limit: 512m
     restart: unless-stopped
 
   # --- Access observability: web traces -> collector (spanmetrics) ->
@@ -152,6 +204,8 @@ services:
     command: ["--config=/etc/otelcol/config.yaml"]
     volumes:
       - ./deploy/otel-collector.yaml:/etc/otelcol/config.yaml:ro
+    cpus: "0.5"
+    mem_limit: 256m
     restart: unless-stopped
 
   prometheus:
@@ -159,6 +213,8 @@ services:
     volumes:
       - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prom_data:/prometheus
+    cpus: "1.0"
+    mem_limit: 1g
     restart: unless-stopped
 
 networks:

@@ -182,7 +182,7 @@ def test_deploy_applies_grafana_dashboards_and_ingest():
     d = _wf("deploy.yml")
     assert "provisioning/dashboards/reload" in d     # boards re-read, no restart
     assert "podman rm -f orbit-poc_ingest_1" in d    # replaced, not reused
-    assert "STALE INGEST" in d                       # and proven afterwards
+    assert 'echo "STALE $svc' in d                   # and proven afterwards
 
 
 def test_keycloak_tooling_uses_the_named_admin_not_bootstrap():   # #36
@@ -216,16 +216,25 @@ def test_production_ingest_is_actually_replaced():   # #237 class, prod side
     existing container. Production ran a 41-hour-old ingest — missing the
     decoder fix and the polite TLE client — while every check stayed green.
     The deploy must remove the container and then prove the running image is
-    the one just built."""
+    the one just built. The SatNOGS gateway (#449) is a second build-from-
+    source singleton with the same failure mode, and worse: until #450 the
+    deploy never rebuilt it at all, so a merged gateway fix stayed in the
+    repo while production ran a hand-built image. Same treatment, and in
+    dependency order (the ingest depends_on the gateway)."""
     d = _wf("deploy.yml")
     stage = d.split("bash deploy/slots.sh stage")[0]
-    assert "podman rm -f orbit-poc_ingest_1" in stage, \
-        "the container must be removed, or `up` reuses the old image"
-    assert "podman-compose build ingest" in stage
-    assert "STALE INGEST" in stage, "the deploy must prove what it deployed"
-    # order matters: build, then remove, then up
-    assert (stage.index("podman-compose build ingest")
+    for svc in ("ingest", "satnogs-gateway"):
+        assert f"podman rm -f orbit-poc_{svc}_1" in stage, \
+            f"{svc}: the container must be removed, or `up` reuses the old image"
+    assert "podman-compose build satnogs-gateway ingest" in stage
+    assert 'for svc in satnogs-gateway ingest; do' in stage and \
+        'echo "STALE $svc' in stage, "the deploy must prove what it deployed"
+    # order matters: build, then remove (dependant first), then up (dependency
+    # first)
+    assert (stage.index("podman-compose build satnogs-gateway ingest")
             < stage.index("podman rm -f orbit-poc_ingest_1")
+            < stage.index("podman rm -f orbit-poc_satnogs-gateway_1")
+            < stage.index("up -d --no-deps satnogs-gateway")
             < stage.index("up -d --no-deps ingest"))
 
 

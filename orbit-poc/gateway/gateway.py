@@ -22,8 +22,11 @@ Selfhost does NOT run this: a single-tenant install talks to SatNOGS directly
 from its own paced ingest. The gateway exists for the multi-caller cloud, where
 more than one process shares one token and one IP.
 """
+import errno
+import json
 import logging
 import os
+import re
 import threading
 import time
 import urllib.parse
@@ -38,7 +41,7 @@ def _http_get(url, headers, timeout):
     import requests
     return requests.get(url, headers=headers, timeout=timeout)
 
-UPSTREAM = os.environ.get("SATNOGS_UPSTREAM", "https://db.satnogs.org/api").rstrip("/")
+UPSTREAM = os.environ.get("SATNOGS_UPSTREAM", "https://db.satnogs.org").rstrip("/")
 TOKEN = os.environ.get("SATNOGS_TOKEN", "").strip()
 MIN_GAP = float(os.environ.get("SATNOGS_MIN_GAP", 11))   # 6/min = one per 10s, + margin
 PORT = int(os.environ.get("GATEWAY_PORT", 8088))
@@ -46,6 +49,31 @@ DB_DSN = os.environ.get("DB_DSN", "")
 UA = os.environ.get("HTTP_USER_AGENT",
                     "overwatch/1.0 (+https://overwatch.confinia.io; contact@confinia.io)")
 COOLDOWN_FILE = os.environ.get("COOLDOWN_FILE", "/tmp/satnogs_cooldown")
+# Two kinds of refusal, two backoffs. A transient timeout is a blip: wait a
+# minute and try again. But the network being administratively shut to us (the
+# ICMP admin-prohibited firewall block we hit twice) will not lift on its own —
+# only a human at LSF removes it — so knocking every minute is both pointless
+# and impolite. On that signature the gateway backs off HARD (default 1h): it
+# stays quiet, probes ~hourly to notice the unblock, and adds no needless load
+# to a provider that has explicitly shut us out. Both tunable by env.
+TIMEOUT_COOLDOWN = float(os.environ.get("SATNOGS_TIMEOUT_COOLDOWN", 60))     # 1m
+BLOCK_COOLDOWN = float(os.environ.get("SATNOGS_BLOCK_COOLDOWN", 3600))       # 1h
+# Longest a caller may be held for a slot (#450). A request that would wait
+# longer gets 503 + Retry-After AT ONCE, with no upstream slot spent: a caller
+# whose own timeout is shorter than the queue would otherwise give up while we
+# still burn the slot on a reply nobody reads (the ingest starvation of #450).
+# Rule for callers: client timeout > SATNOGS_MAX_WAIT + upstream time (~30s).
+MAX_WAIT = float(os.environ.get("SATNOGS_MAX_WAIT", 120))                     # 2 slots
+# How callers reach THIS gateway. Paginated SatNOGS replies carry absolute
+# `next`/`previous` links to db.satnogs.org; a caller that follows them
+# verbatim leaves the door (and hits the blackhole). Links in JSON bodies are
+# rewritten to this base so page 2 stays paced, cached and recorded (#450).
+PUBLIC_BASE = os.environ.get("GATEWAY_PUBLIC_BASE", "http://satnogs-gateway:8088").rstrip("/")
+# `/upstream` is the reachability signal for external monitors (the platform's
+# blackbox row). It is PASSIVE: it reports on the gateway's own real traffic and
+# never sends anything to SatNOGS. It turns 503 once the latest real attempt
+# failed and no success is younger than this many seconds.
+STALE_AFTER = float(os.environ.get("SATNOGS_STALE_AFTER", 3600))
 
 # Per-endpoint freshness, matched on the first path segment after /api/. A
 # backfill re-reading the same satellite's telemetry inside the window is served
@@ -54,14 +82,114 @@ TTL = {
     "telemetry":  int(os.environ.get("TTL_TELEMETRY", 1800)),    # 30m
     "tle":        int(os.environ.get("TTL_TLE", 21600)),         # 6h
     "satellites": int(os.environ.get("TTL_SATELLITES", 86400)),  # 24h
+    "satellite":  int(os.environ.get("TTL_SATELLITE", 86400)),   # 24h (the /satellite/<norad> page)
 }
 DEFAULT_TTL = int(os.environ.get("TTL_DEFAULT", 300))
 
 
 def ttl_for(path):
-    """Freshness for an upstream path like /telemetry/ or /satellites/."""
-    seg = path.strip("/").split("/", 1)[0] if path.strip("/") else ""
+    """Freshness for an upstream path. Handles both the JSON API
+    (/api/<endpoint>/) and the plain pages (/satellite/<norad>), so the SPOT can
+    proxy ANY db.satnogs.org path, not only /api."""
+    parts = [p for p in path.split("/") if p]
+    if parts and parts[0] == "api":
+        parts = parts[1:]
+    seg = parts[0] if parts else ""
     return TTL.get(seg, DEFAULT_TTL)
+
+
+# Errnos that mean the path to SatNOGS is administratively shut (a firewall
+# block), not a transient timeout: ENETUNREACH/EHOSTUNREACH surface an ICMP
+# admin-prohibited, ECONNREFUSED an outright reject. These earn the long backoff.
+_BLOCK_ERRNOS = {errno.ENETUNREACH, errno.EHOSTUNREACH, errno.ECONNREFUSED}
+
+
+def is_block(exc):
+    """True if `exc` is a reachability refusal (network/host unreachable,
+    connection refused, admin-prohibited) rather than a transient timeout.
+    Walks the __cause__/__context__ chain `requests` wraps the socket error in,
+    checking errno first and falling back to the message text."""
+    seen = set()
+    e = exc
+    while e is not None and id(e) not in seen:
+        seen.add(id(e))
+        if getattr(e, "errno", None) in _BLOCK_ERRNOS:
+            return True
+        m = str(e).lower()
+        if ("unreachable" in m or "administratively prohibited" in m
+                or "connection refused" in m):
+            return True
+        e = getattr(e, "__cause__", None) or getattr(e, "__context__", None)
+    return False
+
+
+# --- caller attribution: WHO is asking, for OUR monitoring only. SatNOGS sees
+# one stable identity (the gateway's User-Agent + token) whatever the caller —
+# several User-Agents from one IP/token is the signature of UA rotation, the
+# last thing to show a provider that blocked us twice. So the split by caller
+# (ingest, batch-<script>, sandbox, ...) lives in upstream_request.caller and
+# an OTel label, and is NEVER forwarded upstream. ---
+_CALLER_JUNK = re.compile(r"[^a-z0-9._/-]+")
+
+
+def caller_of(headers):
+    """Explicit X-Overwatch-Caller wins; else the caller's own User-Agent
+    product token, so an unlabelled script still shows up as e.g.
+    python-requests/2.32.3 rather than vanishing; else 'unknown'. Sanitised and
+    capped so it is safe as a metric label (bounded cardinality)."""
+    raw = (headers.get("X-Overwatch-Caller") or "").strip()
+    if not raw:
+        raw = (headers.get("User-Agent") or "").strip().split(" ")[0]
+    raw = _CALLER_JUNK.sub("-", raw.lower()).strip("-")[:40]
+    return raw or "unknown"
+
+
+# --- OpenTelemetry metrics (optional): the SPOT emits its request rate to the
+# otel-collector -> prometheus -> grafana, the same path the api uses for
+# ovw.api.requests. The disposition attribute (HIT/MISS/COOL/ERR) makes the
+# cache-vs-resend split a query, not a schema change. Guarded: no OTEL endpoint
+# means no-op, and observability never breaks a fetch. ---
+REQ_COUNTER = None
+DUR_HIST = None
+_OTLP = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
+if _OTLP:
+    try:
+        from opentelemetry import metrics as _otel_metrics
+        from opentelemetry.sdk.metrics import MeterProvider
+        from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
+        from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
+        from opentelemetry.sdk.resources import Resource
+        _reader = PeriodicExportingMetricReader(
+            OTLPMetricExporter(endpoint=f"{_OTLP}/v1/metrics"),
+            export_interval_millis=15000)
+        _otel_metrics.set_meter_provider(MeterProvider(
+            resource=Resource.create({"service.name": os.environ.get(
+                "OTEL_SERVICE_NAME", "overwatch-satnogs-gateway")}),
+            metric_readers=[_reader]))
+        _meter = _otel_metrics.get_meter("overwatch")
+        REQ_COUNTER = _meter.create_counter(
+            "ovw.satnogs.requests",
+            description="SatNOGS requests through the SPOT, by disposition/status")
+        DUR_HIST = _meter.create_histogram(
+            "ovw.satnogs.request.duration", unit="ms",
+            description="Duration of real SatNOGS upstream attempts")
+    except Exception as e:  # noqa: BLE001
+        log.warning("OpenTelemetry not initialized: %s", e)
+
+
+def _otel(disposition, status, ms, caller="unknown"):
+    """Record one request to OTel. HIT/COOL are cache/cooldown short-circuits;
+    MISS/ERR are real upstream attempts (only those carry a meaningful duration).
+    `caller` splits the footprint by who asked (ingest, batch-<script>, ...)."""
+    if REQ_COUNTER is None:
+        return
+    try:
+        REQ_COUNTER.add(1, {"disposition": disposition, "status": str(status),
+                            "caller": caller})
+        if ms is not None and disposition in ("MISS", "ERR"):
+            DUR_HIST.record(ms, {"disposition": disposition, "caller": caller})
+    except Exception:  # noqa: BLE001 — metrics must never break a fetch
+        pass
 
 
 def make_recorder(dsn):
@@ -70,12 +198,12 @@ def make_recorder(dsn):
     this). Best-effort: monitoring must never break a fetch."""
     import psycopg2
 
-    def record(endpoint, status, ms):
+    def record(endpoint, status, ms, caller="unknown"):
         try:
             with psycopg2.connect(dsn) as conn, conn.cursor() as cur:
-                cur.execute("INSERT INTO upstream_request (source, endpoint, status, ms) "
-                            "VALUES ('satnogs', %s, %s, %s)",
-                            ((endpoint or "")[:200], status, ms))
+                cur.execute("INSERT INTO upstream_request (source, endpoint, status, ms, caller) "
+                            "VALUES ('satnogs', %s, %s, %s, %s)",
+                            ((endpoint or "")[:200], status, ms, caller))
                 cur.execute("DELETE FROM upstream_request WHERE ts < now() - interval '14 days'")
                 conn.commit()
         except Exception as e:  # noqa: BLE001 — never let the monitor break a fetch
@@ -90,19 +218,32 @@ class Gateway:
 
     def __init__(self, get=None, sleep=time.sleep, now=time.time,
                  record=None, upstream=UPSTREAM, token=TOKEN, min_gap=MIN_GAP,
-                 cooldown_file=COOLDOWN_FILE):
+                 cooldown_file=COOLDOWN_FILE,
+                 timeout_cooldown=TIMEOUT_COOLDOWN, block_cooldown=BLOCK_COOLDOWN,
+                 max_wait=MAX_WAIT, public_base=PUBLIC_BASE,
+                 stale_after=STALE_AFTER):
         self._get = get or _http_get
         self._sleep = sleep
         self._now = now
         self._record = record or (lambda *a: None)
         self.upstream = upstream.rstrip("/")
+        self.public_base = public_base.rstrip("/")
+        u = urllib.parse.urlsplit(self.upstream)
+        self._origin = f"{u.scheme}://{u.netloc}" if u.netloc else ""
         self.token = token
         self.min_gap = min_gap
+        self.max_wait = max_wait
+        self.stale_after = stale_after
         self.cooldown_file = cooldown_file
+        self.timeout_cooldown = timeout_cooldown
+        self.block_cooldown = block_cooldown
         self._lock = threading.Lock()
-        self._last = 0.0
+        self._next_slot = 0.0       # when the next upstream request may start
         self._cache = {}            # key -> (expires_at, status, body, ctype)
         self._cooldown_until = self._read_cooldown()
+        self._last_ok = None        # when a real request last got a 200
+        self._last_fail = None      # when one last failed (refusal, timeout, block)
+        self._last_fail_why = None
 
     # --- cooldown, persisted so a restart cannot resume hammering ---
     def _read_cooldown(self):
@@ -125,11 +266,47 @@ class Gateway:
 
     # --- one global gate: the whole deployment shares this gap ---
     def pace(self):
+        """Reserve the next upstream slot and wait for it. Slots are handed out
+        in arrival order, one per min_gap. Returns the seconds waited, or None
+        when the wait would exceed max_wait: the slot is NOT taken and the
+        caller must answer 503 at once instead of holding the connection."""
         with self._lock:
-            wait = self.min_gap - (self._now() - self._last)
-            if wait > 0:
-                self._sleep(wait)
-            self._last = self._now()
+            now = self._now()
+            slot = max(self._next_slot, now)
+            wait = slot - now
+            if wait > self.max_wait:
+                return None
+            self._next_slot = slot + self.min_gap
+        if wait > 0:
+            self._sleep(wait)
+        return wait
+
+    def retry_after(self):
+        """Seconds until the queue is drained: the Retry-After for a BUSY 503."""
+        with self._lock:
+            return max(1, int(self._next_slot - self._now() + 0.999))
+
+    def reachability(self):
+        """Passive reachability for external monitors: (ok, details) from the
+        gateway's own real traffic, never from a probe. Down = the latest real
+        attempt failed and no success is younger than stale_after. Idle (no
+        attempt yet, e.g. right after a restart) counts as ok: a probe must not
+        page because nobody asked SatNOGS anything."""
+        now = self._now()
+        ok_age = None if self._last_ok is None else now - self._last_ok
+        fail_age = None if self._last_fail is None else now - self._last_fail
+        if self._last_fail is None:
+            state = "idle" if self._last_ok is None else "reachable"
+        elif self._last_ok is not None and self._last_ok >= self._last_fail:
+            state = "reachable"
+        elif ok_age is not None and ok_age < self.stale_after:
+            state = "degraded"                  # failing now, but succeeded recently
+        else:
+            state = "down"
+        return state != "down", {
+            "state": state, "last_ok_age_s": None if ok_age is None else int(ok_age),
+            "last_fail_age_s": None if fail_age is None else int(fail_age),
+            "last_fail": self._last_fail_why, "cooling_s": int(self.cooling())}
 
     # --- cache ---
     def cache_get(self, key):
@@ -141,40 +318,67 @@ class Gateway:
     def cache_put(self, key, ttl, status, body, ctype):
         self._cache[key] = (self._now() + ttl, status, body, ctype)
 
-    def fetch(self, path, query, ttl):
+    def fetch(self, path, query, ttl, caller="unknown"):
         """Serve a SatNOGS GET: cache -> cooldown -> gate -> upstream.
-        Returns (status, body_bytes, content_type, disposition)."""
+        Returns (status, body_bytes, content_type, disposition). `caller` is
+        recorded for our attribution only; it never reaches upstream.
+        Dispositions HIT/COOL/BUSY never spend an upstream slot."""
         key = path + "?" + query
         hit = self.cache_get(key)
         if hit:
+            _otel("HIT", hit[1], 0, caller)
             return hit[1], hit[2], hit[3], "HIT"
         if self.cooling() > 0:
+            _otel("COOL", 503, 0, caller)
             return (503, b'{"detail":"upstream cooling down"}',
                     "application/json", "COOL")
-        self.pace()
+        if self.pace() is None:
+            _otel("BUSY", 503, 0, caller)
+            return (503, b'{"detail":"gateway busy, retry after the queue drains"}',
+                    "application/json", "BUSY")
         url = self.upstream + path + (("?" + query) if query else "")
+        # ONE identity outward, whoever asked: the gateway's UA and token only.
+        # The caller's headers (its UA, X-Overwatch-Caller) stop here.
         headers = {"User-Agent": UA}
         if self.token:
             headers["Authorization"] = "Token " + self.token
         t0 = self._now()
         status = None
+        disp = "ERR"
         try:
             r = self._get(url, headers=headers, timeout=(5, 30))
             status = getattr(r, "status_code", None)
             body = r.content
             ctype = r.headers.get("Content-Type", "application/json")
+            if "json" in ctype and self._origin:
+                # keep pagination inside the door: next/previous -> this gateway
+                body = body.replace(self._origin.encode(), self.public_base.encode())
+                body = body.replace(self._origin.replace("/", "\\/").encode(),
+                                    self.public_base.replace("/", "\\/").encode())
             if status == 429:
                 self.set_cooldown(int(r.headers.get("Retry-After", 30)) + 1)
             elif status == 200:
                 self.cache_put(key, ttl, status, body, ctype)
+            if status == 200:
+                self._last_ok = self._now()
+            else:
+                self._last_fail, self._last_fail_why = self._now(), f"http {status}"
+            disp = "MISS"
             return status, body, ctype, "MISS"
         except Exception as e:  # noqa: BLE001 — a timeout is also a refusal to honour
-            log.warning("upstream error for %s: %s", path, e)
-            self.set_cooldown(60)   # back off on timeout too — the gap that hurt us
+            blocked = is_block(e)
+            cooldown = self.block_cooldown if blocked else self.timeout_cooldown
+            log.warning("upstream error for %s: %s (%s; backing off %.0fs)",
+                        path, e, "BLOCKED" if blocked else "transient", cooldown)
+            self.set_cooldown(cooldown)   # hard on a firewall block, short on a blip
+            self._last_fail = self._now()
+            self._last_fail_why = "blocked" if blocked else "unreachable"
             return (502, b'{"detail":"upstream unreachable"}',
                     "application/json", "ERR")
         finally:
-            self._record(path, status, int((self._now() - t0) * 1000))
+            ms = int((self._now() - t0) * 1000)
+            self._record(path, status, ms, caller)   # detailed per-request DB log
+            _otel(disp, status, ms, caller)          # aggregated metric -> prometheus
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -184,22 +388,36 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         if parsed.path == "/healthz":
             return self._reply(200, b'{"ok":true}', "application/json", "-")
-        if not parsed.path.startswith("/api/"):
-            return self._reply(404, b'{"detail":"only /api/ is proxied"}',
+        if parsed.path == "/upstream":
+            # For the platform's "overwatch -> satnogs-api" row: derived from
+            # real traffic, so probing this sends NOTHING to db.satnogs.org.
+            ok, info = self.gateway.reachability()
+            return self._reply(200 if ok else 503, json.dumps(info).encode(),
                                "application/json", "-")
-        upstream_path = parsed.path[len("/api"):]     # /api/telemetry/ -> /telemetry/
+        # Proxy ANY db.satnogs.org path verbatim: the JSON API (/api/...) and the
+        # plain pages (/satellite/<norad>) alike, so the SPOT is the one door for
+        # every Overwatch SatNOGS request. Callers hit gateway/<the full path>.
+        path = parsed.path
         status, body, ctype, disp = self.gateway.fetch(
-            upstream_path, parsed.query, ttl_for(upstream_path))
-        self._reply(status or 502, body, ctype, disp)
+            path, parsed.query, ttl_for(path), caller_of(self.headers))
+        # Tell the caller WHEN to come back, so it need not guess (or spin).
+        retry = None
+        if disp == "BUSY":
+            retry = self.gateway.retry_after()
+        elif disp == "COOL":
+            retry = max(1, int(self.gateway.cooling() + 0.999))
+        self._reply(status or 502, body, ctype, disp, retry)
 
     def do_POST(self):   # SatNOGS reads are GET; nothing writes upstream
         self._reply(405, b'{"detail":"read-only gateway"}', "application/json", "-")
 
-    def _reply(self, status, body, ctype, disp):
+    def _reply(self, status, body, ctype, disp, retry_after=None):
         self.send_response(status)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("X-Cache", disp)
+        if retry_after is not None:
+            self.send_header("Retry-After", str(retry_after))
         self.end_headers()
         self.wfile.write(body)
 

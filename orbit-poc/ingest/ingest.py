@@ -75,6 +75,29 @@ from flatten import flatten_decoded
 UA = {"User-Agent": os.environ.get(
     "HTTP_USER_AGENT",
     "overwatch/1.0 (+https://overwatch.confinia.io; contact@confinia.io)")}
+# Internal attribution for the SatNOGS SPOT (#449): tells the gateway WHO is
+# asking, so Grafana can split our footprint by caller (ingest vs batch tooling,
+# the split that would have caught the 2nd block early). The gateway records it
+# and never forwards it upstream. SatNOGS-only: CelesTrak is called directly and
+# gets the plain UA.
+OVERWATCH_CALLER = os.environ.get("OVERWATCH_CALLER", "ingest")
+
+
+def _satnogs_headers(loop):
+    """UA + caller label per loop (ingest-telemetry / -tle / -catalog), so the
+    by-caller panel shows WHICH loop spends the budget (#450), + the token."""
+    h = dict(UA, **{"X-Overwatch-Caller": f"{OVERWATCH_CALLER}-{loop}"})
+    if SATNOGS_TOKEN:
+        h["Authorization"] = f"Token {SATNOGS_TOKEN}"
+    return h
+
+
+# Read timeout on a SatNOGS request. In cloud the request may be HELD by the
+# gateway for up to SATNOGS_MAX_WAIT (2 slots of the 1/min gate) before the
+# ~30s upstream call, so the cloud value must exceed that sum: a client that
+# gives up first leaves the gateway spending a slot on a reply nobody reads,
+# which is how 23/24 satellites starved (#450). Self-host, no gateway: 30s.
+SATNOGS_TIMEOUT = float(os.environ.get("SATNOGS_TIMEOUT", 30))
 
 
 def db():
@@ -754,16 +777,18 @@ def refresh_catalog():
         return
     url, page, rows = f"{SATNOGS_BASE}/satellites/", 0, 0
     seen = set()                       # every norad this pass delivered (#384)
-    headers = dict(UA)
-    if SATNOGS_TOKEN:
-        headers["Authorization"] = f"Token {SATNOGS_TOKEN}"
+    headers = _satnogs_headers("catalog")
+    retries = 0
     while url and page < 40:
         try:
             _pace_satnogs()
             # SatNOGS access goes to SATNOGS_BASE, which in cloud is the gateway
             # that paces, caches and records the real upstream rate (#449).
-            r = requests.get(url, headers=headers, timeout=60)
-            if r.status_code == 429:
+            r = requests.get(url, headers=headers, timeout=max(60, SATNOGS_TIMEOUT))
+            if r.status_code in (429, 503):   # 503 = the gateway is busy/cooling
+                retries += 1
+                if retries > 5:                # bounded: a pinned refusal must not spin forever
+                    raise RuntimeError(f"gave up after {retries} refusals ({r.status_code})")
                 time.sleep(int(r.headers.get("Retry-After", 30)))
                 continue
             r.raise_for_status()
@@ -831,11 +856,10 @@ def _tle_from_satnogs(norad):
     if not SATNOGS_TOKEN:
         return None, False
     try:
-        headers = dict(UA); headers["Authorization"] = f"Token {SATNOGS_TOKEN}"
         _pace_satnogs()
         r = requests.get(f"{SATNOGS_BASE}/tle/",
                          params={"norad_cat_id": norad},
-                         headers=headers, timeout=30)
+                         headers=_satnogs_headers("tle"), timeout=SATNOGS_TIMEOUT)
         if r.status_code in (403, 429):
             _cool("satnogs", r)
             return None, False
@@ -1070,22 +1094,26 @@ def _get_frames(sat_id, pages=2, until=None):
     ({next, previous, results}); older deployments returned a bare list.
     Honors 429 Retry-After — SatNOGS throttles aggressively. Stops paginating
     once frames get older than `until` (our newest stored frame)."""
-    headers = dict(UA); headers["Authorization"] = f"Token {SATNOGS_TOKEN}"
+    headers = _satnogs_headers("telemetry")
     frames, url, params = [], f"{SATNOGS_BASE}/telemetry/", {"sat_id": sat_id}
     for _ in range(pages):
         for attempt in range(4):
             _pace_satnogs()
-            r = requests.get(url, params=params, headers=headers, timeout=30)
+            r = requests.get(url, params=params, headers=headers, timeout=SATNOGS_TIMEOUT)
             if r.status_code == 401:
                 log.warning("SatNOGS 401 -> token invalid/expired; skipping telemetry.")
                 return None
-            if r.status_code == 429:
+            if r.status_code in (429, 503):   # 503 = the gateway is busy/cooling
                 wait = int(r.headers.get("Retry-After", 15)) + 1
-                log.info("SatNOGS 429 — backing off %ss", wait)
+                if wait > 120:   # a long refusal: this cycle is over for us
+                    raise RuntimeError(f"SatNOGS refusing for {wait}s ({r.status_code}); next cycle")
+                log.info("SatNOGS %s — backing off %ss", r.status_code, wait)
                 time.sleep(wait)
                 continue
             r.raise_for_status()
             break
+        else:   # four refusals in a row: give this satellite up for the cycle
+            raise RuntimeError(f"SatNOGS kept refusing ({r.status_code}) for {sat_id}")
         data = r.json()
         page = data.get("results", []) if isinstance(data, dict) else data
         frames += page

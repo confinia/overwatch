@@ -13,6 +13,8 @@ services:
       - version.env
     ports:
       - "127.0.0.1:12210:8080"  # 1PESI: overwatch(2)·green(2)·web(1) (#213)
+    cpus: "0.5"
+    mem_limit: 256m
     restart: unless-stopped
 
   api:
@@ -51,6 +53,8 @@ services:
       - v2net          # direct server-to-server path to Keycloak
     ports:
       - "127.0.0.1:12220:8000"  # 1PESI: overwatch(2)·green(2)·api(2) (#213)
+    cpus: "1.0"
+    mem_limit: 512m
     restart: unless-stopped
 
 networks:

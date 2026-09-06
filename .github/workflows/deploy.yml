@@ -86,17 +86,26 @@ jobs:
           # polite TLE client (#304), while every check stayed green. Build,
           # remove, recreate, then ASSERT the running image is the built one.
           # The ingest serves no traffic, so removing it costs nothing visible.
-          podman-compose build ingest 2>&1 | tail -1
+          # The SatNOGS gateway (#449) gets the same treatment, and in
+          # dependency order: the ingest depends_on the gateway, so the ingest
+          # goes first on removal and last on recreate. Until #450 the gateway
+          # was never rebuilt here at all, so a merged gateway change stayed
+          # in the repo while production ran the hand-built image.
+          podman-compose build satnogs-gateway ingest 2>&1 | tail -1
           podman rm -f orbit-poc_ingest_1 >/dev/null 2>&1 || true
+          podman rm -f orbit-poc_satnogs-gateway_1 >/dev/null 2>&1 || true
+          podman-compose up -d --no-deps satnogs-gateway 2>&1 | tail -1
           podman-compose up -d --no-deps ingest 2>&1 | tail -1
-          want=$(podman image inspect localhost/orbit-poc_ingest:latest \
-                 --format '{{.Id}}' 2>/dev/null || true)
-          got=$(podman inspect orbit-poc_ingest_1 --format '{{.Image}}' 2>/dev/null || true)
-          if [ -n "$want" ] && [ "$want" != "$got" ]; then
-            echo "STALE INGEST: running ${got:0:12}, freshly built ${want:0:12}" >&2
-            exit 1
-          fi
-          echo "ingest running the freshly built image"
+          for svc in satnogs-gateway ingest; do
+            want=$(podman image inspect "localhost/orbit-poc_${svc}:latest" \
+                   --format '{{.Id}}' 2>/dev/null || true)
+            got=$(podman inspect "orbit-poc_${svc}_1" --format '{{.Image}}' 2>/dev/null || true)
+            if [ -n "$want" ] && [ "$want" != "$got" ]; then
+              echo "STALE $svc: running ${got:0:12}, freshly built ${want:0:12}" >&2
+              exit 1
+            fi
+          done
+          echo "gateway + ingest running the freshly built images"
           cd ~/projects/overwatch
           bash deploy/run-tests.sh          # the gate: no candidate on a red suite
           bash deploy/slots.sh stage

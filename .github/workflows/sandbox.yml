@@ -99,7 +99,11 @@ jobs:
           $C up -d --no-deps web api grafana ingest 2>&1 | tail -2
           # The Caddyfile is bind-mounted from this checkout, so routing
           # changes land on disk without a recreate. Reload in place —
-          # graceful by design, no dropped connections.
+          # graceful by design, no dropped connections. The environment may
+          # have been switched off between PRs (the 2026-09-05 footprint cut
+          # stopped every sandbox container): a stopped listener is started,
+          # not exec'd into.
+          podman start ovw-sandbox_caddy_1 >/dev/null 2>&1 || true
           podman exec ovw-sandbox_caddy_1 caddy reload \
             --config /etc/caddy/Caddyfile --adapter caddyfile 2>&1 | tail -1
           for c in $(podman ps --format '{{.Names}}' | grep ^ovw-sandbox); do

@@ -1,0 +1,20 @@
+# Reboot survival for the shared Keycloak stack (ovw2). Install to
+# ~/.config/systemd/user/ under the `overwatch` user (linger already on), then
+# `systemctl --user enable`. Foundational: it creates the ovw2_default network
+# that orbit-poc caddy + the colour stacks join, so it comes up first.
+#   restart:unless-stopped in compose handles crashes; this handles reboots.
+[Unit]
+Description=Overwatch shared Keycloak stack (ovw2)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=%h/projects/overwatch/orbit-poc/v2
+ExecStart=/usr/bin/podman-compose -p ovw2 up -d
+ExecStop=/usr/bin/podman-compose -p ovw2 down
+TimeoutStartSec=600
+
+[Install]
+WantedBy=default.target

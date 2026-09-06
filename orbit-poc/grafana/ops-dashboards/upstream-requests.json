@@ -49,6 +49,27 @@
         {"refId": "A", "datasource": {"type": "postgres", "uid": "orbitcache-ops"}, "format": "table", "rawQuery": true,
          "rawSql": "SELECT source AS \"Upstream\", count(*) AS \"Requests\", round(avg(ms)) AS \"Avg ms\", to_char(max(ts), 'HH24:MI') AS \"Last\" FROM upstream_request WHERE ts > now() - interval '24 hours' GROUP BY source ORDER BY 2 DESC"}
       ]
+    },
+    {
+      "id": 5, "type": "timeseries", "title": "SatNOGS requests per 5 min, by internal caller",
+      "description": "Who inside Overwatch asked the gateway (X-Overwatch-Caller: ingest, batch-<script>, ...). Internal attribution only: SatNOGS sees one identity. Rows before the column existed show as 'unknown'.",
+      "gridPos": {"h": 10, "w": 16, "x": 0, "y": 16},
+      "datasource": {"type": "postgres", "uid": "orbitcache-ops"},
+      "fieldConfig": {"defaults": {"custom": {"lineWidth": 2, "fillOpacity": 12, "drawStyle": "bars", "stacking": {"mode": "normal"}}}, "overrides": []},
+      "targets": [
+        {"refId": "A", "datasource": {"type": "postgres", "uid": "orbitcache-ops"}, "format": "time_series", "rawQuery": true,
+         "rawSql": "SELECT $__timeGroup(ts, '5m') AS \"time\", coalesce(caller, 'unknown') AS metric, count(*) AS value FROM upstream_request WHERE source = 'satnogs' AND $__timeFilter(ts) GROUP BY 1, 2 ORDER BY 1"}
+      ]
+    },
+    {
+      "id": 6, "type": "table", "title": "SatNOGS by internal caller (last 24 h)",
+      "gridPos": {"h": 10, "w": 8, "x": 16, "y": 16},
+      "datasource": {"type": "postgres", "uid": "orbitcache-ops"},
+      "options": {"showHeader": true},
+      "targets": [
+        {"refId": "A", "datasource": {"type": "postgres", "uid": "orbitcache-ops"}, "format": "table", "rawQuery": true,
+         "rawSql": "SELECT coalesce(caller, 'unknown') AS \"Caller\", count(*) AS \"Requests\", round(avg(ms)) AS \"Avg ms\", count(*) FILTER (WHERE status IS NULL OR status >= 400) AS \"Failed\", to_char(max(ts), 'HH24:MI') AS \"Last\" FROM upstream_request WHERE source = 'satnogs' AND ts > now() - interval '24 hours' GROUP BY 1 ORDER BY 2 DESC"}
+      ]
     }
   ]
 }

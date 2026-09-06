@@ -27,7 +27,7 @@ DECODER = "cubebel2"
 DB_DSN = os.environ["DB_DSN"]
 TOKEN = os.environ["SATNOGS_TOKEN"]
 BASE = f"{SATNOGS_BASE}"
-H = {"Authorization": f"Token {TOKEN}", "User-Agent": "orbit-poc/backfill"}
+H = {"Authorization": f"Token {TOKEN}", "User-Agent": "orbit-poc/backfill", "X-Overwatch-Caller": os.environ.get("OVERWATCH_CALLER", "batch")}
 JUNK = re.compile(r"(ax25_header|ssid|hbit|_ctl$|_pid$|mask|_raw$|callsign|crc"
                   r"|_magic|(message|msg|packet|frame)_type)", re.I)
 

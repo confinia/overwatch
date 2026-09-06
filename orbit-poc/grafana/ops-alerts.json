@@ -7,7 +7,8 @@
   },
   "policy": {
     "receiver": "ops-email",
-    "repeat_interval": "6h"
+    "_comment": "repeat_interval lengthened 6h->24h: a sustained-firing freshness alert (e.g. a provider block that needs a human, not a code change) should be a daily reminder, not four mails a day. Repetition is what made this the single largest source of mail in contact@. Paired with keep_firing_for on the freshness rules (main.py) so a briefly-flapping condition does not re-notify as a fresh alert.",
+    "repeat_interval": "24h"
   },
   "rules": [
     {
