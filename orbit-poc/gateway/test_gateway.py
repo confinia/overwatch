@@ -1,6 +1,7 @@
 """Unit tests for the SatNOGS egress gateway logic. No network, no DB: `get`,
 `now`, `sleep` and `record` are injected, so these prove the gate, the cache
 and the cooldown behave — the properties that keep us a considerate consumer."""
+import errno
 import os
 import sys
 
@@ -284,3 +285,35 @@ def test_every_real_request_is_recorded(tmp_path):
     g.fetch("/telemetry/", "sat_id=B", 1800)
     assert calls == [("/telemetry/", 200), ("/telemetry/", 200)], \
         "cache hits must not be recorded as upstream load"
+
+
+def test_upstream_reachability_is_passive_and_follows_real_outcomes(tmp_path):
+    outcome = {"ok": True}
+
+    def get(url, headers, timeout):
+        if not outcome["ok"]:
+            raise OSError(errno.ENETUNREACH, "Network is unreachable")
+        return FakeResp(200, b'[]')
+
+    g, clock, calls = _gw(tmp_path, get)
+    g.stale_after = 3600
+    ok, info = g.reachability()
+    assert (ok, info["state"]) == (True, "idle"), "no attempt yet must not page"
+    assert calls == [], "reachability must never send anything upstream"
+
+    g.fetch("/telemetry/", "sat_id=A", 1800)
+    assert g.reachability()[1]["state"] == "reachable"
+
+    outcome["ok"] = False
+    clock.t += 100
+    g.fetch("/telemetry/", "sat_id=B", 1800)          # fails, success is 100s old
+    ok, info = g.reachability()
+    assert (ok, info["state"], info["last_fail"]) == (True, "degraded", "blocked")
+
+    clock.t += 3600                                   # success is now stale
+    g._cooldown_until = 0
+    g.fetch("/telemetry/", "sat_id=C", 1800)
+    ok, info = g.reachability()
+    assert (ok, info["state"]) == (False, "down")
+    assert info["last_ok_age_s"] >= 3600
+    assert len(calls) == 3, "the probe itself added no upstream request"

@@ -23,6 +23,7 @@ from its own paced ingest. The gateway exists for the multi-caller cloud, where
 more than one process shares one token and one IP.
 """
 import errno
+import json
 import logging
 import os
 import re
@@ -68,6 +69,11 @@ MAX_WAIT = float(os.environ.get("SATNOGS_MAX_WAIT", 120))                     # 
 # verbatim leaves the door (and hits the blackhole). Links in JSON bodies are
 # rewritten to this base so page 2 stays paced, cached and recorded (#450).
 PUBLIC_BASE = os.environ.get("GATEWAY_PUBLIC_BASE", "http://satnogs-gateway:8088").rstrip("/")
+# `/upstream` is the reachability signal for external monitors (the platform's
+# blackbox row). It is PASSIVE: it reports on the gateway's own real traffic and
+# never sends anything to SatNOGS. It turns 503 once the latest real attempt
+# failed and no success is younger than this many seconds.
+STALE_AFTER = float(os.environ.get("SATNOGS_STALE_AFTER", 3600))
 
 # Per-endpoint freshness, matched on the first path segment after /api/. A
 # backfill re-reading the same satellite's telemetry inside the window is served
@@ -214,7 +220,8 @@ class Gateway:
                  record=None, upstream=UPSTREAM, token=TOKEN, min_gap=MIN_GAP,
                  cooldown_file=COOLDOWN_FILE,
                  timeout_cooldown=TIMEOUT_COOLDOWN, block_cooldown=BLOCK_COOLDOWN,
-                 max_wait=MAX_WAIT, public_base=PUBLIC_BASE):
+                 max_wait=MAX_WAIT, public_base=PUBLIC_BASE,
+                 stale_after=STALE_AFTER):
         self._get = get or _http_get
         self._sleep = sleep
         self._now = now
@@ -226,6 +233,7 @@ class Gateway:
         self.token = token
         self.min_gap = min_gap
         self.max_wait = max_wait
+        self.stale_after = stale_after
         self.cooldown_file = cooldown_file
         self.timeout_cooldown = timeout_cooldown
         self.block_cooldown = block_cooldown
@@ -233,6 +241,9 @@ class Gateway:
         self._next_slot = 0.0       # when the next upstream request may start
         self._cache = {}            # key -> (expires_at, status, body, ctype)
         self._cooldown_until = self._read_cooldown()
+        self._last_ok = None        # when a real request last got a 200
+        self._last_fail = None      # when one last failed (refusal, timeout, block)
+        self._last_fail_why = None
 
     # --- cooldown, persisted so a restart cannot resume hammering ---
     def _read_cooldown(self):
@@ -274,6 +285,28 @@ class Gateway:
         """Seconds until the queue is drained: the Retry-After for a BUSY 503."""
         with self._lock:
             return max(1, int(self._next_slot - self._now() + 0.999))
+
+    def reachability(self):
+        """Passive reachability for external monitors: (ok, details) from the
+        gateway's own real traffic, never from a probe. Down = the latest real
+        attempt failed and no success is younger than stale_after. Idle (no
+        attempt yet, e.g. right after a restart) counts as ok: a probe must not
+        page because nobody asked SatNOGS anything."""
+        now = self._now()
+        ok_age = None if self._last_ok is None else now - self._last_ok
+        fail_age = None if self._last_fail is None else now - self._last_fail
+        if self._last_fail is None:
+            state = "idle" if self._last_ok is None else "reachable"
+        elif self._last_ok is not None and self._last_ok >= self._last_fail:
+            state = "reachable"
+        elif ok_age is not None and ok_age < self.stale_after:
+            state = "degraded"                  # failing now, but succeeded recently
+        else:
+            state = "down"
+        return state != "down", {
+            "state": state, "last_ok_age_s": None if ok_age is None else int(ok_age),
+            "last_fail_age_s": None if fail_age is None else int(fail_age),
+            "last_fail": self._last_fail_why, "cooling_s": int(self.cooling())}
 
     # --- cache ---
     def cache_get(self, key):
@@ -326,6 +359,10 @@ class Gateway:
                 self.set_cooldown(int(r.headers.get("Retry-After", 30)) + 1)
             elif status == 200:
                 self.cache_put(key, ttl, status, body, ctype)
+            if status == 200:
+                self._last_ok = self._now()
+            else:
+                self._last_fail, self._last_fail_why = self._now(), f"http {status}"
             disp = "MISS"
             return status, body, ctype, "MISS"
         except Exception as e:  # noqa: BLE001 — a timeout is also a refusal to honour
@@ -334,6 +371,8 @@ class Gateway:
             log.warning("upstream error for %s: %s (%s; backing off %.0fs)",
                         path, e, "BLOCKED" if blocked else "transient", cooldown)
             self.set_cooldown(cooldown)   # hard on a firewall block, short on a blip
+            self._last_fail = self._now()
+            self._last_fail_why = "blocked" if blocked else "unreachable"
             return (502, b'{"detail":"upstream unreachable"}',
                     "application/json", "ERR")
         finally:
@@ -349,6 +388,12 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         if parsed.path == "/healthz":
             return self._reply(200, b'{"ok":true}', "application/json", "-")
+        if parsed.path == "/upstream":
+            # For the platform's "overwatch -> satnogs-api" row: derived from
+            # real traffic, so probing this sends NOTHING to db.satnogs.org.
+            ok, info = self.gateway.reachability()
+            return self._reply(200 if ok else 503, json.dumps(info).encode(),
+                               "application/json", "-")
         # Proxy ANY db.satnogs.org path verbatim: the JSON API (/api/...) and the
         # plain pages (/satellite/<norad>) alike, so the SPOT is the one door for
         # every Overwatch SatNOGS request. Callers hit gateway/<the full path>.

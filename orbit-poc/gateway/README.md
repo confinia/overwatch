@@ -62,6 +62,17 @@ A GET to `…:8088/api/telemetry/?sat_id=…` reaches
 reaches `https://db.satnogs.org/satellite/57175` — both paced and cached. Only
 `GET` is proxied — nothing writes upstream. `/healthz` returns `{"ok":true}`.
 
+`/upstream` is the reachability signal for external monitors (the platform's
+"overwatch → satnogs-api" row). It is **passive**: it reports the outcome of
+the gateway's own real traffic (`state` reachable / degraded / down / idle,
+last success and failure ages, cooldown left) and sends nothing to SatNOGS.
+`503` once the latest real attempt failed and no success is younger than
+`SATNOGS_STALE_AFTER`. Never point a blackbox probe at `db.satnogs.org`
+directly: it bypasses the gate and adds to the very footprint we are limiting.
+The ops Grafana dashboard `satnogs-gateway` (org "Overwatch Ops") shows the same
+signal over time, plus dispositions, cache ratio, latency and per-satellite
+frame freshness.
+
 **All** SatNOGS access must go through the gateway, including one-off batch and
 sweep tooling. In the deployment, non-gateway containers have `db.satnogs.org`
 blackholed, so a script that forgets fails fast rather than overspending the
@@ -80,6 +91,10 @@ exists for the multi-caller cloud.
 | `SATNOGS_UPSTREAM` | `https://db.satnogs.org/api` | real provider base |
 | `SATNOGS_TOKEN` | — | injected as `Authorization: Token …` |
 | `SATNOGS_MIN_GAP` | `11` | seconds between real upstream requests |
+| `SATNOGS_MAX_WAIT` | `120` | longest a caller is held for a slot before `503 BUSY` |
+| `SATNOGS_TIMEOUT_COOLDOWN` / `SATNOGS_BLOCK_COOLDOWN` | `60` / `3600` | stand-down after a timeout / a firewall block |
+| `SATNOGS_STALE_AFTER` | `3600` | `/upstream` turns `503` once the last success is older than this and the latest attempt failed |
+| `GATEWAY_PUBLIC_BASE` | `http://satnogs-gateway:8088` | what pagination links are rewritten to |
 | `GATEWAY_PORT` | `8088` | listen port |
 | `DB_DSN` | — | where `upstream_request` rows are written |
 | `TTL_TELEMETRY` / `TTL_TLE` / `TTL_SATELLITES` | `1800` / `21600` / `86400` | cache windows (s) |
