@@ -40,7 +40,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install -q -r orbit-poc/api/requirements.txt pytest httpx requests sgp4
+          pip install -q -r orbit-poc/api/requirements.txt pytest httpx requests sgp4 numpy
 
       - name: Load the schema
         run: |

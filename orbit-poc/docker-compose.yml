@@ -69,6 +69,11 @@ services:
       # while the gateway spent the slot anyway). Keep the three in step.
       SATNOGS_MIN_GAP: "60"
       SATNOGS_TIMEOUT: "160"
+      # SATNGS LoRa stations (#454): url=OBSERVER[-GRID], comma-separated.
+      # A station is an ESP8266 serving a ~14 kB CSV: one GET every 10 min.
+      # LW2DTZ (Gustavo) offered his station's log for Overwatch on 2026-09-10.
+      SATNGS_STATIONS: "https://station.satngs.net=LW2DTZ"
+      SATNGS_INTERVAL: "600"
     # SATNOGS_TOKEN lives in .env (podman-compose does not interpolate
     # ${VAR:-default}, hence env_file rather than inline interpolation).
     env_file:
