@@ -55,6 +55,22 @@ ALTER TABLE IF EXISTS reception ADD COLUMN IF NOT EXISTS source TEXT;
 ALTER TABLE IF EXISTS reception ADD COLUMN IF NOT EXISTS station_id INTEGER;
 CREATE INDEX IF NOT EXISTS reception_station_id_idx
     ON reception (station_id) WHERE station_id IS NOT NULL;
+-- Link quality as the receiving station measured it (#454). SatNOGS never
+-- exposes it; a SATNGS LoRa station publishes it with every frame. NULL for
+-- every other source.
+ALTER TABLE IF EXISTS reception ADD COLUMN IF NOT EXISTS rssi_dbm DOUBLE PRECISION;
+ALTER TABLE IF EXISTS reception ADD COLUMN IF NOT EXISTS snr_db DOUBLE PRECISION;
+-- The raw frame as heard (#454), kept so a decoder that arrives later can
+-- replay what a station's rolling logger has long forgotten. One row per
+-- (frame, station); source names the network it came through.
+CREATE TABLE IF NOT EXISTS frame (
+    norad     INTEGER NOT NULL REFERENCES satellite(norad),
+    ts        timestamptz NOT NULL,
+    observer  TEXT NOT NULL,
+    source    TEXT NOT NULL,
+    hex       TEXT NOT NULL,
+    PRIMARY KEY (norad, ts, observer)
+);
 CREATE TABLE IF NOT EXISTS api_key (
     key        uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     email      text NOT NULL,

@@ -35,6 +35,7 @@ from sgp4.api import Satrec, jday
 import numpy as np
 
 import catalog_sync              # catalogue merge/prune after a bulk pass (#384)
+import satngs                    # LoRa station logs, a SatNOGS-independent source (#454)
 
 from satellites import SHOWCASE
 from calibration import calibrate, canonical_from, CANONICAL_SOURCES
@@ -1276,6 +1277,17 @@ def _store_frames(norad, frames, decoder):
     return decoded_n
 
 
+def _decoder_for(norad):
+    with db() as conn, conn.cursor() as cur:
+        cur.execute("SELECT decoder FROM satellite WHERE norad = %s", (norad,))
+        row = cur.fetchone()
+    return row[0] if row else None
+
+
+def fetch_satngs():
+    satngs.fetch_satngs(db, _store_frames, _decoder_for, headers=UA)
+
+
 def _flatten(d, prefix=""):
     for k, v in d.items():
         key = f"{prefix}{k}"
@@ -1345,6 +1357,13 @@ def main():
               int(os.environ.get("STATION_ROLLUP_INTERVAL", 3600)),
               "station-rollup"),
         daemon=True).start()
+    # SATNGS LoRa stations (#454): one small GET per station per cycle,
+    # nothing at all when SATNGS_STATIONS is empty (the self-host default).
+    if satngs.stations():
+        threading.Thread(
+            target=loop,
+            args=(fetch_satngs, satngs.SATNGS_INTERVAL, "satngs"),
+            daemon=True).start()
     # positions LAST and in the main thread: loop() never returns, so anything
     # called after it is dead code. Adding a loop above this line instead of a
     # thread silently stops the globe (#230 did exactly that).

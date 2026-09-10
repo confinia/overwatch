@@ -65,6 +65,13 @@ with the community's 161 [Kaitai Struct decoders](https://gitlab.com/librespacef
 and normalized (`battery_v / battery_i / battery_pct`) so one dashboard fits the
 whole fleet.
 
+LoRa stations of the [SATNGS](https://station.satngs.net) network are a second
+door: a station publishes its own reception log (one CSV row per frame heard,
+with RSSI / SNR), and the ingest reads it every 10 minutes when
+`SATNGS_STATIONS` names it. Frames keep arriving while the SatNOGS API is
+unreachable, the raw hex is kept for decoders that do not exist yet, and the
+station appears on the map like any other.
+
 Open data and every MCS are converging on one ingestion contract — the adapter
 seam in the diagram above — landing in one Postgres store scoped by tenant, where
 public open data is simply the public scope ([#438](https://github.com/confinia/overwatch/issues/438)).
@@ -86,6 +93,8 @@ self-serve keys via `POST /api/v1/keys {"email"}`. Rate limits apply.
 - Telemetry & receptions: © [SatNOGS DB](https://db.satnogs.org) contributors,
   [CC-BY-SA](https://creativecommons.org/licenses/by-sa/4.0/) · decoders:
   [satnogs-decoders](https://gitlab.com/librespacefoundation/satnogs/satnogs-decoders) (LGPL)
+- LoRa receptions: the operators of the [SATNGS](https://station.satngs.net)
+  stations named in `SATNGS_STATIONS`, who publish their logs for this use
 - Orbital elements: [CelesTrak](https://celestrak.org) — respect their
   [rate guidance](https://celestrak.org/NORAD/documentation/gp-data-formats.php)
 - Basemap: [Sentinel-2 cloudless by EOX](https://s2maps.eu) (Copernicus data;
