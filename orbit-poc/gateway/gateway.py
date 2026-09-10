@@ -74,6 +74,11 @@ PUBLIC_BASE = os.environ.get("GATEWAY_PUBLIC_BASE", "http://satnogs-gateway:8088
 # never sends anything to SatNOGS. It turns 503 once the latest real attempt
 # failed and no success is younger than this many seconds.
 STALE_AFTER = float(os.environ.get("SATNOGS_STALE_AFTER", 3600))
+# A cut becomes a `provider_outage` row (drawn on every dashboard, #452) once
+# this many seconds have passed since the first failure with no answer in
+# between. A lone 429 or a timeout blip recovers inside the cooldown and never
+# reaches it; a firewall block does within its first quarter of an hour.
+OUTAGE_AFTER = float(os.environ.get("OUTAGE_AFTER", 900))
 
 # Per-endpoint freshness, matched on the first path segment after /api/. A
 # backfill re-reading the same satellite's telemetry inside the window is served
@@ -192,10 +197,54 @@ def _otel(disposition, status, ms, caller="unknown"):
         pass
 
 
+# "The provider answered us": anything but silence (NULL = timeout/unreachable),
+# a refusal, or a server error. A 404 is an answer; a block is not.
+_ANSWERED = "(status IS NOT NULL AND status < 500 AND status NOT IN (403, 429))"
+
+
+def roll_up_outages(cur, source="satnogs", after=OUTAGE_AFTER):
+    """Derive `provider_outage` rows from the request log (#452). Two steps,
+    both idempotent and both confined to the indexed tail of the log, so they
+    can run after every real request:
+
+    close: an open outage ends at the first answer after it started;
+    open:  when the newest answer is followed by failures, the first of which
+           is at least `after` seconds old, an outage started at that failure.
+
+    Derived rather than kept in memory so a gateway restart mid-cut (every
+    deploy is one) neither loses the start nor doubles the row. Rows outlive
+    the log's 14-day prune: `started` is a value, not a reference."""
+    cur.execute(f"""
+        UPDATE provider_outage p SET ended = f.ts
+          FROM (SELECT o.id, min(u.ts) AS ts
+                  FROM provider_outage o
+                  JOIN upstream_request u
+                    ON u.source = o.source AND u.ts > o.started AND {_ANSWERED}
+                 WHERE o.source = %s AND o.ended IS NULL
+                 GROUP BY o.id) f
+         WHERE p.id = f.id""", (source,))
+    cur.execute(f"""
+        INSERT INTO provider_outage (source, started)
+        SELECT %s, f.started
+          FROM (SELECT min(u.ts) AS started
+                  FROM upstream_request u
+                 WHERE u.source = %s AND NOT {_ANSWERED}
+                   AND u.ts > coalesce((SELECT max(ts) FROM upstream_request
+                                         WHERE source = %s AND {_ANSWERED}),
+                                       '-infinity')) f
+         WHERE f.started IS NOT NULL
+           AND f.started <= now() - interval '1 second' * %s
+           AND NOT EXISTS (SELECT 1 FROM provider_outage
+                            WHERE source = %s AND ended IS NULL)
+        ON CONFLICT (source, started) DO NOTHING""",
+        (source, source, source, after, source))
+
+
 def make_recorder(dsn):
     """A callback that logs one real upstream request to `upstream_request`,
     so the ops dashboard charts our true SatNOGS rate (cache hits never call
-    this). Best-effort: monitoring must never break a fetch."""
+    this), then rolls the log up into `provider_outage`. Best-effort:
+    monitoring must never break a fetch."""
     import psycopg2
 
     def record(endpoint, status, ms, caller="unknown"):
@@ -205,6 +254,7 @@ def make_recorder(dsn):
                             "VALUES ('satnogs', %s, %s, %s, %s)",
                             ((endpoint or "")[:200], status, ms, caller))
                 cur.execute("DELETE FROM upstream_request WHERE ts < now() - interval '14 days'")
+                roll_up_outages(cur)
                 conn.commit()
         except Exception as e:  # noqa: BLE001 — never let the monitor break a fetch
             log.debug("could not record request: %s", e)

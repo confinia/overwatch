@@ -73,6 +73,16 @@ The ops Grafana dashboard `satnogs-gateway` (org "Overwatch Ops") shows the same
 signal over time, plus dispositions, cache ratio, latency and per-satellite
 frame freshness.
 
+A cut also has to stay visible AFTER it ends: once access returns the ingest
+backfills the frames with their original timestamps, so the hole in the
+telemetry closes over and the dashboards look as if nothing happened. So the
+recorder rolls its log up into `provider_outage` (#452): a run of failures
+(timeout, refusal, 5xx; a 404 is SatNOGS answering) older than `OUTAGE_AFTER`
+(15 min) opens an interval at the first failure, the next answer closes it. The
+table outlives the 14-day request log and a container restart, is readable by
+the public Grafana role (intervals only, never the log) and every dashboard
+draws it as a red "Upstream cut" band.
+
 **All** SatNOGS access must go through the gateway, including one-off batch and
 sweep tooling. In the deployment, non-gateway containers have `db.satnogs.org`
 blackholed, so a script that forgets fails fast rather than overspending the
@@ -94,6 +104,7 @@ exists for the multi-caller cloud.
 | `SATNOGS_MAX_WAIT` | `120` | longest a caller is held for a slot before `503 BUSY` |
 | `SATNOGS_TIMEOUT_COOLDOWN` / `SATNOGS_BLOCK_COOLDOWN` | `60` / `3600` | stand-down after a timeout / a firewall block |
 | `SATNOGS_STALE_AFTER` | `3600` | `/upstream` turns `503` once the last success is older than this and the latest attempt failed |
+| `OUTAGE_AFTER` | `900` | a run of failures older than this becomes a `provider_outage` row (drawn on the dashboards) |
 | `GATEWAY_PUBLIC_BASE` | `http://satnogs-gateway:8088` | what pagination links are rewritten to |
 | `GATEWAY_PORT` | `8088` | listen port |
 | `DB_DSN` | — | where `upstream_request` rows are written |

@@ -868,5 +868,38 @@
         ]
       }
     }
-  ]
+  ],
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      },
+      {
+        "datasource": {
+          "type": "postgres",
+          "uid": "orbitcache-ops"
+        },
+        "enable": true,
+        "hide": false,
+        "iconColor": "#E02F44",
+        "name": "Upstream cut (#452)",
+        "target": {
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT started AS time, coalesce(ended, now()) AS timeend, coalesce(note, 'No answer from the ' || source || ' API: the control room ran on stale data' || CASE WHEN ended IS NULL THEN ' (ongoing)' ELSE '' END) AS text, 'upstream-cut' AS tags FROM provider_outage WHERE started <= $__timeTo() AND coalesce(ended, now()) >= $__timeFrom() ORDER BY started",
+          "refId": "Anno"
+        }
+      }
+    ]
+  }
 }

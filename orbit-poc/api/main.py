@@ -207,6 +207,20 @@ CREATE TABLE IF NOT EXISTS upstream_request (
 -- existing deployments: the column was added after the table shipped
 ALTER TABLE upstream_request ADD COLUMN IF NOT EXISTS caller TEXT;
 CREATE INDEX IF NOT EXISTS upstream_request_ts_idx ON upstream_request (source, ts DESC);
+-- Periods during which an upstream gave us NO successful answer (#452): the
+-- SatNOGS gateway derives them from upstream_request (open after
+-- OUTAGE_AFTER of failures, closed by the next 200) and the dashboards draw
+-- them as annotations, because once access returns the ingest backfills the
+-- frames and the hole in the data closes over. Outlives the request log's
+-- 14-day prune; ended IS NULL while the cut is ongoing.
+CREATE TABLE IF NOT EXISTS provider_outage (
+    id      BIGSERIAL PRIMARY KEY,
+    source  TEXT NOT NULL,
+    started timestamptz NOT NULL,
+    ended   timestamptz,
+    note    TEXT,
+    UNIQUE (source, started)
+);
 -- Web Push subscriptions (#373): "alert me when MY station goes quiet". One
 -- row per (browser, station); endpoint is the push service URL and is unique
 -- per browser+app. notified_at throttles to one alert per station per day —
@@ -1597,7 +1611,10 @@ def _org_role(org_id: str) -> tuple[str, str]:
 # granted these and nothing else: Grafana's datasource proxy lets any caller
 # (anonymous Viewer — required for the public embeds) run arbitrary SQL, so the
 # database role IS the security boundary, not the dashboard JSON (#129).
-GRAFANA_PUBLIC_TABLES = ("satellite", "position", "telemetry", "reception", "pass")
+GRAFANA_PUBLIC_TABLES = ("satellite", "position", "telemetry", "reception", "pass",
+                         # upstream cut intervals only, drawn as annotations
+                         # (#452); the request log itself stays ops-only
+                         "provider_outage")
 GRAFANA_ROLE = "grafana_ro"
 
 
@@ -1651,7 +1668,7 @@ OPS_TABLES = ("organization", "org_user", "org_token", "api_key",
               "telemetry", "position", "elements", "provider_refusal",
               # our OUTBOUND request rate to upstreams, so ops can SEE we stay
               # a considerate consumer, after the SatNOGS IPv4 block
-              "upstream_request",
+              "upstream_request", "provider_outage",
               # written by deploy/record-deploy-event.sh, read by the ops
               # deploys board (#382); granted once the first deploy after
               # this change has created it
