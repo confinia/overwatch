@@ -239,6 +239,32 @@ CELESTRAK_LOOKUP_GROUPS = [g.strip() for g in
                            if g.strip()]
 _bulk_tles = {"ts": 0.0, "by_norad": {}}
 
+# Operator-published ephemerides (#456): "label=url,label=url". Planet Labs
+# publishes elements for its whole fleet as ONE 3LE file, from its own orbit
+# determination, so it also covers objects the public catalogue has no
+# designator for yet (line 1 carries `PLANET` in place of one). One small GET
+# per feed per elements cycle, no token, no per-object lookups: members are
+# seeded position-only under note "Operator feed '<label>'" and never fall
+# back to the per-object path.
+OPERATOR_TLE_FEEDS = os.environ.get("OPERATOR_TLE_FEEDS", "")
+
+
+def operator_feeds(spec=None):
+    """Parse OPERATOR_TLE_FEEDS into [(label, url)]; a bad entry is logged and
+    skipped so one typo cannot stop the other feeds."""
+    out = []
+    for item in (spec if spec is not None else OPERATOR_TLE_FEEDS).split(","):
+        item = item.strip()
+        if not item:
+            continue
+        label, sep, url = item.partition("=")
+        label, url = label.strip().lower(), url.strip()
+        if not sep or not label or not url.startswith("http"):
+            log.warning("OPERATOR_TLE_FEEDS entry ignored: %r (want label=url)", item)
+            continue
+        out.append((label, url))
+    return out
+
 # Space-Track (#370): the second bulk element source, so one supplier's bad
 # day cannot blank the whole product. Credential-optional — without these the
 # source is silently absent, which is what self-host installs and CI get.
@@ -700,9 +726,13 @@ def fetch_elements():
             log.warning("Element group fetch failed for '%s': %s", group, e)
         time.sleep(2)
 
+    seen |= fetch_operator_feeds()
+
     # showcase satellites not covered by any group (e.g. EO / GNSS anchors)
     with db() as conn, conn.cursor() as cur:
-        cur.execute("SELECT norad FROM satellite WHERE note NOT LIKE 'CelesTrak group%%'")
+        cur.execute("""SELECT norad FROM satellite
+                       WHERE coalesce(note, '') NOT LIKE 'CelesTrak group%%'
+                         AND coalesce(note, '') NOT LIKE 'Operator feed%%'""")
         rest = [r[0] for r in cur.fetchall() if r[0] not in seen]
     for norad in rest:
         try:
@@ -722,6 +752,36 @@ def fetch_elements():
         except Exception as e:
             log.warning("Element fetch failed for %s: %s", norad, e)
         time.sleep(1)
+
+
+def fetch_operator_feeds():
+    """One GET per operator feed (#456); returns the norads it covered so
+    fetch_elements never looks them up one by one."""
+    seen = set()
+    for label, url in operator_feeds():
+        try:
+            r = _timed_get(label, url, headers=UA, timeout=(CONNECT_TIMEOUT, 60))
+            r.raise_for_status()
+            triples = _parse_tle_file(r.text)
+            with db() as conn, conn.cursor() as cur:
+                for name, tle1, tle2 in triples:
+                    norad = int(tle1[2:7])
+                    seen.add(norad)
+                    cur.execute(
+                        """INSERT INTO satellite (norad, name, has_telemetry, note)
+                           VALUES (%s,%s,false,%s)
+                           ON CONFLICT (norad) DO NOTHING""",
+                        (norad, name, f"Operator feed '{label}'"))
+                    cur.execute(
+                        """INSERT INTO elements (norad, epoch, tle1, tle2)
+                           VALUES (%s,%s,%s,%s)
+                           ON CONFLICT (norad, epoch) DO NOTHING""",
+                        (norad, _epoch_from_tle(tle1), tle1, tle2))
+                conn.commit()
+            log.info("Elements: operator feed '%s' -> %d satellites", label, len(triples))
+        except Exception as e:
+            log.warning("Operator feed '%s' failed: %s", label, e)
+    return seen
 
 
 def fill_missing_elements(limit=3):
@@ -883,7 +943,10 @@ def _parse_tle_file(text):
             out.append((f"NORAD {lines[i][2:7].strip()}", lines[i], lines[i + 1]))
             i += 2
         elif i + 2 < len(lines) and lines[i + 1].startswith("1 ") and lines[i + 2].startswith("2 "):
-            out.append((lines[i].strip(), lines[i + 1], lines[i + 2]))
+            name = lines[i].strip()
+            if name.startswith("0 "):            # 3LE title line: "0 NAME"
+                name = name[2:].strip()
+            out.append((name, lines[i + 1], lines[i + 2]))
             i += 3
         else:
             i += 1
