@@ -1163,10 +1163,15 @@ def _decode_frame(decoder, frame_hex):
     """Decode a raw frame LOCALLY with satnogs-decoders (kaitai structs) and
     flatten numeric leaves. SatNOGS stopped inlining decoded values in the API
     (they live in their InfluxDB), so sovereign local decoding is the way."""
-    mod = importlib.import_module(f"satnogsdecoders.decoder.{decoder}")
+    try:
+        mod = importlib.import_module(f"satnogsdecoders.decoder.{decoder}")
+    except ModuleNotFoundError:
+        # not in the pinned satnogs-decoders release: our own copy of a
+        # decoder that is still an upstream merge request (#458)
+        mod = importlib.import_module(f"decoders.{decoder}")
     cls = getattr(mod, decoder.capitalize())
     obj = cls.from_bytes(bytes.fromhex(frame_hex))
-    return flatten_decoded(obj)
+    return flatten_decoded(obj, module=mod.__name__.split(".")[0])
 
 
 def _maidenhead(loc):
@@ -1286,6 +1291,63 @@ def _decoder_for(norad):
 
 def fetch_satngs():
     satngs.fetch_satngs(db, _store_frames, _decoder_for, headers=UA)
+    replay_frames()
+
+
+def replay_frames(limit=500):
+    """Raw frames kept in `frame` (#455) become telemetry once their
+    satellite has a decoder (#458): a decoder that arrives later replays
+    what the stations heard before it existed. Each frame is tried once
+    (`replayed`); a satellite whose decoder appeared after its frames were
+    tried gets them re-armed at startup by _rearm_replay."""
+    with db() as conn, conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('frame')")
+        if cur.fetchone()[0] is None:
+            return 0
+        cur.execute("""SELECT f.norad, f.ts, f.observer, f.source, f.hex, s.decoder
+                         FROM frame f JOIN satellite s ON s.norad = f.norad
+                        WHERE s.decoder IS NOT NULL AND f.replayed IS NULL
+                        ORDER BY f.ts LIMIT %s""", (limit,))
+        rows = cur.fetchall()
+    if not rows:
+        return 0
+    by_sat = {}
+    for norad, ts, observer, source, hexs, decoder in rows:
+        by_sat.setdefault((norad, decoder), []).append({
+            "timestamp": ts.isoformat().replace("+00:00", "Z"),
+            "frame": hexs, "observer": observer, "app_source": source})
+    decoded = 0
+    for (norad, decoder), frames in by_sat.items():
+        decoded += _store_frames(norad, frames, decoder)
+    with db() as conn, conn.cursor() as cur:
+        execute_values(cur, """UPDATE frame f SET replayed = now()
+                                 FROM (VALUES %s) AS v(norad, ts, observer)
+                                WHERE f.norad = v.norad::int AND f.ts = v.ts::timestamptz
+                                  AND f.observer = v.observer""",
+                       [(r[0], r[1], r[2]) for r in rows])
+        conn.commit()
+    log.info("Replay: %d stored frames tried, %d decoded", len(rows), decoded)
+    return decoded
+
+
+def _rearm_replay():
+    """At startup: a satellite that has a decoder but not one telemetry row
+    yet gets its tried frames re-armed, so a decoder added after the frames
+    were first tried (and found undecodable) gets its replay."""
+    with db() as conn, conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('frame')")
+        if cur.fetchone()[0] is None:
+            return 0
+        cur.execute("""UPDATE frame f SET replayed = NULL
+                        FROM satellite s
+                       WHERE s.norad = f.norad AND s.decoder IS NOT NULL
+                         AND f.replayed IS NOT NULL
+                         AND NOT EXISTS (SELECT 1 FROM telemetry t WHERE t.norad = f.norad)""")
+        n = cur.rowcount
+        conn.commit()
+    if n:
+        log.info("Replay: re-armed %d stored frames for satellites that gained a decoder", n)
+    return n
 
 
 def _flatten(d, prefix=""):
@@ -1360,6 +1422,10 @@ def main():
     # SATNGS LoRa stations (#454): one small GET per station per cycle,
     # nothing at all when SATNGS_STATIONS is empty (the self-host default).
     if satngs.stations():
+        try:
+            _rearm_replay()
+        except Exception as e:
+            log.warning("Replay re-arm failed: %s", e)
         threading.Thread(
             target=loop,
             args=(fetch_satngs, satngs.SATNGS_INTERVAL, "satngs"),

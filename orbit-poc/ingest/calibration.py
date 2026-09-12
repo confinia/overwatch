@@ -26,6 +26,14 @@ CALIBRATION = {
         ("beacon_pamp_temp", {"scale": 0.001}),               # 3255 -> 3.26 C
         ("beacon_vbus", {"scale": 0.001}),                    # 4140..5053 -> 4.14..5.05 V (bus/battery)
     ],
+    # NORBI (46494), from the field docs of LW2DTZ's norbi.ksy (#458)
+    "norbi": [
+        ("ses_voltage", {"scale": 0.001}),                    # mV -> V (power-system bus)
+        ("sop_latitude_glonass", {"scale": 1e-7}),            # degrees x 1e7
+        ("sop_longitude_glonass", {"scale": 1e-7}),
+        ("brk_last_received_packet_snr_active", {"scale": 0.25}),   # dB x4
+        ("brk_last_received_packet_snr_inactive", {"scale": 0.25}),
+    ],
 }
 
 # Per-decoder explicit canonical sources: canonical field <- a (calibrated) leaf.
@@ -35,6 +43,9 @@ CALIBRATION = {
 # battery-voltage bug). SatNOGS labels beacon_vbus (*0.001) the battery voltage.
 CANONICAL_SOURCES = {
     "cubebel2": {"battery_v": "beacon_vbus"},
+    # the SES (power system) bus voltage is the only voltage NORBI's TMI-0
+    # frame carries; the spec calls it the system voltage, hence battery_v
+    "norbi": {"battery_v": "ses_voltage"},
 }
 
 

@@ -38,7 +38,7 @@ set -e
 mkdir -p /tmp/work
 tar -C /repo --exclude=.git --exclude=node_modules -cf - . | tar -C /tmp/work -xf -
 cd /tmp/work/orbit-poc
-pip install -q -r api/requirements.txt pytest httpx requests sgp4 numpy >/dev/null 2>&1
+pip install -q -r api/requirements.txt pytest httpx requests sgp4 numpy kaitaistruct >/dev/null 2>&1
 apt-get -qq update >/dev/null 2>&1 && apt-get -qq install -y postgresql-client >/dev/null 2>&1
 PGPASSWORD=orbit psql -h "$(echo $DB_DSN | sed -E "s/.*host=([^ ]+).*/\1/")" -U orbit -d orbit -f db/init.sql >/dev/null 2>&1
 cd api
