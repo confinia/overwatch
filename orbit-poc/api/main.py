@@ -71,6 +71,7 @@ CREATE TABLE IF NOT EXISTS frame (
     hex       TEXT NOT NULL,
     PRIMARY KEY (norad, ts, observer)
 );
+ALTER TABLE IF EXISTS frame ADD COLUMN IF NOT EXISTS replayed timestamptz;  -- tried once (#458)
 CREATE TABLE IF NOT EXISTS api_key (
     key        uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     email      text NOT NULL,
