@@ -53,6 +53,10 @@ services:
       # Bulk constellations (one CelesTrak request per group per cadence).
       # Empty = telemetry-only showcase (product decision 2026-07-18).
       CELESTRAK_GROUPS: ""
+      # Operator-published ephemerides (#456): one small file per feed per
+      # elements cycle, no token. Planet's covers its whole fleet (~100
+      # objects), position-only, from the operator's own orbit determination.
+      OPERATOR_TLE_FEEDS: "planet=https://ephemerides.planet-labs.com/planet_mc.tle"
       POSITION_INTERVAL: "15"      # local propagation only, no external calls
       # Re-entry slack (#450): 24 polled satellites x 48 cycles/day was 80% of
       # the 1/min ceiling. 1h while the gateway pace is 60s; back to "1800"

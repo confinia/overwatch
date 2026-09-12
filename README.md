@@ -72,6 +72,13 @@ with RSSI / SNR), and the ingest reads it every 10 minutes when
 unreachable, the raw hex is kept for decoders that do not exist yet, and the
 station appears on the map like any other.
 
+Operators who publish their own ephemerides are a third source:
+`OPERATOR_TLE_FEEDS` names one 3LE file per operator (Planet Labs publishes one
+for its whole fleet, from its own orbit determination), fetched once per
+elements cycle. Their satellites join the globe position-only, so a commercial
+constellation can be watched next to the amateur fleet, and the operator's
+elements can be compared with the public catalogue's for the same object.
+
 Open data and every MCS are converging on one ingestion contract — the adapter
 seam in the diagram above — landing in one Postgres store scoped by tenant, where
 public open data is simply the public scope ([#438](https://github.com/confinia/overwatch/issues/438)).
@@ -97,6 +104,8 @@ self-serve keys via `POST /api/v1/keys {"email"}`. Rate limits apply.
   stations named in `SATNGS_STATIONS`, who publish their logs for this use
 - Orbital elements: [CelesTrak](https://celestrak.org) — respect their
   [rate guidance](https://celestrak.org/NORAD/documentation/gp-data-formats.php)
+- Operator ephemerides: [Planet Labs](https://ephemerides.planet-labs.com/planet_mc.tle)
+  for the Planet fleet, when `OPERATOR_TLE_FEEDS` names it
 - Basemap: [Sentinel-2 cloudless by EOX](https://s2maps.eu) (Copernicus data;
   free for non-commercial use)
 - Country lookup (API metrics): DB-IP Country Lite (CC-BY 4.0)
