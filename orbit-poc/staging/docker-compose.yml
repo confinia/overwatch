@@ -45,8 +45,25 @@ services:
       CELESTRAK_GROUPS: ""
       POSITION_INTERVAL: "15"
       TELEMETRY_INTERVAL: "1800"
+      # SatNOGS only through the PRODUCTION gateway (#459). This stack used to
+      # call db.satnogs.org itself with the same token: three callers, one
+      # token, one IP, two of them unpaced, which is what got the address
+      # refused on 2026-09-07. It polls the satellites production already
+      # fetched, so through the gateway nearly every call is a cache hit.
+      # Same pace and timeout as the production ingest (keep in step).
+      SATNOGS_BASE: "http://orbit-poc_satnogs-gateway_1:8088/api"
+      SATNOGS_MIN_GAP: "60"
+      SATNOGS_TIMEOUT: "160"
+      OVERWATCH_CALLER: "staging-ingest"   # shows as its own caller on the ops board
     env_file:
       - .env            # SATNOGS_TOKEN
+    extra_hosts:
+      # sole-egress, as in production: a direct call fails fast
+      - "db.satnogs.org:127.0.0.1"
+      - "network.satnogs.org:127.0.0.1"
+    networks:
+      - default
+      - prodnet         # reach the shared SatNOGS gateway by container name
     restart: unless-stopped
 
   api:
@@ -175,6 +192,9 @@ volumes:
 
 networks:
   default: {}
+  prodnet:
+    external: true
+    name: orbit-poc_default  # the production core's network (gateway lives there)
   v2net:
     external: true
     name: ovw2_default  # the shared Keycloak's network (same pattern as prod)

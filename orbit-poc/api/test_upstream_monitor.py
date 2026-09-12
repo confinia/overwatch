@@ -5,6 +5,7 @@ the only thing that can reach db.satnogs.org. Source-invariant guards, like
 test_passes.py.
 """
 import json
+import re
 import os
 
 HERE = os.path.dirname(__file__)
@@ -51,6 +52,36 @@ def test_nothing_can_bypass_the_shared_limiter():
     # call fails fast instead of overspending the shared per-user budget
     assert "db.satnogs.org:127.0.0.1" in compose, \
         "db.satnogs.org must be blackholed so the gateway is the only door"
+
+
+def test_every_cloud_stack_with_an_ingest_goes_through_the_gateway():
+    # #459: staging and sandbox ran their own ingest against db.satnogs.org
+    # with the production token, unpaced, and this guard only read the
+    # production compose. Every compose file that starts an ingest (selfhost
+    # excepted: one caller, no gateway by design) must route it through the
+    # shared gateway and blackhole the provider, so the per-user budget has
+    # ONE counter whatever stack is up.
+    root = os.path.join(HERE, "..")
+    stacks = [p for p in ("docker-compose.yml",
+                          os.path.join("staging", "docker-compose.yml"),
+                          os.path.join("sandbox", "docker-compose.yml"))
+              if os.path.exists(os.path.join(root, p))]
+    assert len(stacks) == 3, stacks
+    for rel in stacks:
+        compose = _read("..", rel)
+        assert "\n  ingest:\n" in compose, rel
+        ingest = compose[compose.index("\n  ingest:\n") + 1:]
+        nxt = re.search(r"\n  [a-z-]+:\n", ingest)          # the next service
+        ingest = ingest[:nxt.start()] if nxt else ingest
+        assert "satnogs-gateway" in ingest and ":8088/api" in ingest, \
+            f"{rel}: the ingest must reach SatNOGS only through the gateway"
+        assert "db.satnogs.org:127.0.0.1" in ingest, \
+            f"{rel}: db.satnogs.org must be blackholed for the ingest"
+        assert 'SATNOGS_MIN_GAP: "60"' in ingest, \
+            f"{rel}: the ingest must pace itself at the gateway gap"
+    selfhost = _read("..", "docker-compose.selfhost.yml")
+    assert "satnogs-gateway" not in selfhost, \
+        "selfhost talks to SatNOGS directly from its single paced ingest"
 
 
 def test_ops_dashboard_charts_the_rate():
