@@ -36,6 +36,9 @@ SHOWCASE = [
      "note": "UAE 3U; heard hourly by volunteer stations."},
     {"norad": 60246, "name": "CatSat", "telemetry": True, "decoder": "catsat",
      "note": "University of Arizona 6U; active beacon."},
+    {"norad": 46494, "name": "NORBI", "telemetry": True, "decoder": "norbi",
+     "note": "Russian 6U (SibSU) with a LoRa beacon; heard by SATNGS stations, "
+             "decoded with LW2DTZ's decoder (#458)."},
     {"norad": 40931, "name": "LAPAN-A2 (IO-86)", "telemetry": True, "decoder": "io86",
      "note": "Indonesian microsat, amateur payload; frequent passes."},
     # Asked for by name on the SatNOGS forum ("I'm missing satellites like
