@@ -78,23 +78,36 @@ _within_horizon = """
 """
 
 
+# "Heard" means ANY reception of the satellite, decoded or not (#464): a LoRa
+# station logging a frame is the satellite being heard, even while no decoder
+# exists for it yet. With the SatNOGS API cut, receptions from the SATNGS
+# stations (#454) are the live signal — max(telemetry) alone painted satellites
+# heard minutes ago as silent for a week.
+FLEET_SQL = """
+    SELECT s.norad, s.name, s.has_telemetry, s.note,
+           p.lat, p.lon, p.alt_km, p.ts,
+           greatest(tf.last_telemetry, rx.last_rx) AS last_frame
+    FROM satellite s
+    LEFT JOIN LATERAL (
+        SELECT lat, lon, alt_km, ts FROM position
+        WHERE norad = s.norad ORDER BY ts DESC LIMIT 1
+    ) p ON true
+    LEFT JOIN LATERAL (
+        SELECT max(ts) AS last_telemetry FROM telemetry
+        WHERE norad = s.norad
+    ) tf ON true
+    LEFT JOIN LATERAL (
+        SELECT max(ts) AS last_rx FROM reception
+        WHERE norad = s.norad
+    ) rx ON true
+    ORDER BY s.name"""
+
+
 @app.get("/api/satellites")
 def satellites():
     """Latest known position for each showcase satellite + metadata."""
     with db() as conn, conn.cursor() as cur:
-        cur.execute("""
-            SELECT s.norad, s.name, s.has_telemetry, s.note,
-                   p.lat, p.lon, p.alt_km, p.ts, tf.last_frame
-            FROM satellite s
-            LEFT JOIN LATERAL (
-                SELECT lat, lon, alt_km, ts FROM position
-                WHERE norad = s.norad ORDER BY ts DESC LIMIT 1
-            ) p ON true
-            LEFT JOIN LATERAL (
-                SELECT max(ts) AS last_frame FROM telemetry
-                WHERE norad = s.norad
-            ) tf ON true
-            ORDER BY s.name""")
+        cur.execute(FLEET_SQL)
         rows = cur.fetchall()
     for r in rows:
         url = SATNOGS_DASHBOARDS.get(str(r["norad"]))

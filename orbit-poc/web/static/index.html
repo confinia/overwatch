@@ -261,6 +261,12 @@
   #guide-open { flex:0 0 auto; width:30px; height:30px; border-radius:50%; border:1px solid var(--line);
     background:var(--panel); color:var(--dim); font-size:16px; cursor:pointer; }
   #guide-open:hover { color:var(--text); border-color:var(--accent); }
+  /* "Back to <satellite>" — appears when a user gesture takes the camera off
+     the tracked satellite (#465); same pill language as the other topbar chips. */
+  #resumetrack { background:rgba(18,24,38,.88); border:1px solid var(--accent);
+    border-radius:8px; padding:6px 12px; font-size:12px; color:var(--text);
+    cursor:pointer; }
+  #resumetrack:hover { background:var(--panel); }
   #guide, #why-register { position:fixed; inset:0; z-index:40; background:rgba(10,14,23,.75);
     display:flex; align-items:center; justify-content:center; padding:16px; }
   #guide[hidden], #why-register[hidden] { display:none; }
@@ -332,6 +338,8 @@
       <div id="rangebar" title="Time window for receptions, decoded fields and track"></div>
       <div id="oem-banner" style="display:none"></div>
       <div id="rxlegend" style="display:none"></div>
+      <button id="resumetrack" type="button" hidden
+        title="Fly back to the tracked satellite (automatic after 10 s of inactivity)"></button>
     </div>
     <div id="panel">
       <div class="head" id="panelHead">Select a satellite to inspect its telemetry</div>
