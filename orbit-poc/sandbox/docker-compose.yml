@@ -42,6 +42,9 @@ services:
     environment:
       ELEMENTS_INTERVAL: "21600"
       CELESTRAK_GROUPS: ""
+      # Same operator feeds as prod (#456/#463): staging must exercise the
+      # elements path prod runs, and the feed is a public file, token-free.
+      OPERATOR_TLE_FEEDS: "planet=https://ephemerides.planet-labs.com/planet_mc.tle"
       POSITION_INTERVAL: "15"
       TELEMETRY_INTERVAL: "1800"
       # SatNOGS only through the PRODUCTION gateway (#459). This stack used to

@@ -106,7 +106,20 @@ def ttl_for(path):
 # Errnos that mean the path to SatNOGS is administratively shut (a firewall
 # block), not a transient timeout: ENETUNREACH/EHOSTUNREACH surface an ICMP
 # admin-prohibited, ECONNREFUSED an outright reject. These earn the long backoff.
+# ENETUNREACH stays a block signature on purpose (#463): a real DROP hides its
+# v4 connect-timeout behind the v6 leg's instant "network is unreachable"
+# (socket.create_connection raises the LAST address's error), so the visible
+# exception during our actual 2026-09 block WAS Errno 101. The boot-time false
+# positive — the container asking before its own network is up — is handled by
+# the startup grace below, not by weakening the signature.
 _BLOCK_ERRNOS = {errno.ENETUNREACH, errno.EHOSTUNREACH, errno.ECONNREFUSED}
+
+# For this long after the gateway starts, a reachability failure earns only
+# the SHORT cooldown: during a stack recreate the first request races the
+# container network coming up, and that ENETUNREACH is ours, not a firewall's.
+# One hourly probe misread that way kept `state: blocked` for the whole hour
+# after every deploy (#463). Past the grace, the block signature is trusted.
+STARTUP_GRACE = float(os.environ.get("SATNOGS_STARTUP_GRACE", 180))
 
 
 def is_block(exc):
@@ -271,7 +284,7 @@ class Gateway:
                  cooldown_file=COOLDOWN_FILE,
                  timeout_cooldown=TIMEOUT_COOLDOWN, block_cooldown=BLOCK_COOLDOWN,
                  max_wait=MAX_WAIT, public_base=PUBLIC_BASE,
-                 stale_after=STALE_AFTER):
+                 stale_after=STALE_AFTER, startup_grace=STARTUP_GRACE):
         self._get = get or _http_get
         self._sleep = sleep
         self._now = now
@@ -287,6 +300,8 @@ class Gateway:
         self.cooldown_file = cooldown_file
         self.timeout_cooldown = timeout_cooldown
         self.block_cooldown = block_cooldown
+        self.startup_grace = startup_grace
+        self._started = self._now()
         self._lock = threading.Lock()
         self._next_slot = 0.0       # when the next upstream request may start
         self._cache = {}            # key -> (expires_at, status, body, ctype)
@@ -416,7 +431,11 @@ class Gateway:
             disp = "MISS"
             return status, body, ctype, "MISS"
         except Exception as e:  # noqa: BLE001 — a timeout is also a refusal to honour
-            blocked = is_block(e)
+            # A block signature inside the startup grace is our own network
+            # racing the container up (#463): short cooldown, and the FIRST
+            # retry after the grace decides for real.
+            blocked = is_block(e) and \
+                (self._now() - self._started) >= self.startup_grace
             cooldown = self.block_cooldown if blocked else self.timeout_cooldown
             log.warning("upstream error for %s: %s (%s; backing off %.0fs)",
                         path, e, "BLOCKED" if blocked else "transient", cooldown)
