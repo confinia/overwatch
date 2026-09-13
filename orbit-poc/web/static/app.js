@@ -331,6 +331,52 @@ const map = new maplibregl.Map({
 // Native globe projection (MapLibre GL >= 5) — the right canvas for orbits.
 map.on("style.load", () => map.setProjection({ type: "globe" }));
 
+// --- Camera follow (#465). Selecting a satellite points the camera at it; a
+// user gesture (drag, wheel — anything with an originalEvent) takes it away.
+// A "Back to <name>" pill offers the way back at once, and 10 s without a
+// further camera gesture flies back on its own. Programmatic moves (deep
+// links, reception jumps, the resume itself) never show the pill or arm the
+// timer: only the user can take the camera, so only the user starts the clock.
+const RESUME_TRACK_MS = 10000;
+let camAway = false;               // a user gesture moved the camera off-target
+let camResumeTimer = null;
+
+function resumeTrack(){
+  clearTimeout(camResumeTimer); camResumeTimer = null;
+  camAway = false;
+  document.getElementById("resumetrack").hidden = true;
+  const s = satsByNorad[activeNorad];
+  if (s && s.lat != null) {
+    map.flyTo({ center: [s.lon, s.lat],
+                zoom: Math.max(map.getZoom(), 2.4), duration: 1500 });
+  }
+}
+
+function trackEngaged(){           // a fresh selection IS the tracking intent
+  clearTimeout(camResumeTimer); camResumeTimer = null;
+  camAway = false;
+  const pill = document.getElementById("resumetrack");
+  if (pill) pill.hidden = true;
+}
+
+map.on("movestart", e => {
+  if (!e.originalEvent) return;    // programmatic: our own flyTo/easeTo
+  const s = activeNorad != null && satsByNorad[activeNorad];
+  if (!s || s.lat == null) return; // nothing tracked: the camera is free
+  camAway = true;
+  clearTimeout(camResumeTimer);    // never fly away mid-gesture
+  const pill = document.getElementById("resumetrack");
+  pill.textContent = `⟲ Back to ${s.name}`;
+  pill.hidden = false;
+});
+map.on("moveend", () => {
+  if (camAway) {
+    clearTimeout(camResumeTimer);
+    camResumeTimer = setTimeout(resumeTrack, RESUME_TRACK_MS);
+  }
+});
+document.getElementById("resumetrack").addEventListener("click", resumeTrack);
+
 let activeNorad = null;
 // Satellite the app opens on when there is no deep link and no favourite.
 // Falls back to the freshest-telemetry pick if it ever leaves the fleet.
@@ -813,6 +859,7 @@ async function select(s, auto = false){
   if (!auto && s.norad !== activeNorad) beacon("select", s.norad);
   activeStation = null; activeOrgSat = null;
   activeNorad = s.norad;
+  trackEngaged();                        // selecting IS the tracking intent (#465)
   refreshSatHighlight();                 // highlight follows the selection now
   if (location.hash !== "#" + s.norad) {
     history.replaceState(null, "", "#" + s.norad);
