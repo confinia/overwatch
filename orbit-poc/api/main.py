@@ -1867,11 +1867,14 @@ def _ops_alert_rules() -> list:
         return {
             "uid": uid, "title": title, "condition": "C",
             "folderUID": "ops-alerts", "ruleGroup": group,
-            # keep_firing_for holds a sustained alert in the firing state across a
-            # brief resolve, so a condition that flaps around its threshold does
-            # not re-notify as a fresh alert every time (the repeat_interval only
-            # governs a continuously-firing one). 0s for one-shot signup events.
-            "for": "0s", "keepFiringFor": keep_firing_for,   # camelCase; snake_case is silently ignored (platform-verified)
+            # keepFiringFor would hold a flapping alert in the firing state so
+            # it cannot re-notify as fresh — but Grafana 11.2.0 DROPS the field
+            # under every spelling (verified live: ABSENT on all provisioned
+            # rules; it exists from 11.3). It is still sent so the hold-down
+            # arms itself on the day Grafana is upgraded. Until then the ONLY
+            # real defences against a mail storm are repeat_interval and rule
+            # windows wider than the data's natural cadence (#467).
+            "for": "0s", "keepFiringFor": keep_firing_for,
             "noDataState": "OK", "execErrState": "OK",
             "labels": {"env": env},
             "annotations": {"summary": f"[{env}] " + (summary or title)},

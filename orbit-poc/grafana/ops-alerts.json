@@ -26,9 +26,9 @@
     {
       "uid": "telemetry-stalled",
       "title": "Telemetry ingestion has stalled",
-      "_sql_comment": "Returns `value` and NOTHING else. A rule's returned columns ARE its alert identity: #341 dropped the age columns but kept `newest`, which still moves when the system is SLOW rather than STOPPED \u2014 positions kept trickling, `newest` advanced, and every evaluation became a new alert. Detail belongs on the dashboard, not in the label set (#352).",
-      "sql": "SELECT 1 AS value FROM telemetry HAVING max(ts) IS NULL OR max(ts) < now() - interval '90 minutes'",
-      "summary": "No telemetry stored for over 90 minutes. The control room is up but blind \u2014 check the ingest and the SatNOGS path.",
+      "_sql_comment": "Returns `value` and NOTHING else. A rule's returned columns ARE its alert identity: #341 dropped the age columns but kept `newest`, which still moves when the system is SLOW rather than STOPPED \u2014 positions kept trickling, `newest` advanced, and every evaluation became a new alert. Detail belongs on the dashboard, not in the label set (#352). Window 6h, NOT 90m (#467): a LoRa station hears a satellite roughly once per ~96-minute orbit, so a 90m window fires and resolves every pass, and each re-fire mails fresh \u2014 repeat_interval only limits CONTINUOUS firing, and Grafana 11.2.0 silently drops keepFiringFor. Missing 3+ consecutive passes is a stall; one quiet orbit is not.",
+      "sql": "SELECT 1 AS value FROM telemetry HAVING max(ts) IS NULL OR max(ts) < now() - interval '6 hours'",
+      "summary": "No telemetry stored for over 6 hours (3+ missed passes). The control room is up but blind \u2014 check the ingest, the stations and the SatNOGS path.",
       "group": "freshness"
     },
     {
