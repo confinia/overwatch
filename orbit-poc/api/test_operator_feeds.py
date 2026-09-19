@@ -129,3 +129,16 @@ def test_a_curated_satellite_keeps_its_identity(conn, monkeypatch):
         assert cur.fetchone() == ("SkySat-C1 (curated)", "EO anchor")
         cur.execute("SELECT count(*) FROM elements WHERE norad = 99912")
         assert cur.fetchone()[0] == 1, "still gets the operator's elements"
+
+
+def test_every_cloud_stack_runs_the_same_operator_feeds():
+    """#463 parity: prod grew the Planet feed and the side stacks silently did
+    not, so staging exercised none of the elements path prod runs. The feed
+    is a public file, token-free — there is no reason for the stacks to
+    differ, and a divergence is exactly what staging exists to catch."""
+    line = 'OPERATOR_TLE_FEEDS: "planet=https://ephemerides.planet-labs.com/planet_mc.tle"'
+    for stack in ("docker-compose.yml",
+                  os.path.join("staging", "docker-compose.yml"),
+                  os.path.join("sandbox", "docker-compose.yml")):
+        c = open(os.path.join(HERE, "..", stack), encoding="utf-8").read()
+        assert line in c, f"{stack} must run the same operator feeds as prod"

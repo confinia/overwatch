@@ -132,8 +132,10 @@ services:
     mem_limit: 192m   # headroom for the OTel SDK loaded at import
     # A restart policy needs a healthcheck, or a crash-on-boot becomes a loop
     # that hammers the disk with logs. /healthz is a static reply, no upstream.
+    # Plain argv only: podman-compose flattens this array through `sh`, and a
+    # quoted `python -c` with parentheses died there on every probe (#463).
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8088/healthz', timeout=3).status==200 else 1)"]
+      test: ["CMD", "python", "healthz.py"]
       interval: 30s
       timeout: 5s
       retries: 3

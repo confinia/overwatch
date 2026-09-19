@@ -63,4 +63,6 @@ jobs:
           # target database is disposable (#359).
           OVERWATCH_TEST_DB: "1"
         run: |
-          python -m pytest -q --ignore=test_polar.py
+          # ../gateway: the egress gateway's own unit suite (no DB, no
+          # network) was invisible to both entrypoints until #463.
+          python -m pytest -q --ignore=test_polar.py . ../gateway

@@ -48,7 +48,7 @@ cd api
 #   test_polar.py  live Polar API, needs POLAR_ACCESS_TOKEN. Polar is the
 #                  fallback provider since Creem became the MoR (#269/#270),
 #                  so it is run separately and never gates a deploy.
-python -m pytest -q -p no:cacheprovider --ignore=test_polar.py 2>&1 | tail -30
+python -m pytest -q -p no:cacheprovider --ignore=test_polar.py . ../gateway 2>&1 | tail -30
 echo "MAIN_EXIT=${PIPESTATUS[0]}"
 python -m pytest test_polar.py -q -p no:cacheprovider 2>&1 | tail -3
 ' 2>&1)

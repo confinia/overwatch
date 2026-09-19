@@ -56,6 +56,13 @@ ELEMENTS_INTERVAL  = int(os.environ.get("ELEMENTS_INTERVAL",  6 * 3600))
 POSITION_INTERVAL  = int(os.environ.get("POSITION_INTERVAL",  15))
 TELEMETRY_INTERVAL = int(os.environ.get("TELEMETRY_INTERVAL", 30 * 60))
 CATALOG_INTERVAL   = int(os.environ.get("CATALOG_INTERVAL",   86400))
+# Longest Retry-After the catalog refresh will sleep through. Beyond this the
+# provider is in a real cooldown (the gateway advertises its own remaining
+# one), and honouring it in full kept the WHOLE ingest silent for an hour
+# after a recreate — refresh_catalog runs before main() starts a single loop
+# (#463). The catalog is advisory at startup; the loop returns at
+# CATALOG_INTERVAL anyway.
+CATALOG_MAX_RETRY_AFTER = int(os.environ.get("CATALOG_MAX_RETRY_AFTER", 60))
 # Next-pass prediction (#217): heavy-ish forward scan, so run it a few times a
 # day. Bounded to the most-active stations x the fleet, 7-day horizon at 60 s.
 PASSES_INTERVAL     = int(os.environ.get("PASSES_INTERVAL",     6 * 3600))
@@ -848,9 +855,17 @@ def refresh_catalog():
             r = requests.get(url, headers=headers, timeout=max(60, SATNOGS_TIMEOUT))
             if r.status_code in (429, 503):   # 503 = the gateway is busy/cooling
                 retries += 1
-                if retries > 5:                # bounded: a pinned refusal must not spin forever
-                    raise RuntimeError(f"gave up after {retries} refusals ({r.status_code})")
-                time.sleep(int(r.headers.get("Retry-After", 30)))
+                wait = int(r.headers.get("Retry-After", 30))
+                # A long Retry-After means the provider is in a real cooldown:
+                # sleeping it out here kept the WHOLE ingest silent for an hour
+                # after a recreate, because main() runs this before starting a
+                # single loop (#463). The catalog is advisory at startup; give
+                # up for this cycle and come back at CATALOG_INTERVAL.
+                if retries > 5 or wait > CATALOG_MAX_RETRY_AFTER:
+                    raise RuntimeError(
+                        f"gave up after {retries} refusals "
+                        f"({r.status_code}, Retry-After {wait}s)")
+                time.sleep(wait)
                 continue
             r.raise_for_status()
             data = r.json()

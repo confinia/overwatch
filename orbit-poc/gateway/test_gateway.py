@@ -185,10 +185,34 @@ def test_block_signature_backs_off_hard_not_every_minute(tmp_path):
 
     g, _, calls = _gw(tmp_path, get)
     g.timeout_cooldown, g.block_cooldown = 60, 3600
+    g.startup_grace = 0          # past the boot race: the signature is trusted
     st, _, _, disp = g.fetch("/telemetry/", "sat_id=A", 1800)
     assert (st, disp) == (502, "ERR")
     assert g.cooling() >= 3599, "an admin-prohibited block must arm the 1h backoff"
     assert calls == [("/telemetry/", None)], "the blocked attempt is still recorded"
+
+
+def test_boot_race_unreachable_is_transient_until_the_grace_passes(tmp_path):
+    """During a stack recreate the first request can race the container network
+    coming up: that ENETUNREACH is OURS, and misreading it kept the gateway
+    `state: blocked` for a full hour after every deploy (#463). Inside the
+    startup grace it earns only the short backoff; the first attempt after the
+    grace decides for real."""
+    import errno as _errno
+
+    def get(url, headers, timeout):
+        raise OSError(_errno.ENETUNREACH, "Network is unreachable")
+
+    clock = Clock()
+    g, _, _ = _gw(tmp_path, get, clock=clock)
+    g.timeout_cooldown, g.block_cooldown, g.startup_grace = 60, 3600, 180
+    g.fetch("/telemetry/", "sat_id=A", 1800)
+    assert g.cooling() <= 61, \
+        "a boot-race unreachable must not arm the 1h block backoff"
+    clock.t += 300               # past the grace AND the short cooldown
+    g.fetch("/telemetry/", "sat_id=B", 1800)
+    assert g.cooling() >= 3599, \
+        "still unreachable after the grace: now it IS the block signature"
 
 
 def test_transient_timeout_keeps_the_short_backoff(tmp_path):
@@ -297,6 +321,7 @@ def test_upstream_reachability_is_passive_and_follows_real_outcomes(tmp_path):
 
     g, clock, calls = _gw(tmp_path, get)
     g.stale_after = 3600
+    g.startup_grace = 0     # this test is about /upstream, not the boot race
     ok, info = g.reachability()
     assert (ok, info["state"]) == (True, "idle"), "no attempt yet must not page"
     assert calls == [], "reachability must never send anything upstream"
