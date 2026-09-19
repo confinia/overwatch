@@ -331,6 +331,26 @@ const map = new maplibregl.Map({
 // Native globe projection (MapLibre GL >= 5) — the right canvas for orbits.
 map.on("style.load", () => map.setProjection({ type: "globe" }));
 
+// --- Phone views (#471). Below 900px the bottom tab bar shows ONE view at a
+// time: Globe, Satellites (the full list + search the old layout amputated),
+// or Data (the dashboards). Above 900px the bar is display:none and none of
+// this changes the desktop grid.
+function setView(v){
+  document.body.dataset.view = v;
+  document.querySelectorAll("#tabbar button").forEach(b =>
+    b.classList.toggle("on", b.dataset.view === v));
+  // The map pane changes size underneath MapLibre on every switch back.
+  if (v === "globe") requestAnimationFrame(() => map.resize());
+}
+document.querySelectorAll("#tabbar button").forEach(b =>
+  b.addEventListener("click", () => setView(b.dataset.view)));
+document.body.dataset.view = "globe";
+
+function phoneMode(){
+  const bar = document.getElementById("tabbar");
+  return bar && getComputedStyle(bar).display !== "none";
+}
+
 // --- Camera follow (#465). Selecting a satellite points the camera at it; a
 // user gesture (drag, wheel — anything with an originalEvent) takes it away.
 // A "Back to <name>" pill offers the way back at once, and 10 s without a
@@ -594,7 +614,7 @@ async function selectDemo(){
   body.innerHTML = `<div class="ggrid">` +
     `<div class="gcell"><b>${name} — fields (latest)</b>` +
     `<table style="width:100%;border-collapse:collapse">${rows}</table></div>` +
-    `<div class="gcell wide"><iframe src="${GRAFANA}/d/${encodeURIComponent(d.grafana_uid)}/?theme=dark&kiosk&refresh=5s"></iframe></div>` +
+    `<div class="gcell wide"><iframe loading="lazy" src="${GRAFANA}/d/${encodeURIComponent(d.grafana_uid)}/?theme=dark&kiosk&refresh=5s"></iframe></div>` +
     `</div>`;
 }
 
@@ -775,6 +795,7 @@ function renderList(sats){
 // orange reception layers. Deep-linkable via #station:OBSERVER.
 async function selectStation(observer){
   activeStation = observer; activeNorad = null; activeOrgSat = null;
+  if (phoneMode()) setView("globe");     // the station flies into frame (#471)
   const h = "#station:" + encodeURIComponent(observer);
   if (location.hash !== h) history.replaceState(null, "", h);
   const head = document.getElementById("panelHead");
@@ -860,6 +881,10 @@ async function select(s, auto = false){
   activeStation = null; activeOrgSat = null;
   activeNorad = s.norad;
   trackEngaged();                        // selecting IS the tracking intent (#465)
+  // A pick from the phone's Satellites view lands the user on the globe,
+  // where the selection flies into frame (#471). Deep-link auto-selection
+  // must not yank someone who already switched tabs.
+  if (!auto && phoneMode()) setView("globe");
   refreshSatHighlight();                 // highlight follows the selection now
   if (location.hash !== "#" + s.norad) {
     history.replaceState(null, "", "#" + s.norad);
@@ -1064,7 +1089,7 @@ async function embedDashboards(s){
   if (s.norad !== activeNorad) return;
   if (all === null) {
     body.innerHTML = `<div class="ggrid">` + passesCell +
-      `<div class="gcell wide"><iframe src="${GRAFANA}/d/${DASH_UID}/orbit-telemetry?${qs}&kiosk"></iframe></div></div>`;
+      `<div class="gcell wide"><iframe loading="lazy" src="${GRAFANA}/d/${DASH_UID}/orbit-telemetry?${qs}&kiosk"></iframe></div></div>`;
     trackPanelLoading(body, cold);
     return;
   }
