@@ -1,0 +1,567 @@
+{
+ "uid": "deployments",
+ "title": "Deployments",
+ "description": "Every change on its way to production: unit tests, the per-PR sandbox and its e2e, staging (stage) and prod (promote), each with the PR and issues it was for (#470, rule 34). Test/sandbox rows come from the GitHub API via statusmon; staging/prod rows are written by deploy.yml.",
+ "schemaVersion": 39,
+ "time": {
+  "from": "now-14d",
+  "to": "now"
+ },
+ "refresh": "5m",
+ "panels": [
+  {
+   "id": 1,
+   "title": "Tests",
+   "type": "stat",
+   "datasource": {
+    "type": "postgres",
+    "uid": "orbitcache-ops"
+   },
+   "gridPos": {
+    "h": 5,
+    "w": 6,
+    "x": 0,
+    "y": 0
+   },
+   "description": "Age of the last completed unit-tests run on any branch; FAILING when it was red.",
+   "fieldConfig": {
+    "defaults": {
+     "unit": "dtdurations",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       }
+      ]
+     },
+     "mappings": [
+      {
+       "type": "range",
+       "options": {
+        "from": -1.5,
+        "to": -0.5,
+        "result": {
+         "text": "FAILING",
+         "color": "red"
+        }
+       }
+      },
+      {
+       "type": "special",
+       "options": {
+        "match": "null",
+        "result": {
+         "text": "no run yet",
+         "color": "text"
+        }
+       }
+      }
+     ]
+    },
+    "overrides": []
+   },
+   "options": {
+    "colorMode": "background",
+    "graphMode": "none",
+    "textMode": "value",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    }
+   },
+   "targets": [
+    {
+     "format": "table",
+     "refId": "A",
+     "rawSql": "SELECT CASE WHEN conclusion='success' THEN date_part('epoch', now() - updated) ELSE -1 END AS age FROM pipeline_run WHERE workflow='unit tests' AND status='completed' ORDER BY created DESC LIMIT 1",
+     "datasource": {
+      "type": "postgres",
+      "uid": "orbitcache-ops"
+     }
+    }
+   ]
+  },
+  {
+   "id": 2,
+   "title": "Sandbox",
+   "type": "stat",
+   "datasource": {
+    "type": "postgres",
+    "uid": "orbitcache-ops"
+   },
+   "gridPos": {
+    "h": 5,
+    "w": 6,
+    "x": 6,
+    "y": 0
+   },
+   "description": "Age of the last completed sandbox e2e; FAILING when it was red.",
+   "fieldConfig": {
+    "defaults": {
+     "unit": "dtdurations",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       }
+      ]
+     },
+     "mappings": [
+      {
+       "type": "range",
+       "options": {
+        "from": -1.5,
+        "to": -0.5,
+        "result": {
+         "text": "FAILING",
+         "color": "red"
+        }
+       }
+      },
+      {
+       "type": "special",
+       "options": {
+        "match": "null",
+        "result": {
+         "text": "no run yet",
+         "color": "text"
+        }
+       }
+      }
+     ]
+    },
+    "overrides": []
+   },
+   "options": {
+    "colorMode": "background",
+    "graphMode": "none",
+    "textMode": "value",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    }
+   },
+   "targets": [
+    {
+     "format": "table",
+     "refId": "A",
+     "rawSql": "SELECT CASE WHEN conclusion='success' THEN date_part('epoch', now() - updated) ELSE -1 END AS age FROM pipeline_run WHERE workflow='e2e (sandbox)' AND status='completed' ORDER BY created DESC LIMIT 1",
+     "datasource": {
+      "type": "postgres",
+      "uid": "orbitcache-ops"
+     }
+    }
+   ]
+  },
+  {
+   "id": 3,
+   "title": "Staging",
+   "type": "stat",
+   "datasource": {
+    "type": "postgres",
+    "uid": "orbitcache-ops"
+   },
+   "gridPos": {
+    "h": 5,
+    "w": 6,
+    "x": 12,
+    "y": 0
+   },
+   "description": "Since the last stage (the candidate colour on the VM).",
+   "fieldConfig": {
+    "defaults": {
+     "unit": "dtdurations",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 259200
+       },
+       {
+        "color": "red",
+        "value": 604800
+       }
+      ]
+     },
+     "mappings": [
+      {
+       "type": "range",
+       "options": {
+        "from": -1.5,
+        "to": -0.5,
+        "result": {
+         "text": "FAILING",
+         "color": "red"
+        }
+       }
+      },
+      {
+       "type": "special",
+       "options": {
+        "match": "null",
+        "result": {
+         "text": "no run yet",
+         "color": "text"
+        }
+       }
+      }
+     ]
+    },
+    "overrides": []
+   },
+   "options": {
+    "colorMode": "background",
+    "graphMode": "none",
+    "textMode": "value",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    }
+   },
+   "targets": [
+    {
+     "format": "table",
+     "refId": "A",
+     "rawSql": "SELECT date_part('epoch', now() - max(ts)) AS age FROM deploy_event WHERE phase='stage'",
+     "datasource": {
+      "type": "postgres",
+      "uid": "orbitcache-ops"
+     }
+    }
+   ]
+  },
+  {
+   "id": 4,
+   "title": "Production",
+   "type": "stat",
+   "datasource": {
+    "type": "postgres",
+    "uid": "orbitcache-ops"
+   },
+   "gridPos": {
+    "h": 5,
+    "w": 6,
+    "x": 18,
+    "y": 0
+   },
+   "description": "Since the last promote. Orange after 3 days, red after a week (rule 26).",
+   "fieldConfig": {
+    "defaults": {
+     "unit": "dtdurations",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 259200
+       },
+       {
+        "color": "red",
+        "value": 604800
+       }
+      ]
+     },
+     "mappings": [
+      {
+       "type": "range",
+       "options": {
+        "from": -1.5,
+        "to": -0.5,
+        "result": {
+         "text": "FAILING",
+         "color": "red"
+        }
+       }
+      },
+      {
+       "type": "special",
+       "options": {
+        "match": "null",
+        "result": {
+         "text": "no run yet",
+         "color": "text"
+        }
+       }
+      }
+     ]
+    },
+    "overrides": []
+   },
+   "options": {
+    "colorMode": "background",
+    "graphMode": "none",
+    "textMode": "value",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    }
+   },
+   "targets": [
+    {
+     "format": "table",
+     "refId": "A",
+     "rawSql": "SELECT date_part('epoch', now() - max(ts)) AS age FROM deploy_event WHERE phase='promote'",
+     "datasource": {
+      "type": "postgres",
+      "uid": "orbitcache-ops"
+     }
+    }
+   ]
+  },
+  {
+   "id": 5,
+   "title": "Outcomes by environment",
+   "type": "state-timeline",
+   "datasource": {
+    "type": "postgres",
+    "uid": "orbitcache-ops"
+   },
+   "gridPos": {
+    "h": 7,
+    "w": 24,
+    "x": 0,
+    "y": 5
+   },
+   "description": "One lane per environment; each block is a run or a deploy.",
+   "fieldConfig": {
+    "defaults": {
+     "mappings": [
+      {
+       "type": "value",
+       "options": {
+        "success": {
+         "color": "green",
+         "index": 0
+        },
+        "staged": {
+         "color": "blue",
+         "index": 1
+        },
+        "promoted": {
+         "color": "dark-green",
+         "index": 2
+        },
+        "failure": {
+         "color": "red",
+         "index": 3
+        },
+        "cancelled": {
+         "color": "dark-gray",
+         "index": 4
+        },
+        "skipped": {
+         "color": "dark-gray",
+         "index": 5
+        },
+        "in_progress": {
+         "color": "yellow",
+         "index": 6
+        },
+        "queued": {
+         "color": "yellow",
+         "index": 7
+        },
+        "timed_out": {
+         "color": "red",
+         "index": 8
+        }
+       }
+      }
+     ],
+     "custom": {
+      "fillOpacity": 80,
+      "lineWidth": 0
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "mergeValues": false,
+    "showValue": "never",
+    "rowHeight": 0.8,
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    }
+   },
+   "targets": [
+    {
+     "format": "table",
+     "refId": "A",
+     "rawSql": "SELECT t AS time, max(CASE WHEN env='test' THEN result END) AS \"test\", max(CASE WHEN env='sandbox' THEN result END) AS \"sandbox\", max(CASE WHEN env='staging' THEN result END) AS \"staging\", max(CASE WHEN env='prod' THEN result END) AS \"prod\" FROM (SELECT r.created AS t,\n       CASE r.workflow WHEN 'unit tests' THEN 'test' ELSE 'sandbox' END AS env,\n       r.workflow AS step,\n       COALESCE(r.conclusion, r.status) AS result,\n       r.sha, r.title, r.pr, r.refs, r.url\n  FROM pipeline_run r\n WHERE r.workflow IN ('unit tests', 'sandbox (per PR)', 'e2e (sandbox)')\nUNION ALL\nSELECT d.ts,\n       CASE d.phase WHEN 'stage' THEN 'staging' ELSE 'prod' END,\n       d.phase,\n       CASE d.phase WHEN 'stage' THEN 'staged' ELSE 'promoted' END,\n       d.sha, p.title, p.pr, p.refs, d.run_url\n  FROM deploy_event d\n  LEFT JOIN (SELECT DISTINCT ON (sha) sha, title, pr, refs FROM pipeline_run\n              WHERE title IS NOT NULL ORDER BY sha, created DESC) p ON p.sha = d.sha) e WHERE $__timeFilter(t) GROUP BY t ORDER BY t",
+     "datasource": {
+      "type": "postgres",
+      "uid": "orbitcache-ops"
+     }
+    }
+   ]
+  },
+  {
+   "id": 6,
+   "title": "Changes, newest first",
+   "type": "table",
+   "datasource": {
+    "type": "postgres",
+    "uid": "orbitcache-ops"
+   },
+   "gridPos": {
+    "h": 16,
+    "w": 24,
+    "x": 0,
+    "y": 12
+   },
+   "description": "Click the PR or Run to open it on GitHub. Staging/prod rows borrow the title, PR and issues from the commit's own workflow runs.",
+   "fieldConfig": {
+    "defaults": {},
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Run"
+      },
+      "properties": [
+       {
+        "id": "links",
+        "value": [
+         {
+          "title": "open the workflow run",
+          "url": "${__value.text}",
+          "targetBlank": true
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "PR"
+      },
+      "properties": [
+       {
+        "id": "links",
+        "value": [
+         {
+          "title": "open the pull request",
+          "url": "https://github.com/confinia/overwatch/pull/${__value.text}",
+          "targetBlank": true
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Result"
+      },
+      "properties": [
+       {
+        "id": "mappings",
+        "value": [
+         {
+          "type": "value",
+          "options": {
+           "success": {
+            "color": "green",
+            "index": 0
+           },
+           "staged": {
+            "color": "blue",
+            "index": 1
+           },
+           "promoted": {
+            "color": "dark-green",
+            "index": 2
+           },
+           "failure": {
+            "color": "red",
+            "index": 3
+           },
+           "cancelled": {
+            "color": "dark-gray",
+            "index": 4
+           },
+           "skipped": {
+            "color": "dark-gray",
+            "index": 5
+           },
+           "in_progress": {
+            "color": "yellow",
+            "index": 6
+           },
+           "queued": {
+            "color": "yellow",
+            "index": 7
+           },
+           "timed_out": {
+            "color": "red",
+            "index": 8
+           }
+          }
+         }
+        ]
+       },
+       {
+        "id": "custom.cellOptions",
+        "value": {
+         "type": "color-background",
+         "mode": "basic"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Change"
+      },
+      "properties": [
+       {
+        "id": "custom.width",
+        "value": 520
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "showHeader": true,
+    "sortBy": [
+     {
+      "displayName": "When",
+      "desc": true
+     }
+    ]
+   },
+   "targets": [
+    {
+     "format": "table",
+     "refId": "A",
+     "rawSql": "SELECT t AS \"When\", env AS \"Environment\", step AS \"Step\", result AS \"Result\", substr(sha, 1, 7) AS \"Commit\", title AS \"Change\", pr AS \"PR\", refs AS \"Issues\", url AS \"Run\" FROM (SELECT r.created AS t,\n       CASE r.workflow WHEN 'unit tests' THEN 'test' ELSE 'sandbox' END AS env,\n       r.workflow AS step,\n       COALESCE(r.conclusion, r.status) AS result,\n       r.sha, r.title, r.pr, r.refs, r.url\n  FROM pipeline_run r\n WHERE r.workflow IN ('unit tests', 'sandbox (per PR)', 'e2e (sandbox)')\nUNION ALL\nSELECT d.ts,\n       CASE d.phase WHEN 'stage' THEN 'staging' ELSE 'prod' END,\n       d.phase,\n       CASE d.phase WHEN 'stage' THEN 'staged' ELSE 'promoted' END,\n       d.sha, p.title, p.pr, p.refs, d.run_url\n  FROM deploy_event d\n  LEFT JOIN (SELECT DISTINCT ON (sha) sha, title, pr, refs FROM pipeline_run\n              WHERE title IS NOT NULL ORDER BY sha, created DESC) p ON p.sha = d.sha) e WHERE $__timeFilter(t) ORDER BY t DESC LIMIT 200",
+     "datasource": {
+      "type": "postgres",
+      "uid": "orbitcache-ops"
+     }
+    }
+   ]
+  }
+ ]
+}

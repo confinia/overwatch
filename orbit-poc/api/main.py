@@ -148,6 +148,31 @@ CREATE TABLE IF NOT EXISTS deploy_event (
     run_id  bigint      NOT NULL,
     run_url text        NOT NULL
 );
+-- statusmon (#470, rule 34): one probe per service per minute, and the
+-- repo's workflow runs (test / sandbox / staging / prod, with the issue and
+-- PR each change was for) — the ops Deployments and Service health boards.
+CREATE TABLE IF NOT EXISTS service_health (
+    ts      timestamptz NOT NULL DEFAULT now(),
+    service text        NOT NULL,
+    ok      boolean     NOT NULL,
+    ms      integer,
+    detail  text
+);
+CREATE INDEX IF NOT EXISTS service_health_idx ON service_health (service, ts DESC);
+CREATE TABLE IF NOT EXISTS pipeline_run (
+    run_id     bigint PRIMARY KEY,
+    workflow   text NOT NULL,
+    sha        text NOT NULL,
+    title      text,
+    pr         integer,
+    refs       text,
+    event      text,
+    status     text,
+    conclusion text,
+    created    timestamptz,
+    updated    timestamptz,
+    url        text
+);
 CREATE TABLE IF NOT EXISTS element_fetch (
     norad        INTEGER PRIMARY KEY,
     attempts     INTEGER NOT NULL DEFAULT 0,
@@ -1690,6 +1715,9 @@ OPS_TABLES = ("organization", "org_user", "org_token", "api_key",
               # deploys board (#382); granted once the first deploy after
               # this change has created it
               "deploy_event",
+              # written by statusmon (#470): per-service probes and the
+              # repo's workflow runs, for the Deployments / Service health boards
+              "service_health", "pipeline_run",
               # the SatNOGS gateway board (#450): which satellites we poll and
               # whether the plan delivers frames for them
               "satellite", "catalog")

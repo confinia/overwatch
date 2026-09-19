@@ -1,0 +1,302 @@
+{
+ "uid": "service-health",
+ "title": "Service health",
+ "description": "One probe per service per minute by statusmon (#470, rule 34): the database, the SatNOGS gateway, web/api/keycloak through caddy, grafana, prometheus and the collector. The ingest is watched through its output (upstream requests, telemetry freshness) on the other boards.",
+ "schemaVersion": 39,
+ "time": {
+  "from": "now-24h",
+  "to": "now"
+ },
+ "refresh": "1m",
+ "panels": [
+  {
+   "id": 1,
+   "title": "Down now",
+   "type": "stat",
+   "datasource": {
+    "type": "postgres",
+    "uid": "orbitcache-ops"
+   },
+   "gridPos": {
+    "h": 5,
+    "w": 6,
+    "x": 0,
+    "y": 0
+   },
+   "description": "Services whose latest probe failed.",
+   "fieldConfig": {
+    "defaults": {
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "red",
+        "value": 1
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "colorMode": "background",
+    "graphMode": "none",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    }
+   },
+   "targets": [
+    {
+     "format": "table",
+     "refId": "A",
+     "rawSql": "SELECT count(*) FILTER (WHERE NOT ok) AS down FROM (SELECT DISTINCT ON (service) ok FROM service_health ORDER BY service, ts DESC) s",
+     "datasource": {
+      "type": "postgres",
+      "uid": "orbitcache-ops"
+     }
+    }
+   ]
+  },
+  {
+   "id": 2,
+   "title": "Monitor freshness",
+   "type": "stat",
+   "datasource": {
+    "type": "postgres",
+    "uid": "orbitcache-ops"
+   },
+   "gridPos": {
+    "h": 5,
+    "w": 6,
+    "x": 6,
+    "y": 0
+   },
+   "description": "Age of the newest probe. Red means statusmon itself is down: the monitor is monitored.",
+   "fieldConfig": {
+    "defaults": {
+     "unit": "dtdurations",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 180
+       },
+       {
+        "color": "red",
+        "value": 600
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "colorMode": "background",
+    "graphMode": "none",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    }
+   },
+   "targets": [
+    {
+     "format": "table",
+     "refId": "A",
+     "rawSql": "SELECT date_part('epoch', now() - max(ts)) AS age FROM service_health",
+     "datasource": {
+      "type": "postgres",
+      "uid": "orbitcache-ops"
+     }
+    }
+   ]
+  },
+  {
+   "id": 3,
+   "title": "Now",
+   "type": "table",
+   "datasource": {
+    "type": "postgres",
+    "uid": "orbitcache-ops"
+   },
+   "gridPos": {
+    "h": 5,
+    "w": 12,
+    "x": 12,
+    "y": 0
+   },
+   "fieldConfig": {
+    "defaults": {},
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Up"
+      },
+      "properties": [
+       {
+        "id": "mappings",
+        "value": [
+         {
+          "type": "value",
+          "options": {
+           "true": {
+            "text": "up",
+            "color": "green",
+            "index": 0
+           },
+           "false": {
+            "text": "DOWN",
+            "color": "red",
+            "index": 1
+           }
+          }
+         }
+        ]
+       },
+       {
+        "id": "custom.cellOptions",
+        "value": {
+         "type": "color-background",
+         "mode": "basic"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "showHeader": true
+   },
+   "targets": [
+    {
+     "format": "table",
+     "refId": "A",
+     "rawSql": "SELECT DISTINCT ON (service) service AS \"Service\", ok AS \"Up\", ms AS \"ms\", detail AS \"Detail\", ts AS \"Checked\" FROM service_health ORDER BY service, ts DESC",
+     "datasource": {
+      "type": "postgres",
+      "uid": "orbitcache-ops"
+     }
+    }
+   ]
+  },
+  {
+   "id": 4,
+   "title": "Up / down",
+   "type": "state-timeline",
+   "datasource": {
+    "type": "postgres",
+    "uid": "orbitcache-ops"
+   },
+   "gridPos": {
+    "h": 9,
+    "w": 24,
+    "x": 0,
+    "y": 5
+   },
+   "fieldConfig": {
+    "defaults": {
+     "custom": {
+      "fillOpacity": 80,
+      "lineWidth": 0
+     },
+     "mappings": [
+      {
+       "type": "value",
+       "options": {
+        "1": {
+         "text": "up",
+         "color": "green",
+         "index": 0
+        },
+        "0": {
+         "text": "down",
+         "color": "red",
+         "index": 1
+        }
+       }
+      }
+     ]
+    },
+    "overrides": []
+   },
+   "options": {
+    "mergeValues": true,
+    "showValue": "never",
+    "rowHeight": 0.8,
+    "legend": {
+     "displayMode": "hidden"
+    }
+   },
+   "targets": [
+    {
+     "format": "time_series",
+     "refId": "A",
+     "rawSql": "SELECT $__timeGroupAlias(ts, '1m'), service AS metric, max(CASE WHEN ok THEN 1 ELSE 0 END) AS value FROM service_health WHERE $__timeFilter(ts) GROUP BY 1, 2 ORDER BY 1",
+     "datasource": {
+      "type": "postgres",
+      "uid": "orbitcache-ops"
+     }
+    }
+   ]
+  },
+  {
+   "id": 5,
+   "title": "Probe latency",
+   "type": "timeseries",
+   "datasource": {
+    "type": "postgres",
+    "uid": "orbitcache-ops"
+   },
+   "gridPos": {
+    "h": 9,
+    "w": 24,
+    "x": 0,
+    "y": 14
+   },
+   "description": "Average round trip of successful probes, 5-minute buckets.",
+   "fieldConfig": {
+    "defaults": {
+     "unit": "ms",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 1,
+      "fillOpacity": 5
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   },
+   "targets": [
+    {
+     "format": "time_series",
+     "refId": "A",
+     "rawSql": "SELECT $__timeGroupAlias(ts, '5m'), service AS metric, avg(ms) AS value FROM service_health WHERE $__timeFilter(ts) AND ok GROUP BY 1, 2 ORDER BY 1",
+     "datasource": {
+      "type": "postgres",
+      "uid": "orbitcache-ops"
+     }
+    }
+   ]
+  }
+ ]
+}
