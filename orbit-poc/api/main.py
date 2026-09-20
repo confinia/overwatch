@@ -404,6 +404,38 @@ CREATE TABLE IF NOT EXISTS user_satellite (
     PRIMARY KEY (sub, norad)
 );
 CREATE INDEX IF NOT EXISTS user_satellite_sub_idx ON user_satellite (sub, added_at DESC);
+
+-- Imaging scenes from open STAC catalogs (#457): Planet's Crisis Response
+-- releases, CC-BY-NC-4.0. Metadata only (footprint, times, platform, asset
+-- URLs); the imagery bytes stay at the publisher. Open view only — never a
+-- paid surface (the licence forbids it).
+CREATE TABLE IF NOT EXISTS event (
+    slug        text PRIMARY KEY,
+    source      text NOT NULL,
+    title       text NOT NULL,
+    description text,
+    url         text,
+    updated_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS scene (
+    id            text PRIMARY KEY,
+    event         text NOT NULL,
+    collection    text NOT NULL,
+    phase         text,                 -- pre-event / post-event, from the tree
+    constellation text,
+    platform      text,
+    norad         integer,              -- resolved against the operator feed
+    captured      timestamptz NOT NULL,
+    published     timestamptz,
+    gsd           real,
+    cloud_cover   real,
+    footprint     jsonb NOT NULL,       -- GeoJSON geometry
+    thumbnail     text,
+    visual        text,
+    url           text,
+    fetched_at    timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS scene_event_idx ON scene (event, captured);
 """
 
 
@@ -1656,7 +1688,10 @@ def _org_role(org_id: str) -> tuple[str, str]:
 GRAFANA_PUBLIC_TABLES = ("satellite", "position", "telemetry", "reception", "pass",
                          # upstream cut intervals only, drawn as annotations
                          # (#452); the request log itself stays ops-only
-                         "provider_outage")
+                         "provider_outage",
+                         # open imaging scenes (#457): metadata under CC-BY-NC,
+                         # public boards only
+                         "event", "scene")
 GRAFANA_ROLE = "grafana_ro"
 
 

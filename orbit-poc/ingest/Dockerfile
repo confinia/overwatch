@@ -2,6 +2,6 @@ FROM python:3.12-slim
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-COPY ingest.py satellites.py calibration.py passes.py flatten.py catalog_sync.py satngs.py ./
+COPY ingest.py satellites.py calibration.py passes.py flatten.py catalog_sync.py satngs.py scenes.py ./
 COPY decoders ./decoders
 CMD ["python", "-u", "ingest.py"]

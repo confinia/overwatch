@@ -88,6 +88,78 @@ function setRange(h){
 }
 renderRangebar();
 
+// Imaging scenes (#457): Planet's open Crisis Response releases, drawn as
+// footprints on the globe for one event at a time. The mission OUTCOME next
+// to the telemetry: which satellite covered the area, when, and how long the
+// scene took to reach the public. CC-BY-NC-4.0, so this lives on the open
+// view only, with the credit in the map attribution while it is shown.
+const SCENE_ATTR = "Imagery © Planet Labs PBC, CC-BY-NC-4.0";
+let sceneEvents = [];
+let activeEvent = null;
+async function loadEvents(){
+  try { sceneEvents = (await j("/api/events")).filter(e => e.scenes > 0); }
+  catch(e){ sceneEvents = []; }
+  renderEventbar();
+}
+function renderEventbar(){
+  const el = document.getElementById("eventbar");
+  if (!el) return;
+  if (!sceneEvents.length){ el.style.display = "none"; return; }
+  el.style.display = "";
+  const opt = e => `<option value="${escapeHTML(e.slug)}"${e.slug === activeEvent ? " selected" : ""}>` +
+    `${escapeHTML(shortEventTitle(e.title))} · ${e.scenes} scenes</option>`;
+  el.innerHTML = `<span class="lbl">Imaging</span><select onchange="showEvent(this.value)">` +
+    `<option value=""${activeEvent ? "" : " selected"}>none</option>` + sceneEvents.map(opt).join("") + `</select>`;
+}
+// "Planet Crisis Response — Gironde/Landes Wildfire, France (2026)" -> the part after the dash
+function shortEventTitle(t){ return (t || "").split(/\s[—–-]\s/).pop(); }
+function sceneLayers(geo){
+  if (!map.getSource("scenes")){
+    map.addSource("scenes", { type:"geojson", data:geo, attribution:SCENE_ATTR });
+    map.addLayer({ id:"scenes", type:"fill", source:"scenes",
+      paint:{ "fill-color":["case", ["==", ["get","phase"], "pre-event"], "#6ea8ff", "#ffb347"],
+              "fill-opacity":0.28 } }, "sats");
+    map.addLayer({ id:"scenes-line", type:"line", source:"scenes",
+      paint:{ "line-color":["case", ["==", ["get","phase"], "pre-event"], "#6ea8ff", "#ffb347"],
+              "line-width":1.2, "line-opacity":0.9 } }, "sats");
+  } else map.getSource("scenes").setData(geo);
+}
+async function showEvent(slug){
+  activeEvent = slug || null;
+  renderEventbar();
+  if (!activeEvent){
+    if (map.getSource("scenes")) map.getSource("scenes").setData({ type:"FeatureCollection", features:[] });
+    return;
+  }
+  const geo = await j("/api/scenes/" + encodeURIComponent(activeEvent));
+  const draw = () => {
+    sceneLayers(geo);
+    if (!geo.features.length) return;
+    let w = 180, s = 90, e = -180, n = -90;
+    for (const f of geo.features){
+      const rings = f.geometry.type === "MultiPolygon" ? f.geometry.coordinates.flat() : f.geometry.coordinates;
+      for (const ring of rings) for (const [x, y] of ring){ w = Math.min(w, x); e = Math.max(e, x); s = Math.min(s, y); n = Math.max(n, y); }
+    }
+    if (phoneMode()) setView("globe");
+    map.fitBounds([[w, s], [e, n]], { padding:60, maxZoom:10, duration:1200 });
+  };
+  if (map.getSource("sats")) draw(); else map.once("load", draw);
+  beacon("select");
+}
+function scenePopupHTML(p){
+  const fmt = t => t ? new Date(t).toUTCString().slice(5, -7) + " UTC" : "?";
+  const who = p.satellite
+    ? `<a href="#${p.norad}">${escapeHTML(p.satellite)}</a>`
+    : escapeHTML((p.constellation || "") + " " + (p.platform || ""));
+  return (p.thumbnail ? `<img src="${escapeHTML(p.thumbnail)}" alt="" style="width:100%;border-radius:6px;margin-bottom:6px">` : "") +
+    `<b>${escapeHTML(p.phase || "scene")}</b> · ${who}<br>` +
+    `captured ${fmt(p.captured)}<br>` +
+    (p.published ? `published ${fmt(p.published)} (<b>${p.lag_h} h</b> after capture)<br>` : "") +
+    (p.gsd ? `${p.gsd} m/px` : "") + (p.cloud_cover != null ? ` · ${p.cloud_cover}% cloud` : "") + `<br>` +
+    (p.visual ? `<a href="${escapeHTML(p.visual)}" target="_blank" rel="noopener">Cloud-optimized GeoTIFF ↗</a><br>` : "") +
+    `<span style="color:var(--dim);font-size:11px">${SCENE_ATTR}</span>`;
+}
+
 // Account: same OpenID token (cookie) as the API and Grafana. Signed out ->
 // sign-in/register link (Keycloak handles both); signed in without org ->
 // create-organization action; with org -> private fleet section in the list.
@@ -108,7 +180,8 @@ function applyOpenVisibility(){
   const keepSome = !showOpen && favs.length > 0;
   const vis = (showOpen || keepSome) ? "visible" : "none";
   for (const l of ["sats","sats-hit","sat-labels","track","track-arcs","rx-links",
-                   "rx-links-glow","rx-endpoints","rx-links-hit","rx-stations","rx-stations-hit","rx-station-labels"]){
+                   "rx-links-glow","rx-endpoints","rx-links-hit","rx-stations","rx-stations-hit","rx-station-labels",
+                   "scenes","scenes-line"]){
     try { if (map.getLayer(l)) map.setLayoutProperty(l, "visibility", vis); } catch(e){}
   }
   // In "only my satellites" mode the dot layers are filtered to the favourites
@@ -122,6 +195,8 @@ function applyOpenVisibility(){
   }
   const fb = document.getElementById("fleetbar");
   if (fb) fb.style.display = showOpen ? "flex" : "none";
+  const eb = document.getElementById("eventbar");
+  if (eb && sceneEvents.length) eb.style.display = showOpen ? "" : "none";
 }
 function toggleOpen(){
   showOpen = !showOpen;
@@ -1601,6 +1676,17 @@ map.on("load", () => {
         `<a href="https://www.qrz.com/db/${encodeURIComponent(baseCall(p.name))}" target="_blank" rel="noopener">Contact operator ${escapeHTML(p.name)} (QRZ) ↗</a>`)
       .addTo(map);
   });
+  map.on("click", "scenes", e => {
+    // a satellite dot or a station on top of a footprint keeps its own click
+    if (map.queryRenderedFeatures(e.point, { layers:["sats-hit","rx-stations-hit"] }).length) return;
+    new maplibregl.Popup({ maxWidth:"300px" })
+      .setLngLat(e.lngLat)
+      .setHTML(scenePopupHTML(e.features[0].properties))
+      .addTo(map);
+  });
+  map.on("mouseenter", "scenes", () => map.getCanvas().style.cursor = "pointer");
+  map.on("mouseleave", "scenes", () => map.getCanvas().style.cursor = "");
+  loadEvents();
   map.on("click", "rx-links-hit", e => {
     if (map.queryRenderedFeatures(e.point, { layers:["rx-stations-hit", "sats-hit"] }).length) return;
     const p = e.features[0].properties;

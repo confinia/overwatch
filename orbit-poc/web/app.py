@@ -246,6 +246,48 @@ def station(observer):
         return jsonify(cur.fetchall())
 
 
+@app.get("/api/events")
+def events():
+    """Imaging events from open STAC catalogs (#457), newest first, with
+    the scene count, the constellations that covered them and the time span.
+    Open data under CC-BY-NC: served here, on the open view, only."""
+    with db() as conn, conn.cursor() as cur:
+        cur.execute("""
+            SELECT e.slug, e.title, e.source, e.url,
+                   count(s.id) AS scenes, min(s.captured) AS first_capture,
+                   max(s.captured) AS last_capture,
+                   array_remove(array_agg(DISTINCT s.constellation), NULL) AS constellations,
+                   count(DISTINCT s.norad) AS satellites
+            FROM event e LEFT JOIN scene s ON s.event = e.slug
+            GROUP BY e.slug ORDER BY max(s.captured) DESC NULLS LAST""")
+        return jsonify(cur.fetchall())
+
+
+@app.get("/api/scenes/<slug>")
+def scenes(slug):
+    """Every scene of one event as a GeoJSON FeatureCollection: the footprint
+    and, per feature, what took it and when, the publication lag in hours,
+    the thumbnail URL. Assets stay at the publisher; this is metadata."""
+    with db() as conn, conn.cursor() as cur:
+        cur.execute("""
+            SELECT s.id, s.collection, s.phase, s.constellation, s.platform,
+                   s.norad, sat.name AS satellite, s.captured, s.published,
+                   round((extract(epoch FROM s.published - s.captured) / 3600)::numeric, 1)
+                     AS lag_h,
+                   s.gsd, s.cloud_cover, s.thumbnail, s.visual, s.url, s.footprint
+            FROM scene s LEFT JOIN satellite sat ON sat.norad = s.norad
+            WHERE s.event = %s ORDER BY s.captured""", (slug,))
+        rows = cur.fetchall()
+    feats = []
+    for r in rows:
+        geom = r.pop("footprint")
+        feats.append({"type": "Feature", "geometry": geom, "properties": r})
+    resp = jsonify({"type": "FeatureCollection", "features": feats,
+                    "attribution": "Imagery © Planet Labs PBC, CC-BY-NC-4.0"})
+    resp.headers["Cache-Control"] = "public, max-age=600"
+    return resp
+
+
 @app.get("/api/event")
 def ui_event():
     """First-party usage beacon: page loads, satellite selections, searches.
