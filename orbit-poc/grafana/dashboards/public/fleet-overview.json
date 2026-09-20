@@ -111,6 +111,71 @@
         "type": "grafana-postgresql-datasource",
         "uid": "orbitcache"
       }
+    },
+    {
+      "id": 4,
+      "title": "Imaging: capture to publication, by constellation (open Planet disaster releases)",
+      "description": "Hours between a scene's capture and its public release, per day and constellation. Metadata from Planet's open Crisis Response STAC catalog (imagery CC-BY-NC-4.0). Empty until the first daily walk.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 19
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "h",
+          "custom": {
+            "drawStyle": "points",
+            "pointSize": 6
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "format": "time_series",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "orbitcache"
+          },
+          "rawSql": "SELECT date_trunc('day', captured) AS time, constellation AS metric, avg(extract(epoch FROM published - captured) / 3600) AS value FROM scene WHERE published IS NOT NULL AND captured > now() - interval '2 years' GROUP BY 1, 2 ORDER BY 1"
+        }
+      ],
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "orbitcache"
+      }
+    },
+    {
+      "id": 5,
+      "title": "Imaging events: scenes, satellites, first and last capture",
+      "type": "table",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 19
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "targets": [
+        {
+          "format": "table",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "orbitcache"
+          },
+          "rawSql": "SELECT e.title AS event, count(s.id) AS scenes, count(DISTINCT s.norad) AS satellites, min(s.captured) AS first_capture, max(s.captured) AS last_capture, round(avg(extract(epoch FROM s.published - s.captured) / 3600)::numeric, 1) AS avg_lag_h FROM event e LEFT JOIN scene s ON s.event = e.slug GROUP BY e.slug, e.title ORDER BY max(s.captured) DESC NULLS LAST"
+        }
+      ],
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "orbitcache"
+      }
     }
   ],
   "annotations": {

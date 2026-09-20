@@ -57,6 +57,9 @@ services:
       # elements cycle, no token. Planet's covers its whole fleet (~100
       # objects), position-only, from the operator's own orbit determination.
       OPERATOR_TLE_FEEDS: "planet=https://ephemerides.planet-labs.com/planet_mc.tle"
+      # Open imaging scenes (#457): Planet's Crisis Response STAC catalog,
+      # CC-BY-NC-4.0, metadata only, one walk a day. Open view only.
+      STAC_CATALOGS: "planet-disasters=https://data.source.coop/planet/disasterdata/catalog.json"
       POSITION_INTERVAL: "15"      # local propagation only, no external calls
       # Re-entry slack (#450): 24 polled satellites x 48 cycles/day was 80% of
       # the 1/min ceiling. 1h while the gateway pace is 60s; back to "1800"

@@ -36,6 +36,7 @@ import numpy as np
 
 import catalog_sync              # catalogue merge/prune after a bulk pass (#384)
 import satngs                    # LoRa station logs, a SatNOGS-independent source (#454)
+import scenes                    # imaging scenes from open STAC catalogs (#457)
 
 from satellites import SHOWCASE
 from calibration import calibrate, canonical_from, CANONICAL_SOURCES
@@ -1372,6 +1373,13 @@ def fetch_satngs():
     replay_frames()
 
 
+def fetch_scenes():
+    # _timed_get so the walk shows on the upstream-requests board like every
+    # other source; the label is the catalog's, e.g. "stac:planet-disasters".
+    scenes.fetch_scenes(
+        db, lambda label, url, **kw: _timed_get(f"stac:{label}", url, **kw), headers=UA)
+
+
 def replay_frames(limit=500):
     """Raw frames kept in `frame` (#455) become telemetry once their
     satellite has a decoder (#458): a decoder that arrives later replays
@@ -1507,6 +1515,12 @@ def main():
         threading.Thread(
             target=loop,
             args=(fetch_satngs, satngs.SATNGS_INTERVAL, "satngs"),
+            daemon=True).start()
+    # Imaging scenes (#457): one walk of each open STAC catalog per day,
+    # nothing when STAC_CATALOGS is empty (the self-host default).
+    if scenes.catalogs():
+        threading.Thread(
+            target=loop, args=(fetch_scenes, scenes.SCENE_INTERVAL, "scenes"),
             daemon=True).start()
     # positions LAST and in the main thread: loop() never returns, so anything
     # called after it is dead code. Adding a loop above this line instead of a

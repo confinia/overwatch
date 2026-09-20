@@ -82,6 +82,13 @@
     padding:4px 9px; border-radius:6px; font-size:12px; font-family:inherit; }
   #rangebar button:hover { color:var(--text); }
   #rangebar button.on { background:var(--accent); color:#04070d; font-weight:600; }
+  /* Imaging event picker (#457): open Planet disaster scenes on the globe. */
+  #eventbar { background:rgba(18,24,38,.88); border:1px solid var(--line);
+    border-radius:8px; padding:3px; display:flex; gap:2px; align-items:center; }
+  #eventbar .lbl { color:var(--dim); font-size:11px; padding:0 6px; }
+  #eventbar select { background:none; border:0; color:var(--text); font-size:12px;
+    font-family:inherit; padding:4px 6px; max-width:210px; }
+  #eventbar select option { background:var(--panel); }
   #side { border-left:1px solid var(--line); background:var(--panel);
     display:flex; flex-direction:column; min-width:0; min-height:0; }
   /* Bottom tab bar — phone/tablet only. Hidden here, shown by the media block
@@ -132,6 +139,9 @@
     #topbar::-webkit-scrollbar { display:none; }
     #fleetbar, #rangebar { flex:0 0 auto; }
     #rangebar .lbl { display:none; }
+    #eventbar { flex:0 0 auto; }
+    #eventbar .lbl { display:none; }
+    #eventbar select { max-width:160px; }
   }
   header { padding:14px 16px; border-bottom:1px solid var(--line); }
   header h1 { font-size:15px; margin:0 0 2px; letter-spacing:.2px; }
@@ -379,6 +389,7 @@
       <button id="guide-open" type="button" title="How to read this">?</button>
       <div id="fleetbar" title="Fleet link status">loading fleet…</div>
       <div id="rangebar" title="Time window for receptions, decoded fields and track"></div>
+      <div id="eventbar" title="Imaging scenes from Planet's open disaster releases (CC-BY-NC)" style="display:none"></div>
       <div id="oem-banner" style="display:none"></div>
       <div id="rxlegend" style="display:none"></div>
       <button id="resumetrack" type="button" hidden
