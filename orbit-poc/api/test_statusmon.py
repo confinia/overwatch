@@ -6,6 +6,7 @@ Mondays unnoticed. Two halves here: the statusmon logic with injected get/db
 """
 import json
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "statusmon"))
@@ -202,3 +203,26 @@ def test_the_service_health_board_reads_the_probes_and_watches_the_monitor():
     for panel in board["panels"]:
         for t in panel.get("targets", []):
             assert t["datasource"]["uid"] == "orbitcache-ops"
+
+
+def test_every_built_core_service_is_recreated_by_the_deploy():
+    """#480: statusmon merged, staged, promoted, and never existed on prod,
+    because the deploy step names the services it builds and recreates. A
+    core service with a `build:` (its own code, so `--no-recreate` would pin
+    a stale image forever) must be in that list, or it is not deployed."""
+    compose = open(os.path.join(HERE, "..", "docker-compose.yml"), encoding="utf-8").read()
+    built = []
+    for i, line in enumerate(compose.splitlines()):
+        if line.startswith("    build:"):
+            above = [l for l in compose.splitlines()[:i] if l.startswith("  ") and not l.startswith("   ")]
+            built.append(above[-1].strip().rstrip(":"))
+    assert "statusmon" in built and "ingest" in built
+    wf = next(p for p in (os.path.join(HERE, "..", "..", ".github", "workflows", "deploy.yml"),
+                          os.path.join(HERE, "..", ".github", "workflows", "deploy.yml"))
+              if os.path.exists(p))
+    deploy = open(wf, encoding="utf-8").read()
+    for svc in built:
+        assert f"podman rm -f orbit-poc_{svc}_1" in deploy, f"{svc} is never recreated on prod"
+        assert f"up -d --no-deps {svc} " in deploy, f"{svc} is never started on prod"
+    m = re.search(r"for svc in ([a-z\- ]+); do", deploy)
+    assert m and set(m.group(1).split()) >= set(built), "image freshness is asserted for every built service"

@@ -91,12 +91,17 @@ jobs:
           # goes first on removal and last on recreate. Until #450 the gateway
           # was never rebuilt here at all, so a merged gateway change stayed
           # in the repo while production ran the hand-built image.
-          podman-compose build satnogs-gateway ingest 2>&1 | tail -1
+          # statusmon (#470) is code too and was never started by this step
+          # until #480: a service that is not named here does not exist on
+          # prod, whatever the compose file says.
+          podman-compose build satnogs-gateway ingest statusmon 2>&1 | tail -1
           podman rm -f orbit-poc_ingest_1 >/dev/null 2>&1 || true
           podman rm -f orbit-poc_satnogs-gateway_1 >/dev/null 2>&1 || true
+          podman rm -f orbit-poc_statusmon_1 >/dev/null 2>&1 || true
           podman-compose up -d --no-deps satnogs-gateway 2>&1 | tail -1
           podman-compose up -d --no-deps ingest 2>&1 | tail -1
-          for svc in satnogs-gateway ingest; do
+          podman-compose up -d --no-deps statusmon 2>&1 | tail -1
+          for svc in satnogs-gateway ingest statusmon; do
             want=$(podman image inspect "localhost/orbit-poc_${svc}:latest" \
                    --format '{{.Id}}' 2>/dev/null || true)
             got=$(podman inspect "orbit-poc_${svc}_1" --format '{{.Image}}' 2>/dev/null || true)
@@ -105,7 +110,7 @@ jobs:
               exit 1
             fi
           done
-          echo "gateway + ingest running the freshly built images"
+          echo "gateway + ingest + statusmon running the freshly built images"
           cd ~/projects/overwatch
           bash deploy/run-tests.sh          # the gate: no candidate on a red suite
           bash deploy/slots.sh stage
