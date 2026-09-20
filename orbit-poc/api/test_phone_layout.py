@@ -44,6 +44,23 @@ def test_the_tab_bar_exists_and_only_below_the_breakpoint():
         "the bar appears on phones/tablets only — desktop keeps the grid"
 
 
+def test_the_phone_rule_for_the_tab_bar_wins_the_cascade():
+    """#475: the bar was invisible on EVERY phone (iPhone SE and Android
+    alike) while #473 blamed iOS. A media query adds no specificity, so with
+    equal selectors the LAST rule wins: the base `#tabbar { display:none }`
+    sat after the media block's `display:flex` and simply overrode it. The
+    base rule must come first; the phone rule last."""
+    html = _read("index.html")
+    hide = html.find("#tabbar { display:none")
+    show = html.find("#tabbar { display:flex")
+    assert hide != -1 and show != -1
+    assert hide < show, \
+        ("`#tabbar { display:none }` must precede the @media `display:flex` "
+         "rule — same specificity, so whichever is later wins")
+    assert html.count("#tabbar { display:none") == 1, \
+        "exactly one hiding rule, and it lives before the phone breakpoint"
+
+
 def test_the_tab_bar_can_never_hide_behind_safari_chrome():
     """#473: iOS Safari pins position:fixed to the LAYOUT viewport; on a page
     that cannot scroll, a fixed bottom bar sits permanently behind Safari's

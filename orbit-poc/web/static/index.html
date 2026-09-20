@@ -84,6 +84,17 @@
   #rangebar button.on { background:var(--accent); color:#04070d; font-weight:600; }
   #side { border-left:1px solid var(--line); background:var(--panel);
     display:flex; flex-direction:column; min-width:0; min-height:0; }
+  /* Bottom tab bar — phone/tablet only. Hidden here, shown by the media block
+     BELOW; the order is the whole point (#475): a media query adds no
+     specificity, so the last rule wins. With this base rule after the block,
+     display:none beat display:flex and the bar existed on no phone at all,
+     iOS and Android alike. In-flow, never position:fixed (#473). */
+  #tabbar { display:none; height:52px;
+    background:var(--panel); border-top:1px solid var(--line); z-index:30;
+    padding-bottom:env(safe-area-inset-bottom); }
+  #tabbar button { flex:1; background:none; border:0; color:var(--dim);
+    font-size:12px; cursor:pointer; }
+  #tabbar button.on { color:var(--accent); }
   /* Small screens (#471): one view at a time, chosen by the bottom tab bar —
      Globe / Satellites / Data. The old rule here simply amputated #side, so a
      phone had no list and NO SEARCH; an iPhone SE showed a globe buried under
@@ -122,14 +133,6 @@
     #fleetbar, #rangebar { flex:0 0 auto; }
     #rangebar .lbl { display:none; }
   }
-  /* Bottom tab bar — phone/tablet only (shown by the media query above).
-     In-flow, never position:fixed — see the iOS note in that block (#473). */
-  #tabbar { display:none; height:52px;
-    background:var(--panel); border-top:1px solid var(--line); z-index:30;
-    padding-bottom:env(safe-area-inset-bottom); }
-  #tabbar button { flex:1; background:none; border:0; color:var(--dim);
-    font-size:12px; cursor:pointer; }
-  #tabbar button.on { color:var(--accent); }
   header { padding:14px 16px; border-bottom:1px solid var(--line); }
   header h1 { font-size:15px; margin:0 0 2px; letter-spacing:.2px; }
   header p { margin:0; font-size:12px; color:var(--dim); }
