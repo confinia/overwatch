@@ -40,8 +40,21 @@ def test_the_tab_bar_exists_and_only_below_the_breakpoint():
     for view in ("globe", "sats", "data"):
         assert f'data-view="{view}"' in html, f"tab for {view} missing"
     css = _phone_css(html)
-    assert "#tabbar { display:flex; }" in css, \
+    assert re.search(r"#tabbar \{ display:flex", css), \
         "the bar appears on phones/tablets only — desktop keeps the grid"
+
+
+def test_the_tab_bar_can_never_hide_behind_safari_chrome():
+    """#473: iOS Safari pins position:fixed to the LAYOUT viewport; on a page
+    that cannot scroll, a fixed bottom bar sits permanently behind Safari's
+    own toolbar. The bar must be in the layout flow, in a column sized with
+    dvh (the viewport Safari actually shows)."""
+    html = _read("index.html")
+    tabbar_css = re.findall(r"#tabbar \{[^}]*\}", html)
+    assert tabbar_css and all("position:fixed" not in r for r in tabbar_css), \
+        "the tab bar must never be position:fixed"
+    assert "height:100dvh" in _phone_css(html), \
+        "the phone column must use dynamic viewport units (vh lies on iOS)"
 
 
 def test_the_list_and_search_are_restored_on_phones():

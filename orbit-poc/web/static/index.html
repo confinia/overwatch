@@ -90,9 +90,17 @@
      three rows of chips and a half-screen of empty dashboard iframes. The
      desktop grid is untouched above 900px, where the tab bar does not exist. */
   @media (max-width: 900px) {
-    #app { grid-template-columns: 1fr;
-      grid-template-rows: calc(100vh - 52px); height:calc(100vh - 52px); }
-    #tabbar { display:flex; }
+    /* The tab bar lives IN the layout flow, not position:fixed (#473): iOS
+       Safari pins fixed elements to the LAYOUT viewport, and on a page that
+       cannot scroll its toolbars never collapse — a fixed bottom bar sits
+       permanently behind Safari's own toolbar, invisible. A flex column
+       sized in dvh (the viewport Safari actually shows; vh fallback for old
+       engines) cannot end up under the browser chrome. */
+    body { display:flex; flex-direction:column; overflow:hidden;
+      height:100vh; height:100dvh; }
+    #app { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr);
+      height:auto; flex:1 1 auto; min-height:0; }
+    #tabbar { display:flex; flex:0 0 auto; }
     /* Globe: full-height map, no panel. The map row must own the whole pane —
        app.js calls map.resize() on every view switch. */
     body[data-view="globe"] #left { grid-template-rows: 1fr 0; }
@@ -114,8 +122,9 @@
     #fleetbar, #rangebar { flex:0 0 auto; }
     #rangebar .lbl { display:none; }
   }
-  /* Bottom tab bar — phone/tablet only (shown by the media query above). */
-  #tabbar { display:none; position:fixed; left:0; right:0; bottom:0; height:52px;
+  /* Bottom tab bar — phone/tablet only (shown by the media query above).
+     In-flow, never position:fixed — see the iOS note in that block (#473). */
+  #tabbar { display:none; height:52px;
     background:var(--panel); border-top:1px solid var(--line); z-index:30;
     padding-bottom:env(safe-area-inset-bottom); }
   #tabbar button { flex:1; background:none; border:0; color:var(--dim);
