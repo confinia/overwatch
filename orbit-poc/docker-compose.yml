@@ -141,6 +141,33 @@ services:
       retries: 3
     restart: unless-stopped
 
+  # Status monitor (#470, rule 34): one cheap probe per service per minute ->
+  # `service_health`, and the repo's workflow runs from the public GitHub API
+  # -> `pipeline_run`, so every component AND the pipeline chart on the ops
+  # "Service health" board. Cloud-only, like the gateway: selfhost operators
+  # watch their own compose.
+  statusmon:
+    build: ./statusmon
+    depends_on:
+      db:
+        condition: service_healthy
+    # DB_DSN comes from .env (never committed).
+    env_file:
+      - .env
+    networks:
+      - default
+      - v2net          # keycloak probe crosses to the ovw2 project via caddy anyway; kept for parity with caddy
+    cpus: "0.1"
+    mem_limit: 96m
+    # Plain argv only (#463): healthz.py checks the probe loop's heartbeat,
+    # so a wedged monitor is itself visibly unhealthy.
+    healthcheck:
+      test: ["CMD", "python", "healthz.py"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
   # NOTE: web + api are NOT here — they live in the color stacks
   # (docker-compose.blue.yml / docker-compose.green.yml), two complete
   # independent compose projects deployed by deploy/slots.sh. This file is
