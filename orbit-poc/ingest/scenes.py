@@ -36,6 +36,10 @@ STAC_CATALOGS = os.environ.get("STAC_CATALOGS", "")
 SCENE_INTERVAL = int(os.environ.get("SCENE_INTERVAL", 86400))
 SCENE_ACTIVE_DAYS = int(os.environ.get("SCENE_ACTIVE_DAYS", 30))
 SCENE_TIMEOUT = float(os.environ.get("SCENE_TIMEOUT", 30))
+# after a cycle in which a catalog failed (#482: the first walk on a fresh
+# stack ran before the api had created the tables) — a day is too long to
+# wait to try again, and the walk itself is cheap
+SCENE_RETRY = int(os.environ.get("SCENE_RETRY", 600))
 MAX_DOCS = int(os.environ.get("SCENE_MAX_DOCS", 2000))   # one walk's request ceiling
 
 
@@ -195,8 +199,8 @@ def walk(get, root_url, known_ids, has_scenes, now=None):
 
 def fetch_scenes(db, get, headers=None, timeout=None):
     """One cycle over every configured catalog: new scenes stored, events
-    refreshed. Returns the number of scenes added."""
-    added = 0
+    refreshed. Returns (scenes added, every catalog succeeded)."""
+    added, ok = 0, True
     for label, root in catalogs():
         try:
             with db() as conn, conn.cursor() as cur:
@@ -237,4 +241,17 @@ def fetch_scenes(db, get, headers=None, timeout=None):
             log.info("Scenes: '%s' -> %d events, %d new scenes", label, len(events), len(todo))
         except Exception as e:
             log.warning("STAC catalog '%s' failed: %s", label, e)
-    return added
+            ok = False
+    return added, ok
+
+
+def run(fetch, sleep):
+    """The scenes thread: a clean cycle sleeps SCENE_INTERVAL, a cycle in
+    which any catalog failed retries after SCENE_RETRY (#482)."""
+    while True:
+        try:
+            _, ok = fetch()
+        except Exception as e:
+            log.exception("scenes loop error: %s", e)
+            ok = False
+        sleep(SCENE_INTERVAL if ok else SCENE_RETRY)
