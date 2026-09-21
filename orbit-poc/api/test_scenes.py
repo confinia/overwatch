@@ -207,9 +207,9 @@ def test_fetch_stores_scenes_linked_to_the_operator_feed_satellite(conn, monkeyp
     monkeypatch.setattr(scenes, "STAC_CATALOGS", "planet=" + ROOT)
     calls = []
     get = _get(_tree(), calls)
-    added = scenes.fetch_scenes(lambda: psycopg2.connect(DSN),
-                                lambda label, url, **kw: get(url))
-    assert added == 4
+    added, ok = scenes.fetch_scenes(lambda: psycopg2.connect(DSN),
+                                    lambda label, url, **kw: get(url))
+    assert (added, ok) == (4, True)
     with conn.cursor() as cur:
         cur.execute("SELECT slug, title FROM event WHERE slug IN ('fire','flood') ORDER BY 1")
         assert cur.fetchall() == [("fire", "Planet Crisis Response — Big Fire (2026)"),
@@ -220,8 +220,60 @@ def test_fetch_stores_scenes_linked_to_the_operator_feed_satellite(conn, monkeyp
     # second cycle: nothing re-fetched but the tree, nothing duplicated
     n = len(calls)
     assert scenes.fetch_scenes(lambda: psycopg2.connect(DSN),
-                               lambda label, url, **kw: get(url)) == 0
+                               lambda label, url, **kw: get(url)) == (0, True)
     assert not any(u.endswith(("s1.json", "p1.json", "p2.json", "f1.json")) for u in calls[n:])
+
+
+class _Stop(BaseException):   # not an Exception: run() must not swallow it
+    pass
+
+
+def test_a_failed_cycle_retries_in_minutes_not_tomorrow(monkeypatch):
+    """#482: the first walk on a fresh stack ran before the api had created
+    the tables, and the loop then slept a day. Any failed catalog, or a
+    crash of the cycle itself, gets the short retry; a clean cycle the day."""
+    monkeypatch.setattr(scenes, "SCENE_INTERVAL", 86400)
+    monkeypatch.setattr(scenes, "SCENE_RETRY", 600)
+    outcomes = iter([(0, False), RuntimeError("db gone"), (4, True), (0, True)])
+    slept = []
+
+    def fetch():
+        o = next(outcomes)
+        if isinstance(o, Exception):
+            raise o
+        return o
+
+    def sleep(s):
+        slept.append(s)
+        if len(slept) == 4:
+            raise _Stop
+    with pytest.raises(_Stop):
+        scenes.run(fetch, sleep)
+    assert slept == [600, 600, 86400, 86400]
+
+
+def test_a_missing_table_is_a_failed_cycle_not_a_silent_zero():
+    # the exact shape of the race: the walk works, the store step raises
+    class _Cur:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            pass
+
+        def execute(self, *a):
+            raise RuntimeError('relation "scene" does not exist')
+
+    class _Conn(_Cur):
+        def cursor(self):
+            return _Cur()
+    saved = scenes.STAC_CATALOGS
+    scenes.STAC_CATALOGS = "planet=" + ROOT
+    try:
+        get = _get(_tree(), [])
+        assert scenes.fetch_scenes(_Conn, lambda label, url, **kw: get(url)) == (0, False)
+    finally:
+        scenes.STAC_CATALOGS = saved
 
 
 def test_scene_tables_are_open_to_the_public_boards():
@@ -244,7 +296,7 @@ def test_every_cloud_stack_walks_the_same_catalog():
         c = open(os.path.join(HERE, "..", stack), encoding="utf-8").read()
         assert line in c, f"{stack} must walk the same catalogs as prod"
     ing = open(os.path.join(HERE, "..", "ingest", "ingest.py"), encoding="utf-8").read()
-    assert 'args=(fetch_scenes, scenes.SCENE_INTERVAL, "scenes")' in ing
+    assert "args=(fetch_scenes, time.sleep)" in ing and "target=scenes.run" in ing
     assert "scenes.py" in open(os.path.join(HERE, "..", "ingest", "Dockerfile")).read()
 
 
