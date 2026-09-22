@@ -270,7 +270,7 @@ def main():
     if not uid:
         die("user not found after creation")
 
-    org_id = None
+    org_id = gorg = None
     try:
         step("sign in through the OIDC authorization-code flow")
         login(op)
@@ -433,6 +433,13 @@ def main():
         step("cleanup (organization + user)")
         if org_id:
             jpost(op, f"/api/v1/orgs/{org_id}", method="DELETE")
+            if gorg:
+                # #478: deleting the organization must take its Grafana org
+                # with it, or every run leaves a dead org behind.
+                st, orgs = jget(op, "/grafana/api/user/orgs", retries=1)
+                if st == 200 and any(o.get("orgId") == gorg for o in orgs):
+                    die(f"Grafana org {gorg} survived the organization delete")
+                print(f"  Grafana org {gorg} gone ({st})")
         uid = kc_user_id(adm, token)
         if uid:
             kc(adm, "DELETE", f"/users/{uid}", token=token)

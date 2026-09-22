@@ -2099,15 +2099,65 @@ def _provision_ops_org_async() -> None:
     import threading
 
     def _loop():
-        ops_done = reg_done = False
+        ops_done = reg_done = sweep_done = False
         for _ in range(60):
             ops_done = ops_done or _provision_ops_org()
             reg_done = reg_done or _backfill_registered_users()
-            if ops_done and reg_done:
+            sweep_done = sweep_done or _sweep_orphan_grafana_orgs()
+            if ops_done and reg_done and sweep_done:
                 return
             time.sleep(5)
 
     threading.Thread(target=_loop, daemon=True).start()
+
+
+def _delete_grafana_org(gorg: int) -> bool:
+    """Delete a tenant's private Grafana org (#478): the org, its datasource
+    and its dashboard go with it. True when it is gone (deleted now, or already
+    absent), False when Grafana was unreachable or refused — the caller keeps
+    `grafana_org_id` so the boot sweep retries."""
+    if not GF_ADMIN_PASS:
+        return False
+    try:
+        r = _gf("DELETE", f"/orgs/{gorg}")
+    except _rq.RequestException as e:
+        print(f"[org-delete] Grafana org {gorg} not removed: {e}", flush=True)
+        return False
+    if r.status_code in (200, 404):
+        return True
+    print(f"[org-delete] Grafana org {gorg} not removed: HTTP {r.status_code}",
+          flush=True)
+    return False
+
+
+def _sweep_orphan_grafana_orgs() -> bool:
+    """One idempotent pass over the tombstones (#478): every deleted
+    organization still holding a `grafana_org_id` gets its Grafana org
+    removed and the column nulled. Heals the backlog left before delete_org
+    did this itself (158 dead orgs on the sandbox) and any delete whose
+    Grafana step failed. Returns False while Grafana is unreachable (caller
+    retries), True once every tombstone is clean or nothing is configured."""
+    if not GF_ADMIN_PASS:
+        return True
+    with cursor() as cur:
+        cur.execute("""SELECT id::text, grafana_org_id FROM organization
+                       WHERE archived_at IS NOT NULL AND grafana_org_id IS NOT NULL
+                       ORDER BY archived_at""")
+        orphans = cur.fetchall()
+        cur.connection.commit()
+    done = 0
+    for org_id, gorg in orphans:
+        if not _delete_grafana_org(gorg):
+            break
+        with cursor() as cur:
+            cur.execute("UPDATE organization SET grafana_org_id = NULL WHERE id = %s::uuid",
+                        (org_id,))
+            cur.connection.commit()
+        done += 1
+    if orphans:
+        print(f"[org-delete] sweep: {done}/{len(orphans)} orphan Grafana orgs removed",
+              flush=True)
+    return done == len(orphans)
 
 
 def _ensure_grafana_member(gorg: int, email: str) -> None:
@@ -2792,7 +2842,8 @@ def delete_org(request: Request, org_id: str):
         cur.execute("DELETE FROM org_user WHERE org = %s::uuid", (org_id,))
         cur.execute("DELETE FROM tenant WHERE key = %s::uuid", (org_id,))
         cur.execute("""UPDATE organization SET active = false, archived_at = now()
-                       WHERE id = %s::uuid""", (org_id,))
+                       WHERE id = %s::uuid RETURNING grafana_org_id""", (org_id,))
+        row = cur.fetchone()
         cur.connection.commit()
     # Delete the Keycloak organization (source of truth). Best-effort: the
     # local purge already happened; log but do not fail the request.
@@ -2803,6 +2854,13 @@ def delete_org(request: Request, org_id: str):
                    headers={"Authorization": f"Bearer {at}"}, timeout=15)
     except Exception as e:
         print(f"[org-delete] Keycloak org {org_id} not removed: {e}")
+    # Delete the private Grafana org (org, datasource, dashboard) the same
+    # way (#478). A miss here is picked up by the boot sweep, not lost.
+    if row and row[0] and _delete_grafana_org(row[0]):
+        with cursor() as cur:
+            cur.execute("UPDATE organization SET grafana_org_id = NULL WHERE id = %s::uuid",
+                        (org_id,))
+            cur.connection.commit()
     return {"deleted": org_id, "name": org[1]}
 
 
