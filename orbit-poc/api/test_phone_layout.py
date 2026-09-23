@@ -105,3 +105,22 @@ def test_every_dashboard_iframe_is_lazy():
         assert 'loading="lazy"' in m.group(0), \
             (m.group(0)[:60] + "… — an eager iframe loads Grafana even while "
              "its view is hidden, which is half a phone screen of dead weight")
+
+
+def test_the_first_run_guide_is_a_sheet_not_a_modal_on_phones():
+    """#486: on a phone the #108 card covered 70% of the screen behind a
+    dimmed backdrop, hiding the globe it explains. Below the breakpoint it is
+    a bottom sheet: no backdrop, the globe stays interactive above it, and it
+    sits inside the body column above the tab bar (never fixed, #473). Same
+    specificity as the base rules, so the phone block must come last (#475)."""
+    html = _read("index.html")
+    base = html.find("#guide, #why-register { position:fixed")
+    phone = html.find("#guide { position:absolute")
+    assert base != -1 and phone != -1
+    assert base < phone, "the phone #guide rules must follow the base modal rules"
+    sheet = _phone_css(html)
+    assert "pointer-events:none" in sheet and "background:none" in sheet, \
+        "no dimmed backdrop on phones: the globe must stay usable"
+    assert "align-items:flex-end" in sheet, "the card is a bottom sheet"
+    assert re.search(r"#guide \{[^}]*inset:auto 0 52px 0", sheet), \
+        "the sheet sits above the 52px tab bar"

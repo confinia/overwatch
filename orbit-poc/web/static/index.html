@@ -336,6 +336,23 @@
     cursor:pointer; }
   #why-register .plain { background:none; color:var(--dim); font-weight:400;
     padding:8px 12px; }
+  /* Phones (#486): the first-run card is a bottom sheet over the lower part
+     of the globe, not a dimmed modal covering it: the thing being explained
+     stays visible and usable while the sheet is up. Positioned inside the
+     100dvh body column (never position:fixed on a phone, #473) and above the
+     tab bar. This block must stay AFTER the base #guide rules: same
+     specificity, the later rule wins (#475). */
+  @media (max-width: 900px) {
+    body { position:relative; }
+    #guide { position:absolute; inset:auto 0 52px 0; align-items:flex-end;
+      padding:0; background:none; pointer-events:none; }
+    #guide .card { pointer-events:auto; max-width:none; border-radius:14px 14px 0 0;
+      border-bottom:0; padding:14px 16px 16px; max-height:52vh; max-height:52dvh;
+      box-shadow:0 -8px 24px rgba(0,0,0,.45); }
+    #guide h2 { font-size:15px; margin-bottom:8px; }
+    #guide ul { margin-bottom:12px; }
+    #guide li { font-size:12.5px; line-height:1.4; margin-bottom:6px; }
+  }
 </style>
 </head>
 <body>
