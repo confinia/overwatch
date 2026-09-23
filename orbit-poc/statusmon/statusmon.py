@@ -39,6 +39,11 @@ DB_DSN = os.environ.get("DB_DSN", "")
 PROBE_INTERVAL = float(os.environ.get("PROBE_INTERVAL", 60))
 PIPELINE_INTERVAL = float(os.environ.get("PIPELINE_INTERVAL", 300))
 PROBE_TIMEOUT = float(os.environ.get("PROBE_TIMEOUT", 5))
+# A write+fsync slower than this is "down" for the disk probe (#492): the VM's
+# spinning pair sat at 36 % iowait for hours with no process moving data, and
+# nothing on the boards said so while container healthchecks timed out.
+FSYNC_MAX_MS = int(os.environ.get("FSYNC_MAX_MS", 1000))
+FSYNC_FILE = os.environ.get("FSYNC_FILE", "/tmp/fsync-probe")
 GITHUB_REPO = os.environ.get("GITHUB_REPO", "confinia/overwatch")
 RETENTION_DAYS = int(os.environ.get("RETENTION_DAYS", 14))
 PIPELINE_KEEP = int(os.environ.get("PIPELINE_KEEP", 500))
@@ -53,6 +58,7 @@ UA = {"User-Agent":
 # door too. `sql` is special-cased: the database speaks no HTTP.
 TARGETS = {
     "db": ("sql", None),
+    "disk (fsync)": ("fsync", None),
     "satnogs-gateway": ("http://satnogs-gateway:8088/healthz", None),
     "web (via caddy)": ("http://caddy:80/healthz", "overwatch.confinia.io"),
     "api (via caddy)": ("http://caddy:80/api/v1/healthz", "overwatch.confinia.io"),
@@ -124,11 +130,35 @@ def probe_db(connect=None, now=time.monotonic):
         return False, int((now() - t0) * 1000), type(e).__name__
 
 
+def probe_fsync(path=None, max_ms=None, now=time.monotonic, fsync=os.fsync):
+    """Disk latency as a service (#492): write 4 KB and fsync it, the way
+    every Postgres commit and journal write does. Slow is down: the number
+    is the point, and a disk that takes a second per sync is failing the
+    whole host whatever the processes on it report."""
+    path = path or FSYNC_FILE
+    max_ms = FSYNC_MAX_MS if max_ms is None else max_ms
+    t0 = now()
+    try:
+        with open(path, "wb") as f:
+            f.write(b"\0" * 4096)
+            f.flush()
+            fsync(f.fileno())
+        ms = int((now() - t0) * 1000)
+        return ms <= max_ms, ms, f"fsync 4k (max {max_ms} ms)"
+    except Exception as e:  # noqa: BLE001
+        return False, int((now() - t0) * 1000), type(e).__name__
+
+
 def run_probes(record, targets=None, get=None):
     """One pass over every target. One slow service must not hide the rest,
     so each probe records independently."""
     for service, (url, host) in (targets or TARGETS).items():
-        ok, ms, detail = probe_db() if url == "sql" else probe(url, host, get)
+        if url == "sql":
+            ok, ms, detail = probe_db()
+        elif url == "fsync":
+            ok, ms, detail = probe_fsync()
+        else:
+            ok, ms, detail = probe(url, host, get)
         record(service, ok, ms, detail)
 
 
