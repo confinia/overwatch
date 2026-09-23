@@ -2103,7 +2103,8 @@ def _provision_ops_org_async() -> None:
         for _ in range(60):
             ops_done = ops_done or _provision_ops_org()
             reg_done = reg_done or _backfill_registered_users()
-            sweep_done = sweep_done or _sweep_orphan_grafana_orgs()
+            sweep_done = sweep_done or (_sweep_orphan_grafana_orgs()
+                                        and _sweep_memberless_orgs())
             if ops_done and reg_done and sweep_done:
                 return
             time.sleep(5)
@@ -2827,15 +2828,11 @@ def org_token_revoke(request: Request, token: str):
     return Response(status_code=204)
 
 
-@app.delete("/v1/orgs/{org_id}")
-def delete_org(request: Request, org_id: str):
-    """Delete the caller's own organization: purge its private data and its
-    Keycloak organization, keep a tombstone row (name, created_at,
-    archived_at) so removals stay measurable. Irreversible."""
-    c, org = _require_org(request)
-    if org[0] != org_id:
-        raise HTTPException(403, "You can only delete your own organization.")
-    # Purge private data (customer data goes), keep the org row as tombstone.
+def _purge_org(org_id: str) -> None:
+    """Remove an organization everywhere it lives: private data purged, the
+    row kept as a tombstone (name, created_at, archived_at: removals stay
+    measurable), then the Keycloak organization and the private Grafana org
+    (#478), both best effort once the tombstone is written. Irreversible."""
     with cursor() as cur:
         cur.execute("DELETE FROM tenant_telemetry WHERE tenant = %s::uuid", (org_id,))
         cur.execute("DELETE FROM org_token WHERE org = %s::uuid", (org_id,))
@@ -2861,6 +2858,81 @@ def delete_org(request: Request, org_id: str):
             cur.execute("UPDATE organization SET grafana_org_id = NULL WHERE id = %s::uuid",
                         (org_id,))
             cur.connection.commit()
+
+
+ORG_ORPHAN_DAYS = int(os.environ.get("ORG_ORPHAN_DAYS", 7))
+
+
+def _kc_org_has_members(org_id: str, token: str) -> bool | None:
+    """Ask Keycloak whether the organization still has anyone in it. None =
+    could not tell (Keycloak unreachable or unexpected answer): never a
+    reason to purge."""
+    base = f"{KC_INTERNAL.rsplit('/realms/',1)[0]}/admin/realms/{KC_REALM}"
+    try:
+        r = _rq.get(f"{base}/organizations/{org_id}/members?max=1",
+                    headers={"Authorization": f"Bearer {token}"}, timeout=15)
+    except _rq.RequestException:
+        return None
+    if r.status_code == 404:
+        return False                                  # organization is gone
+    if r.status_code != 200:
+        return None
+    try:
+        return bool(r.json())
+    except ValueError:
+        return None
+
+
+def _sweep_memberless_orgs() -> bool:
+    """One idempotent pass over the active organizations (#485): one whose
+    Keycloak organization is gone, or has no members left, after
+    ORG_ORPHAN_DAYS can never be signed into again (the local org_user row
+    outlives the Keycloak user, so Keycloak is asked, not the table). Such an
+    organization is purged like a self-delete. Returns False while Keycloak
+    cannot answer (caller retries), True once every candidate was checked or
+    nothing is configured."""
+    if not (KC_ADMIN_USER and KC_ADMIN_PASS):
+        return True
+    with cursor() as cur:
+        cur.execute("""SELECT id::text, name FROM organization
+                       WHERE archived_at IS NULL
+                         AND created_at < now() - make_interval(days => %s)
+                       ORDER BY created_at""", (ORG_ORPHAN_DAYS,))
+        candidates = cur.fetchall()
+        cur.connection.commit()
+    if not candidates:
+        return True
+    try:
+        token = _kc_admin_token()
+    except Exception as e:
+        print(f"[org-sweep] Keycloak unreachable: {e}", flush=True)
+        return False
+    purged = 0
+    for org_id, name in candidates:
+        has = _kc_org_has_members(org_id, token)
+        if has is None:
+            print(f"[org-sweep] could not check {name} ({org_id}); retrying later",
+                  flush=True)
+            return False
+        if not has:
+            print(f"[org-sweep] purging memberless organization {name} ({org_id})",
+                  flush=True)
+            _purge_org(org_id)
+            purged += 1
+    if purged:
+        print(f"[org-sweep] {purged}/{len(candidates)} organizations purged", flush=True)
+    return True
+
+
+@app.delete("/v1/orgs/{org_id}")
+def delete_org(request: Request, org_id: str):
+    """Delete the caller's own organization: purge its private data and its
+    Keycloak organization, keep a tombstone row (name, created_at,
+    archived_at) so removals stay measurable. Irreversible."""
+    c, org = _require_org(request)
+    if org[0] != org_id:
+        raise HTTPException(403, "You can only delete your own organization.")
+    _purge_org(org_id)
     return {"deleted": org_id, "name": org[1]}
 
 
