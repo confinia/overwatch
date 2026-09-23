@@ -170,6 +170,31 @@ def kc_user_id(op, token):
     return users[0]["id"] if users else None
 
 
+STALE_BOT_S = int(os.environ.get("E2E_STALE_BOT_S", 86400))
+
+
+def sweep_stale_bots(op, token, now=None):
+    """Delete every e2e-bot+<run>@confinia.io user older than a day (#489).
+
+    A run that dies between "create user" and its finally block strands its
+    bot; the memberless-org sweep (#485) then keeps that run's org because
+    it still has a member. Cleaning at the start of the next run, not only
+    the end of this one, is what makes the leak self-healing."""
+    st, txt = kc(op, "GET", "/users?search=e2e-bot%2B&max=500", token=token)
+    users = json.loads(txt or "[]") if st == 200 else []
+    cutoff = ((now or time.time()) - STALE_BOT_S) * 1000
+    gone = 0
+    for u in users:
+        email = (u.get("email") or u.get("username") or "").lower()
+        if not (email.startswith("e2e-bot+") and email.endswith("@confinia.io")):
+            continue
+        if u.get("createdTimestamp", 0) > cutoff:
+            continue
+        st, _ = kc(op, "DELETE", f"/users/{u['id']}", token=token)
+        gone += st == 204
+    return gone
+
+
 def setup_user(op, token):
     uid = kc_user_id(op, token)
     if uid:
@@ -264,6 +289,9 @@ def main():
 
     step("Keycloak admin token")
     token = kc_admin_token(adm)
+
+    step("sweep the bot users stranded by earlier runs")
+    print(f"  {sweep_stale_bots(adm, token)} stale e2e-bot users deleted")
 
     step(f"create disposable user {USER_EMAIL}")
     uid = setup_user(adm, token)
