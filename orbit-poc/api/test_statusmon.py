@@ -72,10 +72,37 @@ def test_one_slow_or_dead_service_never_hides_the_others():
 def test_every_target_is_a_service_of_the_prod_compose():
     compose = _read("orbit-poc", "docker-compose.yml")
     for service, (url, _host) in statusmon.TARGETS.items():
-        if url == "sql":
+        if url in ("sql", "fsync"):
             continue
         name = url.split("//")[1].split(":")[0]
         assert f"\n  {name}:\n" in compose, f"{service}: no compose service {name}"
+
+
+def test_disk_latency_is_a_service_and_slow_is_down(tmp_path):
+    """#492: the VM's disks sat at 36 % iowait for hours with nothing on the
+    boards saying so. A write+fsync per pass makes it a row like the rest."""
+    clock = iter([0.0, 0.2, 0.0, 3.0])
+    path = str(tmp_path / "probe")
+    ok, ms, detail = statusmon.probe_fsync(path, max_ms=1000, now=lambda: next(clock))
+    assert (ok, ms) == (True, 200) and "1000 ms" in detail
+    assert os.path.getsize(path) == 4096
+    ok, ms, _ = statusmon.probe_fsync(path, max_ms=1000, now=lambda: next(clock))
+    assert (ok, ms) == (False, 3000)                 # slow IS down
+
+    def broken(fd):
+        raise OSError("EIO")
+    ok, _, detail = statusmon.probe_fsync(path, max_ms=1000, fsync=broken)
+    assert ok is False and detail == "OSError"
+    assert statusmon.TARGETS["disk (fsync)"] == ("fsync", None)
+
+
+def test_the_healthcheck_outlives_disk_latency():
+    """#492: 5 s was Python start-up under iowait; the check timed out for an
+    hour while every probe landed. The heartbeat window is the real signal."""
+    compose = _read("orbit-poc", "docker-compose.yml")
+    block = compose[compose.index("\n  statusmon:\n"):]
+    block = block[:block.index("\n  caddy:")]
+    assert "timeout: 20s" in block
 
 
 # ---- pipeline poller ----------------------------------------------------
