@@ -522,16 +522,27 @@ function isLive(s){
   return s.last_frame && (Date.now() - Date.parse(s.last_frame)) < 3.6e6;
 }
 
+// A satellite is "listened to" when it has a decoder or was heard at least
+// once (#464). The others are position-only (no open downlink): they are not
+// silent, nobody is listening, so they stay out of the link tallies (#490).
+function isListened(s){
+  return !!(s.has_telemetry || s.last_frame);
+}
+
 function renderFleetbar(sats){
+  const listened = sats.filter(isListened);
+  const posOnly = sats.length - listened.length;
   const by = { g:[], o:[], r:[] };
-  sats.forEach(s => by[linkStatus(s)].push(s.name));
-  const live = sats.filter(isLive);
+  listened.forEach(s => by[linkStatus(s)].push(s.name));
+  const live = listened.filter(isLive);
   const bar = document.getElementById("fleetbar");
   bar.innerHTML =
     `<span><span class="fdot g live"></span>${live.length} live &lt;1h</span>` +
     `<span><span class="fdot g"></span>${by.g.length} nominal</span>` +
     `<span><span class="fdot o"></span>${by.o.length} quiet</span>` +
-    `<span><span class="fdot r"></span>${by.r.length} silent</span>`;
+    `<span><span class="fdot r"></span>${by.r.length} silent</span>` +
+    (posOnly ? `<span class="fpos" title="Orbit only: encrypted or no open downlink, ` +
+               `not counted as silent">${posOnly} position-only</span>` : "");
   bar.title = (live.length ? "Live (<1h): " + live.map(s => s.name).join(", ") + "\n" : "") +
               (by.o.length ? "Quiet (1-3d): " + by.o.join(", ") + "\n" : "") +
               (by.r.length ? "Silent (>3d): " + by.r.join(", ") : "");
