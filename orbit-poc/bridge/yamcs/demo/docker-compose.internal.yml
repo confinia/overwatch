@@ -1,0 +1,19 @@
+# Overlay for a demo running NEXT TO an Overwatch stack on the same host:
+# a host cannot reach its own public edge (hairpin), so the bridge joins the
+# stack's compose network and pushes to its api directly.
+#
+#   TENANT_KEY=... docker compose -f docker-compose.yml -f docker-compose.internal.yml up -d
+#
+# OVERWATCH_NETWORK is the stack's network (orbit-poc_default for a stack
+# started from orbit-poc/); the api answers as http://api:8000 on it.
+services:
+  bridge:
+    networks: [default, overwatch]
+    environment:
+      OVERWATCH_URL: ${OVERWATCH_URL:-http://api:8000}
+
+networks:
+  default: {}          # podman-compose wants the implicit one spelled out
+  overwatch:
+    external: true
+    name: ${OVERWATCH_NETWORK:-orbit-poc_default}
