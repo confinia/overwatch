@@ -13,7 +13,8 @@ YAMCS-shaped — the value-union flattening and the two pull modes.
 Two pull modes (#424). The WebSocket subscription delivers every update as
 it happens; polling REST is version-tolerant and debuggable with curl.
 YAMCS_MODE=auto (the default) tries the subscription and falls back to
-polling only if it never establishes, so awkward networks still work.
+polling only if it never establishes while YAMCS does answer polls, so
+awkward networks still work and a booting YAMCS is waited for.
 
 Config is environment-only so `docker compose up -d` is the whole install:
 
@@ -36,6 +37,7 @@ Config is environment-only so `docker compose up -d` is the whole install:
 
 import json
 import os
+import signal
 import sys
 import time
 from dataclasses import dataclass
@@ -150,6 +152,20 @@ def fetch(cfg: Config) -> list[dict]:
     return data.get("value") or data.get("values") or []
 
 
+def yamcs_answers(cfg: Config) -> bool:
+    """Would polling work right now? Decides whether a failed subscription
+    means "this YAMCS has no WebSocket for us" (fall back to polling) or
+    "YAMCS is not up yet" (keep trying the subscription). The live proof
+    caught the difference: compose starts the bridge seconds into a
+    one-minute YAMCS boot, and a fallback there is a permanent, silent
+    downgrade to polling resolution (#428)."""
+    try:
+        fetch(cfg)
+        return True
+    except Exception:
+        return False
+
+
 def run_once(cfg: Config, state: State) -> int:
     """One poll cycle. Returns points pushed. Raises on transport errors;
     the loop catches, the tests call it directly."""
@@ -239,6 +255,10 @@ def run_ws(cfg: Config, state: State) -> None:
 
 
 def main() -> None:
+    # PID 1 in a container gets no default signal disposition: without a
+    # handler, `docker stop` waits its grace period and SIGKILLs the bridge
+    # every time (seen on the live run, #428). Exit cleanly instead.
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     cfg = load_config()
     state = State()
     print(f"yamcs-bridge [{cfg.mode}]: {len(cfg.parameters)} parameters from "
@@ -253,10 +273,11 @@ def main() -> None:
             except Exception as exc:
                 print(f"ws subscription failed: {exc}",
                       file=sys.stderr, flush=True)
-                # auto falls back only if a subscription NEVER established:
-                # once proven, a YAMCS restart should meet a reconnect, not a
-                # permanent downgrade to polling resolution.
-                if mode == "auto" and not ws_proven:
+                # auto falls back only if a subscription NEVER established
+                # while YAMCS does answer polls: once proven, a YAMCS restart
+                # should meet a reconnect, not a permanent downgrade to
+                # polling resolution; a YAMCS still booting is not a refusal.
+                if mode == "auto" and not ws_proven and yamcs_answers(cfg):
                     print("falling back to polling (YAMCS_MODE=auto)",
                           flush=True)
                     mode = "poll"

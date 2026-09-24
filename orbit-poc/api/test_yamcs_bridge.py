@@ -220,3 +220,113 @@ def test_push_chunks_at_the_api_limit(fake_server):
               for i in range(2500)]
     assert bridge.push(cfg, points) == 2500
     assert [len(p["points"]) for p in Fake.pushes] == [1000, 1000, 500]
+
+
+# --- the live proof and what it surfaced (#428) -----------------------------
+
+DEMO = Path(__file__).resolve().parents[1] / "bridge" / "yamcs" / "demo"
+
+
+def test_the_bridge_exits_on_sigterm_as_pid_1():
+    """`docker stop` waited 10 s and SIGKILLed the live bridge every time:
+    PID 1 has no default SIGTERM disposition. A handler is the fix."""
+    import inspect
+    import signal
+    src = inspect.getsource(bridge.main)
+    assert "signal.SIGTERM" in src and "sys.exit(0)" in src
+    assert signal.getsignal(signal.SIGTERM) is not None
+
+
+def _drive_auto_until_poll_or(monkeypatch, cycles, yamcs_up):
+    """Run main() in auto mode with a subscription that never establishes;
+    returns the log lines after `cycles` sleeps (the loop is escaped by
+    making the sleep raise on the last one)."""
+    out = []
+    env = {"YAMCS_URL": "http://y", "YAMCS_INSTANCE": "i", "TENANT_KEY": "k",
+           "SATELLITE": "S", "YAMCS_PARAMETERS": "/a", "OVERWATCH_URL": "http://o",
+           "YAMCS_MODE": "auto", "POLL_SECONDS": "1"}
+    real_load = bridge.load_config
+    monkeypatch.setattr(bridge, "load_config", lambda *a, **k: real_load(env))
+    monkeypatch.setattr(bridge.signal, "signal", lambda *a: None)
+    monkeypatch.setattr(bridge, "run_ws", lambda *a: (_ for _ in ()).throw(
+        ConnectionRefusedError(111, "Connection refused")))
+    monkeypatch.setattr(bridge, "yamcs_answers", lambda cfg: yamcs_up)
+    monkeypatch.setattr(bridge, "run_once", lambda *a: 0)
+    n = {"sleeps": 0}
+
+    def sleep(_):
+        n["sleeps"] += 1
+        if n["sleeps"] >= cycles:
+            raise KeyboardInterrupt
+    monkeypatch.setattr(bridge.time, "sleep", sleep)
+    monkeypatch.setattr(bridge, "print", lambda *a, **k: out.append(" ".join(map(str, a))),
+                        raising=False)
+    with pytest.raises(KeyboardInterrupt):
+        bridge.main()
+    return out
+
+
+def test_auto_keeps_trying_the_subscription_while_yamcs_boots(monkeypatch):
+    """The live proof: compose starts the bridge seconds into YAMCS's boot,
+    the first ws attempt is refused, and the old rule ("never established ->
+    poll") downgraded the demo to polling for its whole life. A YAMCS that
+    does not answer polls either is booting, not refusing WebSockets."""
+    out = _drive_auto_until_poll_or(monkeypatch, cycles=3, yamcs_up=False)
+    assert not any("falling back to polling" in line for line in out), out
+    assert sum("ws subscription failed" in line for line in out) == 3
+
+
+def test_auto_falls_back_when_yamcs_answers_polls_but_not_the_ws(monkeypatch):
+    out = _drive_auto_until_poll_or(monkeypatch, cycles=2, yamcs_up=True)
+    assert any("falling back to polling" in line for line in out), out
+
+
+def test_yamcs_answers_is_the_poll_endpoint(monkeypatch):
+    """"Fall back" must mean "polling is proven to work right now"."""
+    cfg = bridge.load_config({"YAMCS_URL": "http://y", "YAMCS_INSTANCE": "i",
+                              "TENANT_KEY": "k", "SATELLITE": "S",
+                              "YAMCS_PARAMETERS": "/a", "OVERWATCH_URL": "http://o"})
+    monkeypatch.setattr(bridge, "fetch", lambda c: [])
+    assert bridge.yamcs_answers(cfg) is True
+    monkeypatch.setattr(bridge, "fetch", lambda c: (_ for _ in ()).throw(OSError("down")))
+    assert bridge.yamcs_answers(cfg) is False
+
+
+def test_the_demo_simulator_is_restarted_before_its_data_runs_out():
+    """The quickstart's simulator.py plays testdata.ccsds ONCE (86,400 packets
+    = 24 h at 1 Hz) then idles alive: the live demo went silent for 16 days
+    while every container reported healthy."""
+    sh = (DEMO / "start.sh").read_text()
+    assert "while true; do" in sh
+    assert "timeout 86000 python3 simulator.py" in sh, "restart before the 86,400th packet"
+
+
+def test_the_demo_mode_is_env_driven_for_the_proof():
+    yml = (DEMO / "docker-compose.yml").read_text()
+    assert "YAMCS_MODE: ${YAMCS_MODE:-auto}" in yml
+
+
+def test_the_live_proof_asserts_each_deliverable():
+    """#428's deliverables, each an assertion in prove.sh: points within N s,
+    ws mode in the logs, a reconnect after killing the socket (YAMCS restart)
+    without a downgrade, no duplicate stamps, the poll fallback."""
+    sh = (DEMO / "prove.sh").read_text()
+    for needle in (
+        "/v1/tenants/$TENANT_KEY/satellites",
+        'yamcs-bridge \\[auto\\]\\|yamcs-bridge \\[ws\\]',
+        "compose restart yamcs",
+        "ws session dropped, reconnecting",
+        '"falling back to polling" && fail',
+        "len(ts) == len(set(ts))",
+        "YAMCS_MODE=poll compose up -d --force-recreate bridge",
+        'wait_log 60 "yamcs-bridge \\[poll\\]"',
+    ):
+        assert needle in sh, needle
+    import os
+    assert os.access(DEMO / "prove.sh", os.X_OK)
+
+
+def test_the_internal_overlay_joins_the_stack_network():
+    yml = (DEMO / "docker-compose.internal.yml").read_text()
+    assert "external: true" in yml
+    assert "OVERWATCH_URL: ${OVERWATCH_URL:-http://api:8000}" in yml

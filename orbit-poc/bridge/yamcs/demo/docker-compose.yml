@@ -43,7 +43,9 @@ services:
         /myproject/Battery1_Voltage,/myproject/Battery2_Voltage,
         /myproject/Battery1_Temp,/myproject/Battery2_Temp,/myproject/A
       SATELLITE: QuickSat
-      YAMCS_MODE: auto
+      # auto = subscribe, fall back to polling only if a subscription never
+      # establishes. prove.sh flips this to poll and back (#428).
+      YAMCS_MODE: ${YAMCS_MODE:-auto}
       # Where the telemetry lands. Defaults to the cloud; point it at your
       # own self-host instead if you run one.
       OVERWATCH_URL: ${OVERWATCH_URL:-https://overwatch.confinia.io/api}
