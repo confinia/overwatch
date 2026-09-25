@@ -127,7 +127,10 @@ jobs:
           # have). One shared Keycloak serves all envs, so realm files are
           # per-environment and a prod-realm edit lands at stage time - keep
           # prod realm edits deliberate. The cli is partial + no-delete +
-          # idempotent; a failed apply fails the stage, loudly.
+          # idempotent; a failed apply fails the stage, loudly. This is also
+          # where the internal gate realm lands (#290): overwatch-gate.json is
+          # owned end to end by the cli, so the gate's clients, role and passkey
+          # flow are never a by-hand click either.
           cd ~/projects/overwatch/orbit-poc/v2
           podman-compose -p ovw2 up --no-deps keycloak-config-cli 2>&1 | tail -3
           rc=$(podman inspect ovw2_keycloak-config-cli_1 --format '{{.State.ExitCode}}')
@@ -139,13 +142,21 @@ jobs:
           REMOTE
 
       - name: Check staging answers (its own stack, its own database)
-        env:
-          BASIC_PASS: ${{ secrets.SANDBOX_BASIC_PASS }}
         run: |
+          # /v1/healthz is open at the internal gate (#290) on purpose, so this
+          # asks about the stack rather than about the gate.
           code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 \
-            -u "clement:$BASIC_PASS" https://staging.overwatch.confinia.io/)
-          echo "staging -> $code"
+            https://staging.overwatch.confinia.io/api/v1/healthz)
+          echo "staging healthz -> $code"
           [ "$code" = "200" ]
+          # And the gate really is in front: no session, no page.
+          redir=$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' \
+            --max-time 20 https://staging.overwatch.confinia.io/ || true)
+          echo "staging / -> $redir"
+          case "$redir" in
+            30[1237]*/oauth2/sign_in*|30[1237]*/oauth2/start*) ;;
+            *) echo "the gate is not in front of staging: $redir" >&2; exit 1 ;;
+          esac
 
   promote:
     needs: stage

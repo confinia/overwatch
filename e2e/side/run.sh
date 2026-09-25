@@ -11,6 +11,10 @@
 # Everything runs inside a container (rule 1): chromium, chromedriver and
 # selenium-side-runner are never installed on the host.
 #
+# The environments are behind the SSO gate (#290), so the walk starts by
+# creating its own disposable gate account and the browser signs in with it
+# before the first product page. There is no shared gate password any more.
+#
 # The walk is stopped in the middle on purpose. Between "10 register" and
 # "20 sign in" the freshly created user must be marked e-mail-verified through
 # the Keycloak admin API, because the realms have verifyEmail=true. That is the
@@ -33,7 +37,7 @@ case "${TARGET_ENV:-}" in
   sandbox|staging) ;;
   *) die "TARGET_ENV must be 'sandbox' or 'staging' (got '${TARGET_ENV:-}')" ;;
 esac
-for v in GATE_PASS SIGNUP_PASS KC_ADMIN_PASSWORD; do
+for v in SIGNUP_PASS KC_ADMIN_PASSWORD; do
   [ -n "${!v:-}" ] || die "$v is empty in .env"
 done
 
@@ -41,11 +45,20 @@ BASE="https://${TARGET_ENV}.overwatch.confinia.io"
 RUN_ID="$(od -An -N4 -tu4 </dev/urandom | tr -d ' ')"
 EMAIL="e2e-bot+side${RUN_ID}@confinia.io"
 ORG="E2E Side ${RUN_ID}"
+# The environment sits behind the SSO gate (#290). The walk gets its own gate
+# account for the run, with its own generated password: nothing here is a
+# standing credential, and a stranded account expires with the next sweep.
+# Hex on purpose, for the same reason as SIGNUP_PASS below.
+GATE_EMAIL="e2e-gate+side${RUN_ID}@confinia.io"
+GATE_PASS="Gate-$(head -c 18 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+GATE_REALM="${GATE_REALM:-overwatch-gate}"
+GATE_ROLE="${GATE_ROLE:-internal}"
+export GATE_REALM GATE_ROLE
 
 # A per-run address, never a fixed one: a live walk leaves a soft-deleted org
 # behind, and a repeated e-mail re-links the new user to that tombstone (410
 # "organization has been deleted") — the walk then dies before payment.
-say "target ${BASE} — disposable user ${EMAIL}"
+say "target ${BASE} — disposable user ${EMAIL}, gate ${GATE_EMAIL}"
 
 command -v podman >/dev/null || die "podman is required"
 podman image exists "$IMAGE" || { say "building $IMAGE"; podman build -q -t "$IMAGE" . ; }
@@ -53,41 +66,16 @@ podman image exists "$IMAGE" || { say "building $IMAGE"; podman build -q -t "$IM
 # --- render: .env values into the `00 config` store commands -----------------
 mkdir -p rendered results
 
-# The basic-auth gate is answered by a tiny MV3 extension that sets the
-# Authorization header on EVERY request to the target host. The alternatives
-# both fail in headless Chrome: URL-embedded credentials get fetch() blocked
-# (subresource requests with embedded credentials), and the credential cache
-# behind plain URLs answers 401 challenges nondeterministically run to run.
-# The API tolerates the replayed Basic header by design (#139).
-python3 - "$BASE" <<'PYEXT'
-import base64, json, os, sys
-host = sys.argv[1].replace("https://", "")
-b64 = base64.b64encode(
-    f"{os.environ['GATE_USER']}:{os.environ['GATE_PASS']}".encode()).decode()
-os.makedirs("rendered/ext", exist_ok=True)
-json.dump({"manifest_version": 3, "name": "gate-auth", "version": "1.0",
-           "permissions": ["declarativeNetRequest"],
-           "host_permissions": [f"https://{host}/*"],
-           "declarative_net_request": {"rule_resources": [
-               {"id": "gate", "enabled": True, "path": "rules.json"}]}},
-          open("rendered/ext/manifest.json", "w"))
-json.dump([{"id": 1, "priority": 1,
-            "action": {"type": "modifyHeaders", "requestHeaders": [
-                {"header": "Authorization", "operation": "set",
-                 "value": f"Basic {b64}"}]},
-            "condition": {"urlFilter": f"||{host}/",
-                          "resourceTypes": ["main_frame", "sub_frame",
-                                            "xmlhttprequest", "script",
-                                            "stylesheet", "image", "font",
-                                            "other"]}}],
-          open("rendered/ext/rules.json", "w"))
-PYEXT
+GATE_EMAIL="$GATE_EMAIL" GATE_PASS="$GATE_PASS" \
 python3 - "$EMAIL" "$ORG" "$BASE" <<'PY'
 import json, os, sys, urllib.parse
 email, org, base = sys.argv[1], sys.argv[2], sys.argv[3]
 side = json.load(open("overwatch-signup-payment.side"))
 values = {"BASE": base, "EMAIL": email,
           "PASS": os.environ["SIGNUP_PASS"], "ORG": org,
+          # the gate login the walk performs before anything else (#290)
+          "GATE_EMAIL": os.environ["GATE_EMAIL"],
+          "GATE_PASS": os.environ["GATE_PASS"],
           }
 for t in side["tests"]:
     for cmd in t["commands"]:
@@ -100,22 +88,25 @@ PY
 # A push to main recreates the sandbox stack, and a dispatch right after one
 # races the redeploy: the walk 502s, or the VM is pegged building images and
 # the browser misses its startup window. Wait for the target to answer first.
+# /v1/healthz is open at the gate on purpose, so readiness says something about
+# the stack rather than about the gate.
 say "waiting for ${BASE} to answer"
 for i in $(seq 1 30); do
   code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
-         -u "${GATE_USER}:${GATE_PASS}" "${BASE}/w/account" || true)
+         "${BASE}/api/v1/healthz" || true)
   [ "$code" = "200" ] && break
   [ "$i" = "30" ] && die "target still answers $code after 5 minutes"
   sleep 10
 done
 echo "  ready (HTTP $code)"
-# Keycloak serves the login/registration screens through the same host; a walk
-# that starts before it answers times out on the first Keycloak page.
+# The gate must be up too, or the walk dies on its first page. Its realm is
+# served by the shared Keycloak under the PRODUCTION host (one issuer for every
+# environment), which is also why this probe needs no gate session.
 for i in $(seq 1 18); do
-  kc=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 -u "${GATE_USER}:${GATE_PASS}" \
-       "${BASE}/auth/realms/overwatch-sandbox/.well-known/openid-configuration" || true)
-  [ "$kc" = "200" ] && { echo "  keycloak ready"; break; }
-  [ "$i" = "18" ] && die "keycloak still answers $kc after 3 minutes"
+  kc=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
+       "https://overwatch.confinia.io/auth/realms/${GATE_REALM}/.well-known/openid-configuration" || true)
+  [ "$kc" = "200" ] && { echo "  gate keycloak ready"; break; }
+  [ "$i" = "18" ] && die "the gate realm still answers $kc after 3 minutes"
   sleep 10
 done
 
@@ -132,7 +123,7 @@ side_runner() {
     if podman run --rm --network=host --shm-size=1g \
       -v "$HERE:/work:z" -w /work "$IMAGE" \
       selenium-side-runner \
-        -c "browserName=chrome goog:chromeOptions.args=[headless=new,no-sandbox,disable-dev-shm-usage,load-extension=/work/rendered/ext] goog:chromeOptions.binary=/usr/bin/chromium" \
+        -c "browserName=chrome goog:chromeOptions.args=[headless=new,no-sandbox,disable-dev-shm-usage] goog:chromeOptions.binary=/usr/bin/chromium" \
         --timeout 60000 \
         --jest-timeout 900000 \
         --filter "$1" \
@@ -150,30 +141,37 @@ side_runner() {
 }
 
 kc() {
+  local op="$1"; shift
   podman run --rm --network=host \
     -e KC_ADMIN_BASE -e KC_REALM -e KC_ADMIN_USERNAME -e KC_ADMIN_PASSWORD \
-    -v "$HERE:/work:z" -w /work "$IMAGE" python3 kc_admin.py "$1" "$EMAIL"
+    -e GATE_REALM -e GATE_ROLE \
+    -v "$HERE:/work:z" -w /work "$IMAGE" python3 kc_admin.py "$op" "$@"
 }
 
 teardown() {
   if [ "${KEEP_USER:-0}" = "1" ]; then
-    say "KEEP_USER=1 — leaving ${EMAIL} in place"
+    say "KEEP_USER=1 — leaving ${EMAIL} and ${GATE_EMAIL} in place"
   else
-    say "teardown"; kc delete || true
+    say "teardown"
+    kc delete "$EMAIL" || true
+    kc gate-delete "$GATE_EMAIL" || true
   fi
 }
 trap teardown EXIT
 
-say "1/4  register through the signup form"
+say "1/5  create this run's gate account"
+kc gate-create "$GATE_EMAIL" "$GATE_PASS"
+
+say "2/5  register through the signup form"
 side_runner '^register$' || die "registration walk failed"
 
-say "2/4  mark the e-mail verified (realm has verifyEmail=true)"
-kc verify
+say "3/5  mark the e-mail verified (realm has verifyEmail=true)"
+kc verify "$EMAIL"
 
-say "3/4  sign in, create the organization, pay on Creem test mode"
+say "4/5  sign in, create the organization, pay on Creem test mode"
 side_runner '^pay$' || die "payment walk failed"
 
-say "4/4  what does Creem test mode actually say?"
+say "5/5  what does Creem test mode actually say?"
 podman run --rm --network=host \
   -e CREEM_API_BASE -e CREEM_API_KEY \
   -v "$HERE:/work:z" -w /work "$IMAGE" python3 creem_report.py "$EMAIL"

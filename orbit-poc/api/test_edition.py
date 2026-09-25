@@ -90,6 +90,7 @@ def test_selfhost_caddy_has_no_gate_and_no_webhook_carveout():
                   encoding="utf-8")]
     body = "\n".join(lines)
     assert "basic_auth" not in body
+    assert "forward_auth" not in body      # the sandbox/staging gate (#290)
     assert "webhook" not in body.lower()
 
 

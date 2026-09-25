@@ -7,17 +7,23 @@ first failure so CI can gate on it. Stdlib only — runs anywhere (laptop, VM,
 GitHub runner) with no install (RULES.md rule 1).
 
     BASE=https://sandbox.overwatch.confinia.io \
-    BASIC_USER=… BASIC_PASS=… KC_ADMIN_USERNAME=… KC_ADMIN_PASSWORD=… \
+    KC_ADMIN_USERNAME=… KC_ADMIN_PASSWORD=… \
     python3 deploy/e2e_sandbox.py
 
 Defaults target the sandbox (realm overwatch-sandbox), the environment meant for
 short-loop validation with no accounting impact. It creates a disposable user
 and organization and removes both at the end, so it is safe to re-run.
+
+The environment itself sits behind the internal gate (#290), so the walk also
+creates a disposable gate account with the realm role `internal` and signs in
+through it, exactly as a person would. Its password is generated per run and
+never printed: nothing about this walk needs a shared secret to exist.
 """
 import http.cookiejar
 import json
 import os
 import re
+import secrets
 import sys
 import time
 import urllib.error
@@ -36,14 +42,15 @@ MIN_INTERVAL = 0.25
 _last_req = [0.0]
 
 BASE = os.environ.get("BASE", "https://sandbox.overwatch.confinia.io").rstrip("/")
-# Keycloak's admin API authenticates with a Bearer token, which would collide
-# with the basic-auth gate's Authorization header on the public host. Point this
-# at Keycloak directly (VM-internal, or through an SSH tunnel) — the user flow
-# below still goes through the public URL, gate included.
+# The admin API is not part of what is being tested, and on the public host it
+# sits behind the gate like everything else. Point this at Keycloak directly
+# (VM-internal, or through an SSH tunnel) — the user flow below still goes
+# through the public URL, gate included.
 KC_ADMIN_BASE = os.environ.get("KC_ADMIN_BASE", BASE + "/auth").rstrip("/")
 REALM = os.environ.get("KC_REALM", "overwatch-sandbox")
-BASIC_USER = os.environ.get("BASIC_USER", "")
-BASIC_PASS = os.environ.get("BASIC_PASS", "")
+# The internal gate (#290) is its own realm, shared by every gated environment.
+GATE_REALM = os.environ.get("GATE_REALM", "overwatch-gate")
+GATE_ROLE = os.environ.get("GATE_ROLE", "internal")
 ADMIN_USER = os.environ.get("KC_ADMIN_USERNAME", "")
 ADMIN_PASS = os.environ.get("KC_ADMIN_PASSWORD", "")
 # A live walk leaves a soft-deleted org behind; re-running with a FIXED email
@@ -54,6 +61,12 @@ RUN_ID = os.environ.get("E2E_RUN_ID") or hex(int(time.time()))[-6:]
 USER_EMAIL = os.environ.get("E2E_EMAIL", f"e2e-bot+{RUN_ID}@confinia.io")
 USER_PASS = os.environ.get("E2E_PASSWORD", "e2e-Bot-passw0rd!")
 ORG_NAME = os.environ.get("E2E_ORG", f"E2E Bot Org {RUN_ID}")
+GATE_EMAIL = os.environ.get("E2E_GATE_EMAIL", f"e2e-gate+{RUN_ID}@confinia.io")
+# Generated, not configured: a gate account that lives for one run has no reason
+# to have a password anybody knows (#33).
+GATE_PASS = os.environ.get("E2E_GATE_PASSWORD") or ("Gate-" + secrets.token_urlsafe(24))
+# Flipped once the gate account exists; until then a session cannot log in.
+_gate_ready = [False]
 
 _steps: list[str] = []
 
@@ -68,23 +81,20 @@ def die(msg):
     sys.exit(1)
 
 
-def opener():
-    """One session: cookie jar + basic auth (the sandbox gate applies to all)."""
+def opener(gate=True):
+    """A fresh session: cookie jar, and the gate walked if the account exists.
+
+    Every session of this walk is a browser with an empty cookie jar, so each
+    one passes the gate on its own — there is no header to replay and no shared
+    credential. Carries NO Authorization header by design: the app reads one as
+    the caller's identity (#139), so an injected token would shadow the very
+    session the walk is testing."""
     jar = http.cookiejar.CookieJar()
-    handlers = [urllib.request.HTTPCookieProcessor(jar)]
-    if BASIC_USER:
-        mgr = urllib.request.HTTPPasswordMgrWithDefaultRealm()
-        mgr.add_password(None, BASE, BASIC_USER, BASIC_PASS)
-        handlers.append(urllib.request.HTTPBasicAuthHandler(mgr))
-    op = urllib.request.build_opener(*handlers)
+    op = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
     op.jar = jar
-    # Some Keycloak/Grafana endpoints 401 without a preemptive header, and
-    # urllib only retries after a challenge — send it up front.
-    if BASIC_USER:
-        import base64
-        tok = base64.b64encode(f"{BASIC_USER}:{BASIC_PASS}".encode()).decode()
-        op.addheaders = [("Authorization", f"Basic {tok}"),
-                         ("User-Agent", "overwatch-e2e/1.0")]
+    op.addheaders = [("User-Agent", "overwatch-e2e/1.0")]
+    if gate and _gate_ready[0]:
+        gate_login(op)
     return op
 
 
@@ -155,17 +165,18 @@ def kc_admin_token(op):
     return json.loads(txt)["access_token"]
 
 
-def kc(op, method, path, body=None, token=""):
-    st, _, txt = fetch(op, f"{KC_ADMIN_BASE}/admin/realms/{REALM}{path}",
+def kc(op, method, path, body=None, token="", realm=None):
+    st, _, txt = fetch(op, f"{KC_ADMIN_BASE}/admin/realms/{realm or REALM}{path}",
                        data=json.dumps(body).encode() if body is not None else None,
                        headers={"Authorization": f"Bearer {token}",
                                 "Content-Type": "application/json"}, method=method)
     return st, txt
 
 
-def kc_user_id(op, token):
-    st, txt = kc(op, "GET", f"/users?email={urllib.parse.quote(USER_EMAIL)}&exact=true",
-                 token=token)
+def kc_user_id(op, token, email=None, realm=None):
+    email = email or USER_EMAIL
+    st, txt = kc(op, "GET", f"/users?email={urllib.parse.quote(email)}&exact=true",
+                 token=token, realm=realm)
     users = json.loads(txt or "[]") if st == 200 else []
     return users[0]["id"] if users else None
 
@@ -173,24 +184,27 @@ def kc_user_id(op, token):
 STALE_BOT_S = int(os.environ.get("E2E_STALE_BOT_S", 86400))
 
 
-def sweep_stale_bots(op, token, now=None):
-    """Delete every e2e-bot+<run>@confinia.io user older than a day (#489).
+def sweep_stale_bots(op, token, now=None, prefix="e2e-bot+", realm=None):
+    """Delete every <prefix><run>@confinia.io user older than a day (#489).
 
     A run that dies between "create user" and its finally block strands its
     bot; the memberless-org sweep (#485) then keeps that run's org because
     it still has a member. Cleaning at the start of the next run, not only
-    the end of this one, is what makes the leak self-healing."""
-    st, txt = kc(op, "GET", "/users?search=e2e-bot%2B&max=500", token=token)
+    the end of this one, is what makes the leak self-healing. The gate realm
+    accumulates the same way (#290), hence the prefix/realm arguments."""
+    st, txt = kc(op, "GET",
+                 f"/users?search={urllib.parse.quote(prefix)}&max=500",
+                 token=token, realm=realm)
     users = json.loads(txt or "[]") if st == 200 else []
     cutoff = ((now or time.time()) - STALE_BOT_S) * 1000
     gone = 0
     for u in users:
         email = (u.get("email") or u.get("username") or "").lower()
-        if not (email.startswith("e2e-bot+") and email.endswith("@confinia.io")):
+        if not (email.startswith(prefix) and email.endswith("@confinia.io")):
             continue
         if u.get("createdTimestamp", 0) > cutoff:
             continue
-        st, _ = kc(op, "DELETE", f"/users/{u['id']}", token=token)
+        st, _ = kc(op, "DELETE", f"/users/{u['id']}", token=token, realm=realm)
         gone += st == 204
     return gone
 
@@ -207,6 +221,37 @@ def setup_user(op, token):
     if st not in (201, 409):
         die(f"could not create the test user ({st}): {txt[:200]}")
     return kc_user_id(op, token)
+
+
+def setup_gate_user(op, token):
+    """Create this run's gate account and give it the role the gate requires.
+
+    Without the role the login succeeds and oauth2-proxy still refuses, which
+    is the property worth having: membership of the realm is not access."""
+    uid = kc_user_id(op, token, GATE_EMAIL, GATE_REALM)
+    if uid:
+        kc(op, "DELETE", f"/users/{uid}", token=token, realm=GATE_REALM)
+    st, txt = kc(op, "POST", "/users", {
+        "username": GATE_EMAIL, "email": GATE_EMAIL, "emailVerified": True,
+        "enabled": True, "firstName": "E2E", "lastName": "Gate",
+        "credentials": [{"type": "password", "value": GATE_PASS,
+                         "temporary": False}],
+    }, token=token, realm=GATE_REALM)
+    if st not in (201, 409):
+        die(f"could not create the gate user ({st}): {txt[:200]}")
+    uid = kc_user_id(op, token, GATE_EMAIL, GATE_REALM)
+    if not uid:
+        die("gate user not found after creation")
+    st, txt = kc(op, "GET", f"/roles/{GATE_ROLE}", token=token, realm=GATE_REALM)
+    if st != 200:
+        die(f"realm {GATE_REALM} has no role {GATE_ROLE} ({st}) — is "
+            f"keycloak-config/overwatch-gate.json applied?")
+    st, txt = kc(op, "POST", f"/users/{uid}/role-mappings/realm",
+                 [json.loads(txt)], token=token, realm=GATE_REALM)
+    if st != 204:
+        die(f"could not grant {GATE_ROLE} to the gate user ({st}): {txt[:200]}")
+    _gate_ready[0] = True
+    return uid
 
 
 # --------------------------------------------------------------------------
@@ -233,12 +278,15 @@ def _form(html):
     return action, fields
 
 
-def _walk_forms(op, url, html, max_steps=4):
+def _walk_forms(op, url, html, max_steps=4, user=None, password=None):
     """Submit the Keycloak login form(s) until the page is no longer one.
     Keycloak may split the flow (username page, then password page), so we
     follow whatever fields each page asks for. Returns the final (url, html).
     A no-op when the page is already off the form (e.g. SSO bounced straight
-    through), which is why the same helper drives both the app and Grafana."""
+    through), which is why the same helper drives the app, Grafana and the
+    gate — three realms, one form-follower."""
+    user = user or USER_EMAIL
+    password = password or USER_PASS
     for _ in range(max_steps):
         if "kc-form-login" not in html:
             return url, html                # authenticated (callback ran)
@@ -248,15 +296,33 @@ def _walk_forms(op, url, html, max_steps=4):
         for name in list(fields):
             low = name.lower()
             if low in ("username", "email"):
-                fields[name] = USER_EMAIL
+                fields[name] = user
             elif low == "password":
-                fields[name] = USER_PASS
+                fields[name] = password
         fields.pop("rememberMe", None)
         before = url
         st, url, html = fetch(op, action, data=fields)
         if st >= 400:
             die(f"login step failed ({st}) at {before}")
     die("login did not complete (still on a Keycloak form)")
+
+
+def gate_login(op):
+    """Walk the internal gate (#290) so this session may reach the stack at all.
+
+    caddy answers a session-less request with a redirect to the gate, which
+    redirects to the overwatch-gate realm; the form leads back through
+    /oauth2/callback with a cookie for this host. A person does this once and
+    keeps the cookie; a fresh cookie jar does it again, which is why it is here
+    and not in main()."""
+    st, url, html = fetch(op, BASE + "/")
+    if "kc-form-login" in html:
+        url, html = _walk_forms(op, url, html, user=GATE_EMAIL,
+                                password=GATE_PASS)
+    if "/oauth2/" in url or "openid-connect" in url:
+        die(f"gate login did not complete — stuck at {url}")
+    if st >= 400:
+        die(f"gate login ended on {st} at {url}")
 
 
 def login(op):
@@ -267,10 +333,14 @@ def login(op):
 
 
 def wait_ready(op, tries=45):
-    """Poll a public endpoint until the sandbox answers 200, so the walk never
-    starts against a stack that is still coming up (or mid-redeploy)."""
+    """Poll the health endpoint until the stack answers 200, so the walk never
+    starts against one that is still coming up (or mid-redeploy).
+
+    /v1/healthz rather than a data endpoint: it is open at the gate (a probe
+    that needs a login tells you about the gate, not about the stack), and it
+    is the same path the deploy's own check uses."""
     for _ in range(tries):
-        st, _, _ = fetch(op, f"{BASE}/api/v1/satellites", retries=1)
+        st, _, _ = fetch(op, f"{BASE}/api/v1/healthz", retries=1)
         if st == 200:
             return
         time.sleep(2)
@@ -280,7 +350,7 @@ def wait_ready(op, tries=45):
 def main():
     if not (ADMIN_USER and ADMIN_PASS):
         die("KC_ADMIN_USERNAME / KC_ADMIN_PASSWORD required")
-    print(f"e2e against {BASE} (realm {REALM})")
+    print(f"e2e against {BASE} (realm {REALM}, gate realm {GATE_REALM})")
     op = opener()
     adm = admin_opener()
 
@@ -292,6 +362,11 @@ def main():
 
     step("sweep the bot users stranded by earlier runs")
     print(f"  {sweep_stale_bots(adm, token)} stale e2e-bot users deleted")
+    print(f"  {sweep_stale_bots(adm, token, prefix='e2e-gate+', realm=GATE_REALM)}"
+          f" stale e2e-gate users deleted")
+
+    step(f"create disposable gate account {GATE_EMAIL} ({GATE_ROLE})")
+    setup_gate_user(adm, token)
 
     step(f"create disposable user {USER_EMAIL}")
     uid = setup_user(adm, token)
@@ -300,6 +375,12 @@ def main():
 
     org_id = gorg = None
     try:
+        step("pass the internal gate")
+        op = opener()                  # walks the gate on the way in (#290)
+        st, _, _ = fetch(op, f"{BASE}/api/v1/satellites", retries=2)
+        if st != 200:
+            die(f"gated endpoint still refuses the session ({st})")
+
         step("sign in through the OIDC authorization-code flow")
         login(op)
         st, me = jget(op, "/api/v1/me")
@@ -471,6 +552,10 @@ def main():
         uid = kc_user_id(adm, token)
         if uid:
             kc(adm, "DELETE", f"/users/{uid}", token=token)
+        gate_uid = kc_user_id(adm, token, GATE_EMAIL, GATE_REALM)
+        if gate_uid:
+            kc(adm, "DELETE", f"/users/{gate_uid}", token=token,
+               realm=GATE_REALM)
 
 
 if __name__ == "__main__":

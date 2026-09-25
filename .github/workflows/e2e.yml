@@ -55,15 +55,15 @@ jobs:
       - name: Walk the paid path end to end
         env:
           TARGET: ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}
-          BASIC_PASS: ${{ secrets.SANDBOX_BASIC_PASS }}
+        # No secret from GitHub: the walk creates its own gate account in the
+        # overwatch-gate realm with a generated password and signs in through
+        # the gate like a person, then deletes it (#290).
         run: |
-          ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes "$TARGET" \
-            "BASIC_PASS='$BASIC_PASS' bash -s" <<'REMOTE'
+          ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes "$TARGET" bash -s <<'REMOTE'
           set -euo pipefail
           cd ~/e2e-run
           # KC_ADMIN_USERNAME / KC_ADMIN_PASSWORD come from the stack's own env
           set -a; . ~/projects/overwatch/orbit-poc/.env; set +a
           KC_ADMIN_BASE=http://127.0.0.1:12070/auth \
-          BASIC_USER=clement BASIC_PASS="$BASIC_PASS" \
           python3 e2e_sandbox.py
           REMOTE

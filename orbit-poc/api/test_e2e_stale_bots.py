@@ -21,10 +21,11 @@ DAY = 86400
 NOW = 1_800_000_000.0
 
 
-def _fake_kc(users, deleted):
-    def kc(op, method, path, body=None, token=""):
+def _fake_kc(users, deleted, expect_realm=None):
+    def kc(op, method, path, body=None, token="", realm=None):
+        assert realm == expect_realm, f"swept the wrong realm: {realm}"
         if method == "GET":
-            assert path.startswith("/users?search=e2e-bot")
+            assert path.startswith("/users?search=e2e-")
             return 200, __import__("json").dumps(users)
         assert method == "DELETE"
         deleted.append(path.rsplit("/", 1)[1])
@@ -56,8 +57,29 @@ def test_a_failed_listing_deletes_nothing(monkeypatch):
     assert deleted == []
 
 
+def test_the_gate_realm_is_swept_the_same_way(monkeypatch):
+    """#290 added a second disposable account per run, in another realm. The
+    same leak applies to it, so the same sweep has to reach it."""
+    e2e = _load()
+    ms = lambda age_s: int((NOW - age_s) * 1000)
+    users = [
+        {"id": "old", "email": "e2e-gate+abc@confinia.io", "createdTimestamp": ms(3 * DAY)},
+        {"id": "fresh", "email": "e2e-gate+def@confinia.io", "createdTimestamp": ms(600)},
+        {"id": "founder", "email": "someone@confinia.io", "createdTimestamp": ms(9 * DAY)},
+    ]
+    deleted = []
+    monkeypatch.setattr(e2e, "kc",
+                        _fake_kc(users, deleted, expect_realm="overwatch-gate"))
+    assert e2e.sweep_stale_bots(None, "tok", now=NOW, prefix="e2e-gate+",
+                                realm="overwatch-gate") == 1
+    assert deleted == ["old"], "a standing account must never be swept"
+
+
 def test_the_walk_sweeps_before_creating_its_own_user():
     src = open(SCRIPT, encoding="utf-8").read()
     sweep = src.index("sweep_stale_bots(adm, token)")
     create = src.index("setup_user(adm, token)")
     assert sweep < create, "the sweep must run at the start of every walk"
+    gate = src.index("prefix='e2e-gate+'")
+    assert gate < src.index("setup_gate_user(adm, token)"), \
+        "the gate realm must be swept before this run adds to it"

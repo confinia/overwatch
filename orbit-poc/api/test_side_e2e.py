@@ -62,7 +62,7 @@ def test_no_secret_is_committed_in_the_project():
 def test_every_rendered_variable_is_actually_rendered():
     """A store the runner does not fill would ship its `__PLACEHOLDER__` into a
     live form — the walk would fail late and confusingly."""
-    rendered = {"BASE", "EMAIL", "PASS", "ORG"}
+    rendered = {"BASE", "EMAIL", "PASS", "ORG", "GATE_EMAIL", "GATE_PASS"}
     for test in ("register", "pay"):
         placeholders = {v for v, t in _stores(test).items() if t.startswith("__")}
         assert placeholders <= rendered, f"never rendered: {placeholders - rendered}"
@@ -98,8 +98,10 @@ def test_capability_args_carry_no_comma():
         assert "=" not in a or a.count("=") == 1, a
         assert not a.strip().endswith("="), a
     assert "headless" in args, "the CI run must be headless"
-    assert "load-extension=/work/rendered/ext" in args, \
-        "the gate header extension is not loaded — the walk cannot pass basic auth"
+    # #290 removed the MV3 extension that injected a basic-auth header: the walk
+    # signs in at the SSO gate as a real account instead, so a plain browser is
+    # all it needs and there is no header to inject.
+    assert "load-extension" not in args
 
 
 def test_the_walk_is_given_time_to_finish():

@@ -31,16 +31,18 @@ Configuration (env):
   SIM_ECLIPSE    eclipse fraction of the orbit (default 0.36)
   SIM_GAPS       "1": add a no-contact gap each orbit (default off)
   SIM_SEED       integer seed for reproducible runs
-  SIM_BASIC_USER / SIM_BASIC_PASS   basic-auth gate credentials (sandbox/staging)
   SIM_ALLOW_PROD "1" to allow a production target — refused otherwise
 
 Run it anywhere python3 runs (stdlib only), or as a container:
   podman build -t simsat orbit-poc/simsat
-  podman run --rm -e SIM_KEY=… -e SIM_BASIC_USER=… -e SIM_BASIC_PASS=… simsat
+  podman run --rm -e SIM_KEY=… simsat
+
+The tenant telemetry endpoint is open at the sandbox/staging gate (#290): a
+machine pushing with its tenant key is authenticated by that key, and asking it
+for a browser session instead would only mean a second credential to leak.
 """
 from __future__ import annotations
 
-import base64
 import json
 import math
 import os
@@ -183,14 +185,12 @@ def _sat_name(raw: str) -> str:
     return name if name.upper().startswith("SIM") else f"SIM {name}"
 
 
-def push(base: str, key: str, satellite: str, points: list[dict],
-         basic: str = "") -> dict:
+def push(base: str, key: str, satellite: str, points: list[dict]) -> dict:
     req = urllib.request.Request(
         f"{base}/v1/tenants/{key}/telemetry",
         data=json.dumps({"satellite": satellite, "points": points}).encode(),
         headers={"Content-Type": "application/json",
-                 "User-Agent": "overwatch-simsat/1.0",
-                 **({"Authorization": "Basic " + basic} if basic else {})},
+                 "User-Agent": "overwatch-simsat/1.0"},
         method="POST")
     with urllib.request.urlopen(req, timeout=20) as r:
         return json.loads(r.read().decode())
@@ -215,11 +215,6 @@ def main() -> int:
     duration = float(os.environ.get("SIM_DURATION", "0"))
     scenario = os.environ.get("SIM_SCENARIO", "nominal")
     seed_env = os.environ.get("SIM_SEED", "")
-    basic = ""
-    if os.environ.get("SIM_BASIC_USER"):
-        basic = base64.b64encode(
-            f"{os.environ['SIM_BASIC_USER']}:{os.environ.get('SIM_BASIC_PASS', '')}"
-            .encode()).decode()
 
     sat = DevSat(seed=int(seed_env) if seed_env else None,
                  period_s=float(os.environ.get("SIM_PERIOD", "5560")),
@@ -234,7 +229,7 @@ def main() -> int:
     while True:
         for ts, frame in frames(sat, 1, tick, time.time() - tick, gaps=gaps):
             try:
-                r = push(base, key, satellite, to_points(ts, frame), basic)
+                r = push(base, key, satellite, to_points(ts, frame))
                 sent += r.get("accepted", 0)
                 print(f"  {time.strftime('%H:%M:%S', time.gmtime(ts))} "
                       f"pushed {r.get('accepted')} points "
