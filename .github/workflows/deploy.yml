@@ -132,9 +132,22 @@ jobs:
           # owned end to end by the cli, so the gate's clients, role and passkey
           # flow are never a by-hand click either.
           cd ~/projects/overwatch/orbit-poc/v2
-          podman-compose -p ovw2 up --no-deps keycloak-config-cli 2>&1 | tail -3
+          # DETACHED, then wait on the one container we care about. An attached
+          # `up` is not safe here: podman-compose 1.3.0 ignores --no-deps when a
+          # dependency has to be started and runs `podman start -a` on kc-db and
+          # keycloak, which never exit — the step then hangs until the job
+          # timeout with the apply already finished. Seen on 2026-09-25: the
+          # cli exited 0 at 20:01 and the stage was still attached at 21:54.
+          podman-compose -p ovw2 up -d --no-deps keycloak-config-cli 2>&1 | tail -3
+          timeout 300 podman wait ovw2_keycloak-config-cli_1 >/dev/null || {
+            echo "realm config apply did not finish in 5 minutes" >&2
+            podman logs --tail 20 ovw2_keycloak-config-cli_1 >&2 || true
+            exit 1; }
           rc=$(podman inspect ovw2_keycloak-config-cli_1 --format '{{.State.ExitCode}}')
-          [ "$rc" = "0" ] || { echo "realm config apply failed (exit $rc)" >&2; exit 1; }
+          [ "$rc" = "0" ] || {
+            echo "realm config apply failed (exit $rc)" >&2
+            podman logs --tail 30 ovw2_keycloak-config-cli_1 >&2 || true
+            exit 1; }
           # The ops Grafana shows what is staged vs promoted (#382); this row
           # is where "the gap" starts ticking.
           bash ~/projects/overwatch/deploy/record-deploy-event.sh \

@@ -264,6 +264,10 @@ def test_the_gate_realm_is_applied_by_the_deploy_and_never_by_a_pull_request():
     deploy = _read(".github", "workflows", "deploy.yml")
     assert "keycloak-config-cli" in deploy
     assert "cd ~/projects/overwatch/orbit-poc/v2" in deploy
+    # and detached: an attached `up` hangs on the dependencies podman-compose
+    # starts for itself, long after the apply is done
+    assert "up -d --no-deps keycloak-config-cli" in deploy
+    assert "podman wait ovw2_keycloak-config-cli_1" in deploy
     sandbox = _read(".github", "workflows", "sandbox.yml")
     code = "\n".join(l.split("#", 1)[0]
                      for l in sandbox.splitlines())     # comments may explain it
