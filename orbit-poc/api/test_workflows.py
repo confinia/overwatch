@@ -135,6 +135,22 @@ def test_sandbox_workflow_builds_from_its_own_checkout():
     assert len(uses) == 1 and "sandbox/.env" in uses[0], uses
 
 
+def test_the_sandbox_deploy_recreates_caddy_instead_of_reloading_it():
+    """The Caddyfile is a single-file bind mount from the sandbox checkout, and
+    `git checkout` replaces that file rather than writing into it: the running
+    container keeps the old inode, so `caddy reload` reports "config is
+    unchanged" no matter what changed. A routing change reaches the sandbox only
+    if the container is recreated (#290 shipped two weeks of stale gate config
+    behind three green reloads)."""
+    s = _wf("sandbox.yml")
+    code = "\n".join(l.split("#", 1)[0] for l in s.splitlines())
+    assert "caddy reload" not in code, "a reload cannot see a replaced file"
+    assert "podman rm -f ovw-sandbox_caddy_1" in code
+    assert "up -d --no-deps caddy" in code
+    # and after the app services, so the listener is only down for its restart
+    assert code.index("--no-deps web api") < code.index("--no-deps caddy")
+
+
 def test_sandbox_workflow_runs_on_pull_requests_but_not_for_forks():
     s = _wf("sandbox.yml")
     assert "pull_request" in s

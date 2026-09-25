@@ -173,6 +173,58 @@ services:
                         # shared Keycloak by name — else login 401s (#151)
     restart: unless-stopped
 
+  # The internal access gate (#290): oauth2-proxy answering caddy's forward_auth
+  # against the shared Keycloak's `overwatch-gate` realm (v2/keycloak-config/
+  # overwatch-gate.json). A visitor holds a session cookie for THIS host or is
+  # sent to log in (passkey or password); only realm role `internal` passes.
+  # Replaces the basic-auth line that used to sit in the Caddyfile with a hash
+  # nobody could rotate. No host port: only caddy talks to it.
+  gate:
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.15.4
+    environment:
+      OAUTH2_PROXY_PROVIDER: "keycloak-oidc"
+      OAUTH2_PROXY_CLIENT_ID: "gate-sandbox"
+      # Keycloak's public name is the prod host (KC_HOSTNAME), which a container
+      # on the VM cannot reach (hairpin) — so discovery is spelled out: the
+      # browser-facing login URL on the public name, the server-to-server
+      # token/JWKS endpoints on the compose network.
+      OAUTH2_PROXY_OIDC_ISSUER_URL: "https://overwatch.confinia.io/auth/realms/overwatch-gate"
+      OAUTH2_PROXY_SKIP_OIDC_DISCOVERY: "true"
+      OAUTH2_PROXY_LOGIN_URL: "https://overwatch.confinia.io/auth/realms/overwatch-gate/protocol/openid-connect/auth"
+      OAUTH2_PROXY_REDEEM_URL: "http://ovw2_keycloak_1:8080/auth/realms/overwatch-gate/protocol/openid-connect/token"
+      OAUTH2_PROXY_OIDC_JWKS_URL: "http://ovw2_keycloak_1:8080/auth/realms/overwatch-gate/protocol/openid-connect/certs"
+      OAUTH2_PROXY_CODE_CHALLENGE_METHOD: "S256"
+      OAUTH2_PROXY_ALLOWED_ROLES: "internal"
+      OAUTH2_PROXY_EMAIL_DOMAINS: "*"
+      OAUTH2_PROXY_SKIP_PROVIDER_BUTTON: "true"
+      # forward_auth only: caddy asks /oauth2/auth, nothing is ever proxied
+      OAUTH2_PROXY_HTTP_ADDRESS: "0.0.0.0:4180"
+      OAUTH2_PROXY_UPSTREAMS: "static://202"
+      # Two hostnames share this one proxy (web + api), so the callback URL is
+      # derived per request from caddy's X-Forwarded-Host rather than pinned:
+      # pinning it would send the api host's callback to the web host and leave
+      # the api host permanently signed out. What makes that safe is the realm,
+      # not the header — the client's redirectUris list the two hostnames and
+      # Keycloak refuses any other, so a forged header buys nothing.
+      OAUTH2_PROXY_REVERSE_PROXY: "true"
+      OAUTH2_PROXY_SET_XAUTHREQUEST: "true"
+      # One session cookie per host (web + api hostnames each log in once; the
+      # Keycloak SSO session makes the second one silent). Minimal = no tokens
+      # in the cookie, so it stays one cookie and the app never sees them.
+      OAUTH2_PROXY_COOKIE_NAME: "_gate_sandbox"
+      OAUTH2_PROXY_COOKIE_SECURE: "true"
+      OAUTH2_PROXY_COOKIE_SAMESITE: "lax"
+      OAUTH2_PROXY_COOKIE_EXPIRE: "168h"
+      OAUTH2_PROXY_COOKIE_REFRESH: "0"
+      OAUTH2_PROXY_SESSION_COOKIE_MINIMAL: "true"
+      OAUTH2_PROXY_WHITELIST_DOMAINS: ".overwatch.confinia.io"
+    env_file:
+      - .env            # OAUTH2_PROXY_CLIENT_SECRET / OAUTH2_PROXY_COOKIE_SECRET
+    networks:
+      - default
+      - v2net           # token exchange + JWKS against the shared Keycloak
+    restart: unless-stopped
+
   # The sandbox's OWN application caddy — dedicated port 8190 (range 8190-8199).
   # The platform upstream edge proxies sandbox.overwatch.confinia.io here; this
   # caddy routes to web/api/grafana within the ovw-sandbox network. Self-

@@ -70,6 +70,15 @@ jobs:
           # secrets live with the stack, never in git
           cp ~/projects/overwatch/orbit-poc/sandbox/.env orbit-poc/sandbox/.env
           chmod 600 orbit-poc/sandbox/.env
+          # NOTE: a PR never reconciles Keycloak. The gate realm (#290) is
+          # applied by deploy.yml at stage time, from main, together with the
+          # application realms. Two reasons, both learned the hard way: an
+          # unmerged branch must not be able to edit live prod auth, and
+          # `podman-compose up keycloak-config-cli` run from ANY directory but
+          # ~/projects/overwatch/orbit-poc/v2 recreates the shared Keycloak
+          # container, taking every environment's login down while it boots.
+          # The gate itself needs no realm to redirect a visitor to one, so the
+          # check below is honest either way.
           cd orbit-poc/sandbox
           # #237: never `down` first. The long part of a redeploy is the BUILD
           # (2-4 min); with the stack torn down, that whole window answers a
@@ -90,21 +99,26 @@ jobs:
           # ONE AT A TIME, in dependency order: `web` depends_on `api`, and
           # podman rm with several names does not honour the order given, so a
           # single call fails with "has dependent containers".
-          for c in web api grafana ingest; do
+          for c in web api grafana ingest gate; do
             podman rm -f "ovw-sandbox_${c}_1" >/dev/null 2>&1 || true
           done
           # Only the services just removed, and --no-deps so `up` does not try
           # to recreate db/caddy — it errors on their existing container names
           # rather than skipping them (podman-compose has no --replace).
-          $C up -d --no-deps web api grafana ingest 2>&1 | tail -2
-          # The Caddyfile is bind-mounted from this checkout, so routing
-          # changes land on disk without a recreate. Reload in place —
-          # graceful by design, no dropped connections. The environment may
-          # have been switched off between PRs (the 2026-09-05 footprint cut
-          # stopped every sandbox container): a stopped listener is started,
-          # not exec'd into.
-          podman start ovw-sandbox_caddy_1 >/dev/null 2>&1 || true
-          podman exec ovw-sandbox_caddy_1 caddy reload \
+          $C up -d --no-deps web api grafana ingest gate 2>&1 | tail -2
+          # caddy LAST, and recreated rather than reloaded. The Caddyfile is a
+          # single-FILE bind mount from this checkout, and `git checkout`
+          # replaces the file instead of writing into it — so the container
+          # stays bound to the old inode and `caddy reload` answers "config is
+          # unchanged" however much the Caddyfile changed. That is not a theory:
+          # three consecutive reloads said exactly that while the sandbox served
+          # a two-week-old gate config (#290). Recreating costs the listener
+          # about a second, and it happens after the app services are already
+          # up, so the #237 concern (a 2-4 minute build window answering 502)
+          # does not apply.
+          podman rm -f ovw-sandbox_caddy_1 >/dev/null 2>&1 || true
+          $C up -d --no-deps caddy 2>&1 | tail -2
+          podman exec ovw-sandbox_caddy_1 caddy validate \
             --config /etc/caddy/Caddyfile --adapter caddyfile 2>&1 | tail -1
           for c in $(podman ps --format '{{.Names}}' | grep ^ovw-sandbox); do
             podman update --restart=always "$c" >/dev/null; done
@@ -125,17 +139,27 @@ jobs:
 
       - name: Check it answers
         env:
-          BASIC_PASS: ${{ secrets.SANDBOX_BASIC_PASS }}
           SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
+          # Two questions, because the gate (#290) makes them different ones.
+          # The app: /v1/healthz is open at the gate, so 200 is the stack.
           for i in 1 2 3 4 5 6; do
             code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 \
-              -u "clement:$BASIC_PASS" https://sandbox.overwatch.confinia.io/ || true)
+              https://sandbox.overwatch.confinia.io/api/v1/healthz || true)
             [ "$code" = "200" ] && break
             sleep 10
           done
-          echo "sandbox -> $code"
+          echo "sandbox healthz -> $code"
           [ "$code" = "200" ]
+          # The gate: a session-less visitor is sent to sign in, and nothing
+          # else. A 200 here would mean the environment became public.
+          redir=$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' \
+            --max-time 20 https://sandbox.overwatch.confinia.io/ || true)
+          echo "sandbox / -> $redir"
+          case "$redir" in
+            30[1237]*/oauth2/sign_in*|30[1237]*/oauth2/start*) ;;
+            *) echo "the gate is not in front of the sandbox: $redir" >&2; exit 1 ;;
+          esac
           echo "### Sandbox updated" >> $GITHUB_STEP_SUMMARY
           echo "https://sandbox.overwatch.confinia.io now runs \`${SHA:0:7}\`" \
             >> $GITHUB_STEP_SUMMARY

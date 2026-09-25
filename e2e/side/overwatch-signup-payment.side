@@ -73,6 +73,150 @@
           "value": "CARD_NAME"
         },
         {
+          "id": "g-reg-sgate_email",
+          "comment": "",
+          "command": "store",
+          "target": "__GATE_EMAIL__",
+          "targets": [],
+          "value": "GATE_EMAIL"
+        },
+        {
+          "id": "g-reg-sgate_pass",
+          "comment": "",
+          "command": "store",
+          "target": "__GATE_PASS__",
+          "targets": [],
+          "value": "GATE_PASS"
+        },
+        {
+          "id": "g-reg-m1",
+          "comment": "",
+          "command": "echo",
+          "target": ">> gate 1: open ${BASE}/",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "g-reg-c1",
+          "comment": "",
+          "command": "open",
+          "target": "${BASE}/",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "g-reg-m2",
+          "comment": "",
+          "command": "echo",
+          "target": ">> gate 2: waitForElementVisible id=username",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "g-reg-c2",
+          "comment": "",
+          "command": "waitForElementVisible",
+          "target": "id=username",
+          "targets": [],
+          "value": "60000"
+        },
+        {
+          "id": "g-reg-m3",
+          "comment": "",
+          "command": "echo",
+          "target": ">> gate 3: type id=username",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "g-reg-c3",
+          "comment": "",
+          "command": "type",
+          "target": "id=username",
+          "targets": [],
+          "value": "${GATE_EMAIL}"
+        },
+        {
+          "id": "g-reg-m4",
+          "comment": "",
+          "command": "echo",
+          "target": ">> gate 4: click id=kc-login",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "g-reg-c4",
+          "comment": "",
+          "command": "click",
+          "target": "id=kc-login",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "g-reg-m5",
+          "comment": "",
+          "command": "echo",
+          "target": ">> gate 5: waitForElementVisible id=password",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "g-reg-c5",
+          "comment": "",
+          "command": "waitForElementVisible",
+          "target": "id=password",
+          "targets": [],
+          "value": "60000"
+        },
+        {
+          "id": "g-reg-m6",
+          "comment": "",
+          "command": "echo",
+          "target": ">> gate 6: type id=password",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "g-reg-c6",
+          "comment": "",
+          "command": "type",
+          "target": "id=password",
+          "targets": [],
+          "value": "${GATE_PASS}"
+        },
+        {
+          "id": "g-reg-m7",
+          "comment": "",
+          "command": "echo",
+          "target": ">> gate 7: click id=kc-login",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "g-reg-c7",
+          "comment": "",
+          "command": "click",
+          "target": "id=kc-login",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "g-reg-m8",
+          "comment": "",
+          "command": "echo",
+          "target": ">> gate 8: waitForElementNotPresent id=kc-login",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "g-reg-c8",
+          "comment": "",
+          "command": "waitForElementNotPresent",
+          "target": "id=kc-login",
+          "targets": [],
+          "value": "60000"
+        },
+        {
           "id": "t-reg-m1",
           "comment": "",
           "command": "echo",
@@ -509,6 +653,150 @@
           "target": "E2E Bot",
           "targets": [],
           "value": "CARD_NAME"
+        },
+        {
+          "id": "g-pay-sgate_email",
+          "comment": "",
+          "command": "store",
+          "target": "__GATE_EMAIL__",
+          "targets": [],
+          "value": "GATE_EMAIL"
+        },
+        {
+          "id": "g-pay-sgate_pass",
+          "comment": "",
+          "command": "store",
+          "target": "__GATE_PASS__",
+          "targets": [],
+          "value": "GATE_PASS"
+        },
+        {
+          "id": "g-pay-m1",
+          "comment": "",
+          "command": "echo",
+          "target": ">> gate 1: open ${BASE}/",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "g-pay-c1",
+          "comment": "",
+          "command": "open",
+          "target": "${BASE}/",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "g-pay-m2",
+          "comment": "",
+          "command": "echo",
+          "target": ">> gate 2: waitForElementVisible id=username",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "g-pay-c2",
+          "comment": "",
+          "command": "waitForElementVisible",
+          "target": "id=username",
+          "targets": [],
+          "value": "60000"
+        },
+        {
+          "id": "g-pay-m3",
+          "comment": "",
+          "command": "echo",
+          "target": ">> gate 3: type id=username",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "g-pay-c3",
+          "comment": "",
+          "command": "type",
+          "target": "id=username",
+          "targets": [],
+          "value": "${GATE_EMAIL}"
+        },
+        {
+          "id": "g-pay-m4",
+          "comment": "",
+          "command": "echo",
+          "target": ">> gate 4: click id=kc-login",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "g-pay-c4",
+          "comment": "",
+          "command": "click",
+          "target": "id=kc-login",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "g-pay-m5",
+          "comment": "",
+          "command": "echo",
+          "target": ">> gate 5: waitForElementVisible id=password",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "g-pay-c5",
+          "comment": "",
+          "command": "waitForElementVisible",
+          "target": "id=password",
+          "targets": [],
+          "value": "60000"
+        },
+        {
+          "id": "g-pay-m6",
+          "comment": "",
+          "command": "echo",
+          "target": ">> gate 6: type id=password",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "g-pay-c6",
+          "comment": "",
+          "command": "type",
+          "target": "id=password",
+          "targets": [],
+          "value": "${GATE_PASS}"
+        },
+        {
+          "id": "g-pay-m7",
+          "comment": "",
+          "command": "echo",
+          "target": ">> gate 7: click id=kc-login",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "g-pay-c7",
+          "comment": "",
+          "command": "click",
+          "target": "id=kc-login",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "g-pay-m8",
+          "comment": "",
+          "command": "echo",
+          "target": ">> gate 8: waitForElementNotPresent id=kc-login",
+          "targets": [],
+          "value": ""
+        },
+        {
+          "id": "g-pay-c8",
+          "comment": "",
+          "command": "waitForElementNotPresent",
+          "target": "id=kc-login",
+          "targets": [],
+          "value": "60000"
         },
         {
           "id": "t-pay-m1",

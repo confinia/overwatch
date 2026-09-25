@@ -62,13 +62,15 @@ jobs:
       - name: Compose the run configuration
         env:
           TARGET: ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}
-          BASIC_PASS: ${{ secrets.SANDBOX_BASIC_PASS }}
           TARGET_ENV: ${{ inputs.target_env }}
           KEEP_USER: ${{ inputs.keep_user && '1' || '0' }}
+        # No secret travels from GitHub any more (#290): the run makes its own
+        # gate account on the VM with a generated password, and everything else
+        # it needs already lives in the stack's .env.
         run: |
           ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes "$TARGET" \
-            "TARGET_ENV='$TARGET_ENV' KEEP_USER='$KEEP_USER' GATE_USER=clement \
-             BASIC_PASS='$BASIC_PASS' bash ~/e2e-side/ci_env.sh"
+            "TARGET_ENV='$TARGET_ENV' KEEP_USER='$KEEP_USER' \
+             bash ~/e2e-side/ci_env.sh"
 
       - name: Walk registration and payment
         env:
