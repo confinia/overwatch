@@ -106,14 +106,19 @@ jobs:
           # to recreate db/caddy — it errors on their existing container names
           # rather than skipping them (podman-compose has no --replace).
           $C up -d --no-deps web api grafana ingest gate 2>&1 | tail -2
-          # The Caddyfile is bind-mounted from this checkout, so routing
-          # changes land on disk without a recreate. Reload in place —
-          # graceful by design, no dropped connections. The environment may
-          # have been switched off between PRs (the 2026-09-05 footprint cut
-          # stopped every sandbox container): a stopped listener is started,
-          # not exec'd into.
-          podman start ovw-sandbox_caddy_1 >/dev/null 2>&1 || true
-          podman exec ovw-sandbox_caddy_1 caddy reload \
+          # caddy LAST, and recreated rather than reloaded. The Caddyfile is a
+          # single-FILE bind mount from this checkout, and `git checkout`
+          # replaces the file instead of writing into it — so the container
+          # stays bound to the old inode and `caddy reload` answers "config is
+          # unchanged" however much the Caddyfile changed. That is not a theory:
+          # three consecutive reloads said exactly that while the sandbox served
+          # a two-week-old gate config (#290). Recreating costs the listener
+          # about a second, and it happens after the app services are already
+          # up, so the #237 concern (a 2-4 minute build window answering 502)
+          # does not apply.
+          podman rm -f ovw-sandbox_caddy_1 >/dev/null 2>&1 || true
+          $C up -d --no-deps caddy 2>&1 | tail -2
+          podman exec ovw-sandbox_caddy_1 caddy validate \
             --config /etc/caddy/Caddyfile --adapter caddyfile 2>&1 | tail -1
           for c in $(podman ps --format '{{.Names}}' | grep ^ovw-sandbox); do
             podman update --restart=always "$c" >/dev/null; done

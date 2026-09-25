@@ -87,8 +87,17 @@ def test_sandbox_deploy_cannot_serve_a_stale_image():   # #237 follow-up
     assert order.index("web") < order.index("api"), \
         "web must be removed before api, or podman refuses"
     assert 'podman rm -f "ovw-sandbox_${c}_1"' in removed
-    # caddy and db are never torn down — that is what keeps the listener up
-    assert "caddy" not in removed and "_db_1" not in removed
+    # db is never torn down: its data stays warm across every redeploy.
+    assert "_db_1" not in removed
+    # caddy IS recreated, but on its own and last (#290): its Caddyfile is a
+    # single-file bind mount from the checkout, and `git checkout` replaces that
+    # file, so a reload cannot see the change. The app containers are already up
+    # by then, so the listener is down for its own restart only, not for the
+    # 2-4 minute build the old `down` used to span.
+    assert "podman rm -f ovw-sandbox_caddy_1" in removed
+    assert "caddy" not in order, \
+        "caddy must not be in the app removal loop, or the listener drops for " \
+        "the whole swap"
     # and the deploy must prove the code is new, not merely the container
     # `up` must touch ONLY the services just removed: podman-compose errors on
     # an existing container name instead of skipping it, so a bare `up` dies on
