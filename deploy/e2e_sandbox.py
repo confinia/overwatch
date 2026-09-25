@@ -156,20 +156,47 @@ def admin_opener():
     return op
 
 
-def kc_admin_token(op):
+# The master realm's accessTokenLifespan is 60 seconds and a walk takes longer,
+# so ONE token minted at the start is dead by the teardown. That used to be
+# silent and destructive-by-omission: kc_user_id() reads a 401 as "no such
+# user", the delete is skipped, and the run exits 0 leaving its disposable
+# accounts behind forever (#500 — and part of what #489 blamed on runs dying
+# early). The token is cached here so a 401 can always be retried with a fresh
+# one, whatever the caller is holding.
+_ADMIN = {"op": None, "token": "", "minted": 0.0}
+ADMIN_TOKEN_TTL = 45          # under Keycloak's 60 s, with room for a slow call
+
+
+def kc_admin_token(op, force=False):
+    if (not force and _ADMIN["token"]
+            and time.monotonic() - _ADMIN["minted"] < ADMIN_TOKEN_TTL):
+        return _ADMIN["token"]
     st, _, txt = fetch(op, f"{KC_ADMIN_BASE}/realms/master/protocol/openid-connect/token",
                        data={"grant_type": "password", "client_id": "admin-cli",
                              "username": ADMIN_USER, "password": ADMIN_PASS})
     if st != 200:
         die(f"Keycloak admin token failed ({st})")
-    return json.loads(txt)["access_token"]
+    _ADMIN.update(op=op, token=json.loads(txt)["access_token"],
+                  minted=time.monotonic())
+    return _ADMIN["token"]
+
+
+def _kc_call(op, method, path, body, token, realm):
+    return fetch(op, f"{KC_ADMIN_BASE}/admin/realms/{realm or REALM}{path}",
+                 data=json.dumps(body).encode() if body is not None else None,
+                 headers={"Authorization": f"Bearer {token}",
+                          "Content-Type": "application/json"}, method=method)
 
 
 def kc(op, method, path, body=None, token="", realm=None):
-    st, _, txt = fetch(op, f"{KC_ADMIN_BASE}/admin/realms/{realm or REALM}{path}",
-                       data=json.dumps(body).encode() if body is not None else None,
-                       headers={"Authorization": f"Bearer {token}",
-                                "Content-Type": "application/json"}, method=method)
+    """One admin call. A 401 is re-minted and retried once rather than returned:
+    every caller here treats a non-200 as an absence, so an expired token must
+    never be allowed to look like one."""
+    token = token or kc_admin_token(op)
+    st, _, txt = _kc_call(op, method, path, body, token, realm)
+    if st in (401, 403) and _ADMIN["op"] is not None:
+        st, _, txt = _kc_call(op, method, path, body,
+                              kc_admin_token(_ADMIN["op"], force=True), realm)
     return st, txt
 
 
