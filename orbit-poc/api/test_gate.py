@@ -231,6 +231,37 @@ def test_the_api_walk_makes_and_removes_its_own_gate_account():
     assert "Basic " not in w
 
 
+def test_a_stuck_gate_login_says_what_the_page_was():
+    """It failed once in five runs (run 36234727653, step 9) with only a URL
+    to go on — and that URL is identical whether Keycloak served the login
+    form, an expired action, an invalid parameter or a WebAuthn prompt. A
+    failure message that cannot be acted on costs another whole run."""
+    w = _read("deploy", "e2e_sandbox.py")
+    stuck = w[w.index("gate login did not complete"):]
+    stuck = stuck[:stuck.index("if st >= 400")]
+    for part in ("page title:", "forms:", "text:"):
+        assert part in stuck, f"the stuck-gate message must include {part}"
+    for helper in ("def _title(", "def _form_ids(", "def _page_text("):
+        assert helper in w, helper
+
+
+def test_the_page_text_helper_strips_markup_and_scripts():
+    """A Keycloak page is mostly script and style; a raw slice of the HTML
+    would be 300 characters of nothing."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "e2e_gate", os.path.join(ROOT, "deploy", "e2e_sandbox.py"))
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    html = ("<html><head><title>Sign in</title><style>.a{color:red}</style>"
+            "</head><body><script>var x=1;</script>"
+            "<h1>Action expired</h1><p>Please restart.</p></body></html>")
+    assert m._title(html) == "Sign in"
+    assert m._page_text(html) == "Action expired Please restart."
+    assert "var x" not in m._page_text(html)
+    assert m._form_ids('<form id="kc-form-login">') == "kc-form-login"
+
+
 def test_the_browser_walk_signs_in_at_the_gate_before_anything_else():
     side = json.load(open(os.path.join(ROOT, "e2e", "side",
                                        "overwatch-signup-payment.side"),
