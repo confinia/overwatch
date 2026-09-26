@@ -611,7 +611,14 @@ async function refresh(){
     }
   } else if (wanted && wanted !== activeNorad && satsByNorad[wanted]) {
     select(satsByNorad[wanted]);
-  } else if (activeNorad === null && activeStation === null && activeOrgSat === null && !wanted && !wantedOem && showOpen) {
+  } else if (activeNorad === null && activeStation === null && activeOrgSat === null
+             && !activeDemo && !wantsDemo()
+             && !wanted && !wantedOem && showOpen) {
+    // NOT when the demo is the destination (#436): selectDemo() clears the
+    // three actives above, so without this the default landing fires right
+    // after it and replaces the demo with a random open-data satellite. Both
+    // flags are needed — activeDemo for when the demo already loaded, and
+    // wantsDemo() for the usual case where its fetch has not resolved yet.
     // Default view: land on a satellite with the freshest telemetry —
     // inside the hour when the network heard one, otherwise the most
     // recently heard overall. The page never opens on an empty panel.

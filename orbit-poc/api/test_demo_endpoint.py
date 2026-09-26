@@ -71,3 +71,19 @@ def test_the_demo_has_an_address_a_link_can_point_at():
         "a declaration, not a const: it is called from a handler defined above"
     assert '"/demo"' in js and '"#demo"' in js, \
         "both the path and the fragment must open the demo"
+
+
+def test_the_default_landing_does_not_steal_the_demo():
+    """Caught by rendering /demo, not by reading it (#436): the page loaded,
+    the demo link appeared, and the panel showed a random open-data satellite.
+
+    selectDemo() clears activeNorad/activeStation/activeOrgSat, which is
+    exactly the condition the default landing waits for, so it fired straight
+    after and replaced the demo. Both flags are needed: activeDemo once the
+    demo has loaded, wantsDemo() for the usual case where its fetch has not
+    resolved when the catalog arrives."""
+    js = _read("web", "static", "app.js")
+    branch = js[js.index("activeNorad === null && activeStation === null"):]
+    branch = branch[:branch.index("{")]
+    assert "!activeDemo" in branch and "!wantsDemo()" in branch, \
+        "the default landing must stand down when the demo is the destination"
