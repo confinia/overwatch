@@ -39,7 +39,12 @@ services:
       YAMCS_URL: http://yamcs:8090
       YAMCS_INSTANCE: myproject
       YAMCS_PROCESSOR: realtime
+      # Position FIRST (#436): the demo's whole point is a satellite moving on
+      # the globe, and the control room draws its ground track from these three.
+      # Without them the public demo rendered a panel of battery numbers over an
+      # empty map — the quickstart publishes them, we just never asked for them.
       YAMCS_PARAMETERS: >-
+        /myproject/Latitude,/myproject/Longitude,/myproject/Height,
         /myproject/Battery1_Voltage,/myproject/Battery2_Voltage,
         /myproject/Battery1_Temp,/myproject/Battery2_Temp,/myproject/A
       SATELLITE: QuickSat

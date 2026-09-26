@@ -142,6 +142,22 @@ http://grafana.overwatch.confinia.io {
 	redir * https://overwatch.confinia.io/grafana{uri} 308
 }
 
+# ---- the public YAMCS demo on its own memorable hostname -------------------
+# yamcs.overwatch.confinia.io -> overwatch.confinia.io/demo, a 308 for exactly
+# the reasons grafana.* is one (#386), and one more that is specific to this:
+# the demo panel embeds the yamcs-demo Grafana dashboard in an iframe, and the
+# CSP on that page is frame-ancestors 'self'. Served from a second origin the
+# iframe would be cross-origin and the browser would refuse it, so the demo
+# would render with a blank chart. The canonical origin is the one where the
+# demo actually works; this hostname is a signpost to it.
+#
+# EDGE (founder, rule 19): add `yamcs.overwatch.confinia.io` to the hostname
+# list of the FIRST block in deploy/caddy/overwatch.caddy — a one-line change
+# to an existing block, plus the DNS record, or TLS is never requested for it.
+http://yamcs.overwatch.confinia.io {
+	redir * https://overwatch.confinia.io/demo 308
+}
+
 # ---- production API on its own hostname ------------------------------------
 # api.overwatch.confinia.io serves the public API at the root (/v1/...), with
 # no /api prefix. /api/v1/... keeps working here too: FastAPI runs with

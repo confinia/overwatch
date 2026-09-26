@@ -1,5 +1,7 @@
-"""#432: the public demo-satellite endpoint that lets the web app show a
-YAMCS-fed mission in the control room without a tenant key.
+"""#432/#436: the public demo-satellite endpoint that lets the web app show a
+YAMCS-fed mission in the control room without a tenant key, and the pieces that
+make that demo actually showable: the position telemetry it draws, and an
+address that can be linked to.
 
 Source-invariant guard (like test_passes.py): the endpoint is public
 (no auth dependency), keyed off the tenant `demo` flag (never a hardcoded
@@ -38,3 +40,34 @@ def test_demo_endpoint_serves_track_and_is_cacheable():
         "the ground track comes from the Latitude/Longitude telemetry"
     assert '"grafana_uid"' in fn, \
         "returns the embeddable Grafana dashboard uid for the app"
+
+
+# --- #436: the demo has to be reachable, and there has to be something to see
+
+
+def _read(*parts):
+    return open(os.path.join(os.path.dirname(__file__), "..", *parts),
+                encoding="utf-8").read()
+
+
+def test_the_demo_subscribes_to_where_the_satellite_is():
+    """The endpoint builds its ground track from Latitude/Longitude, and the
+    control room draws that track. The demo asked YAMCS for battery voltages
+    only, so the public demo was a table of numbers over an empty globe — the
+    quickstart publishes the position all along."""
+    compose = _read("bridge", "yamcs", "demo", "docker-compose.yml")
+    params = compose.split("YAMCS_PARAMETERS:", 1)[1].split("SATELLITE:", 1)[0]
+    for p in ("/myproject/Latitude", "/myproject/Longitude"):
+        assert p in params, f"the demo must subscribe to {p}"
+
+
+def test_the_demo_has_an_address_a_link_can_point_at():
+    """`#demo` is a fragment: it never reaches a server, so it cannot be
+    proxied to, routed to, or relied on in an announcement. /demo serves the
+    same page and the app opens the demo from the path."""
+    assert '@app.get("/demo")' in _read("web", "app.py")
+    js = _read("web", "static", "app.js")
+    assert "function wantsDemo(" in js, \
+        "a declaration, not a const: it is called from a handler defined above"
+    assert '"/demo"' in js and '"#demo"' in js, \
+        "both the path and the fragment must open the demo"

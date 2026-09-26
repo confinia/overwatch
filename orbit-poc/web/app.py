@@ -313,6 +313,18 @@ def index():
     return send_from_directory("static", "index.html")
 
 
+@app.get("/demo")
+def demo():
+    """A shareable address for the YAMCS demo (#436).
+
+    The control room selects the demo from `#demo`, but a fragment never
+    reaches a server, so it cannot be routed to, proxied to, or linked from an
+    announcement with any confidence. This serves the same page; app.js reads
+    the path and opens the demo itself. It is also what a dedicated demo
+    subdomain proxies to, which keeps the hostname out of the frontend."""
+    return send_from_directory("static", "index.html")
+
+
 @app.get("/w/<view>")
 def window(view):
     """Chromeless, URL-driven control-room windows (#49): /w/<view> serves

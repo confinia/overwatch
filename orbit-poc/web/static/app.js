@@ -647,7 +647,7 @@ function hashOem(){
 }
 
 window.addEventListener("hashchange", () => {
-  if (location.hash === "#demo") { selectDemo(); return; }
+  if (wantsDemo()) { selectDemo(); return; }
   const n = hashNorad();
   if (n && n !== activeNorad && satsByNorad[n]) select(satsByNorad[n]);
   const st = hashStation();
@@ -704,6 +704,14 @@ async function selectDemo(){
     `</div>`;
 }
 
+// /demo is the shareable address for it (#436): a #fragment never reaches the
+// server, so it cannot be proxied to or routed to. A dedicated demo subdomain
+// proxies to this path, which is why no hostname appears anywhere in here.
+function wantsDemo(){          // a declaration: it is called from a handler above
+  return location.hash === "#demo"
+      || location.pathname.replace(/\/$/, "") === "/demo";
+}
+
 // reveal the demo entry only if the API serves one
 async function revealDemoLink(){
   try {
@@ -711,7 +719,7 @@ async function revealDemoLink(){
     if (!r.ok) return;
     const el = document.getElementById("demoLink");
     if (el) el.style.display = "inline";
-    if (location.hash === "#demo") selectDemo();
+    if (wantsDemo()) selectDemo();
   } catch {}
 }
 revealDemoLink();
