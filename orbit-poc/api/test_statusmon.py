@@ -72,7 +72,7 @@ def test_one_slow_or_dead_service_never_hides_the_others():
 def test_every_target_is_a_service_of_the_prod_compose():
     compose = _read("orbit-poc", "docker-compose.yml")
     for service, (url, _host) in statusmon.TARGETS.items():
-        if url in ("sql", "fsync"):
+        if "//" not in url:          # sql / fsync / demo: not an HTTP target
             continue
         name = url.split("//")[1].split(":")[0]
         assert f"\n  {name}:\n" in compose, f"{service}: no compose service {name}"
@@ -94,6 +94,82 @@ def test_disk_latency_is_a_service_and_slow_is_down(tmp_path):
     ok, _, detail = statusmon.probe_fsync(path, max_ms=1000, fsync=broken)
     assert ok is False and detail == "OSError"
     assert statusmon.TARGETS["disk (fsync)"] == ("fsync", None)
+
+
+class _FakeDB:
+    """A connection that answers the demo probe's two queries in order."""
+
+    def __init__(self, tenant, age):
+        self._rows = [[tenant] if tenant else None,
+                      [age] if tenant else None]
+        self.executed = []
+
+    def __call__(self):
+        return self
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def cursor(self):
+        return self
+
+    def execute(self, sql, args=None):
+        self.executed.append(" ".join(sql.split()))
+
+    def fetchone(self):
+        return self._rows.pop(0)
+
+
+def test_the_demo_is_measured_by_data_age_not_by_being_up():
+    """#436: the demo ran 16 days silent with both containers Up, because the
+    quickstart's simulator plays its data once and then idles alive. Nothing
+    was down; nothing was arriving."""
+    fresh = statusmon.probe_demo(_FakeDB("t-1", 12.4), max_age_s=600)
+    assert fresh[0] is True and fresh[1] == 12000 and "12s behind" in fresh[2]
+    stale = statusmon.probe_demo(_FakeDB("t-1", 16 * 86400), max_age_s=600)
+    assert stale[0] is False, "16 days behind must be down"
+    assert "max 600s" in stale[2]
+    assert statusmon.TARGETS["yamcs demo (data age)"] == ("demo", None)
+
+
+def test_a_demo_tenant_with_no_telemetry_at_all_is_down_not_a_crash():
+    ok, ms, detail = statusmon.probe_demo(_FakeDB("t-1", None), max_age_s=600)
+    assert ok is False and ms is None and "no telemetry" in detail
+
+
+def test_an_install_with_no_demo_tenant_reports_nothing(monkeypatch):
+    """Self-host has no demo. A row that is permanently red everywhere is how
+    a board stops being read, so the probe must abstain, not fail."""
+    assert statusmon.probe_demo(_FakeDB(None, None)) is None
+    rows = []
+    monkeypatch.setattr(statusmon, "probe_demo", lambda: None)
+    statusmon.run_probes(lambda *r: rows.append(r),
+                         targets={"yamcs demo (data age)": ("demo", None)})
+    assert rows == []
+
+
+def test_a_broken_database_is_a_down_demo_not_an_exception():
+    def boom():
+        raise OSError("no route to host")
+    ok, _, detail = statusmon.probe_demo(boom)
+    assert ok is False and detail == "OSError"
+
+
+def test_the_deploy_owns_the_demo_instead_of_a_hand_run_project():
+    """Rule 33. It used to be `podman-compose up` typed by hand in a scratch
+    directory, which is why nothing redeployed it and nothing watched it."""
+    deploy = _read(".github", "workflows", "deploy.yml")
+    assert "orbit-poc/bridge/yamcs/demo" in deploy
+    assert "-p ow-demo" in deploy
+    # from the PROMOTED tree, never a scratch checkout
+    assert "~/projects/overwatch/orbit-poc/bridge/yamcs/demo" in deploy
+    # the bridge is removed so `up` re-resolves its freshly built tag (#119)
+    assert "podman rm -f ow-demo_bridge_1" in deploy
+    # and a missing .env means no demo, not a failed deploy (self-host default)
+    assert 'echo "no $DEMO/.env - skipping the YAMCS demo"' in deploy
 
 
 def test_the_healthcheck_outlives_disk_latency():
