@@ -157,9 +157,15 @@ services:
     # DB_DSN comes from .env (never committed).
     env_file:
       - .env
+    # default ONLY (#503). Every environment's caddy is also on v2net and they
+    # all carry the alias `caddy` there, so from v2net the name resolved to
+    # four addresses and the prod probes landed on sandbox or staging at
+    # random. It stayed green because those answered the basic-auth 401 and
+    # anything under 500 is "reachable"; the SSO gate (#290) turned the same
+    # misrouting into a red row. statusmon never needed this network: the
+    # keycloak probe reaches ovw2 THROUGH caddy, which is on it.
     networks:
       - default
-      - v2net          # keycloak probe crosses to the ovw2 project via caddy anyway; kept for parity with caddy
     cpus: "0.1"
     mem_limit: 96m
     # Plain argv only (#463): healthz.py checks the probe loop's heartbeat,
