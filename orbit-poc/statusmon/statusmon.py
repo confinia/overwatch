@@ -44,6 +44,11 @@ PROBE_TIMEOUT = float(os.environ.get("PROBE_TIMEOUT", 5))
 # nothing on the boards said so while container healthchecks timed out.
 FSYNC_MAX_MS = int(os.environ.get("FSYNC_MAX_MS", 1000))
 FSYNC_FILE = os.environ.get("FSYNC_FILE", "/tmp/fsync-probe")
+# The public YAMCS demo is fed by a bridge, not served on a port, so "up" for
+# it means FRESH: it went silent for 16 days with both its containers Up and
+# every reachability check it had passing (#428, found while proving the
+# bridge). Data age is the only probe that would have said so.
+DEMO_MAX_AGE_S = int(os.environ.get("DEMO_MAX_AGE_S", 600))
 GITHUB_REPO = os.environ.get("GITHUB_REPO", "confinia/overwatch")
 RETENTION_DAYS = int(os.environ.get("RETENTION_DAYS", 14))
 PIPELINE_KEEP = int(os.environ.get("PIPELINE_KEEP", 500))
@@ -69,6 +74,9 @@ TARGETS = {
     # any HTTP answer (404 included) proves the collector is up; a dead one
     # refuses the connection.
     "otel-collector": ("http://otel-collector:4318/", None),
+    # not a port: the age of the demo tenant's newest point (#436). The name
+    # says what the number is, because the latency panel plots it.
+    "yamcs demo (data age)": ("demo", None),
 }
 
 DDL = """
@@ -149,17 +157,53 @@ def probe_fsync(path=None, max_ms=None, now=time.monotonic, fsync=os.fsync):
         return False, int((now() - t0) * 1000), type(e).__name__
 
 
+def probe_demo(connect=None, max_age_s=None, now=time.monotonic):
+    """The public YAMCS demo as a service: how old is its newest point (#436).
+
+    Returns None when no tenant is flagged as the demo. That is the self-host
+    default, and a row that is permanently red on every self-host install is
+    how a board stops being read.
+
+    Age, not reachability. The demo ran 16 days silent with both containers Up,
+    because the quickstart's simulator plays its test data once and then idles
+    with the process alive — nothing was down, nothing was arriving."""
+    max_age_s = DEMO_MAX_AGE_S if max_age_s is None else max_age_s
+    t0 = now()
+    try:
+        with (connect or db)() as conn, conn.cursor() as cur:
+            cur.execute("SELECT key FROM tenant WHERE demo "
+                        "ORDER BY created_at LIMIT 1")
+            row = cur.fetchone()
+            if not row:
+                return None
+            cur.execute("SELECT date_part('epoch', now() - max(ts)) "
+                        "FROM tenant_telemetry WHERE tenant = %s::uuid", (row[0],))
+            age = (cur.fetchone() or [None])[0]
+    except Exception as e:  # noqa: BLE001 — the failure IS the measurement
+        return False, int((now() - t0) * 1000), type(e).__name__
+    if age is None:
+        return False, None, "the demo tenant has no telemetry at all"
+    age = int(age)
+    return age <= max_age_s, age * 1000, f"{age}s behind (max {max_age_s}s)"
+
+
 def run_probes(record, targets=None, get=None):
     """One pass over every target. One slow service must not hide the rest,
-    so each probe records independently."""
+    so each probe records independently. A probe may return None to mean "not
+    applicable on this install", and then there is no row rather than a red
+    one."""
     for service, (url, host) in (targets or TARGETS).items():
         if url == "sql":
-            ok, ms, detail = probe_db()
+            result = probe_db()
         elif url == "fsync":
-            ok, ms, detail = probe_fsync()
+            result = probe_fsync()
+        elif url == "demo":
+            result = probe_demo()
         else:
-            ok, ms, detail = probe(url, host, get)
-        record(service, ok, ms, detail)
+            result = probe(url, host, get)
+        if result is None:
+            continue
+        record(service, *result)
 
 
 def parse_refs(title):

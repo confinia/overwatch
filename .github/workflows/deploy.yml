@@ -111,6 +111,35 @@ jobs:
             fi
           done
           echo "gateway + ingest + statusmon running the freshly built images"
+          # The public YAMCS demo (#436). It used to be a compose project run by
+          # hand out of a scratch directory, and it went silent for 16 days with
+          # both containers Up and nobody noticing (#428). Rule 33: if it is
+          # versioned source, compose and CI own it. Its own project name, not
+          # the core one: the YAMCS image is a heavy Maven build with a lifecycle
+          # of its own, and a demo must never be able to delay prod.
+          #   The tenant key lives in that directory's .env on the VM, never in
+          # git; no .env means no demo, which is also the self-host default.
+          DEMO=~/projects/overwatch/orbit-poc/bridge/yamcs/demo
+          if [ -f "$DEMO/.env" ]; then
+            D="podman-compose -p ow-demo -f docker-compose.yml -f docker-compose.internal.yml"
+            ( cd "$DEMO"
+              # build both: the pinned quickstart layers are cached, so after
+              # the first deploy this only rebuilds the bridge when it changed
+              $D build 2>&1 | tail -2
+              # remove the bridge so `up` re-resolves its tag (#119): a recreate
+              # alone reuses the image id already pinned in the container
+              podman rm -f ow-demo_bridge_1 >/dev/null 2>&1 || true
+              $D up -d 2>&1 | tail -2 )
+            for c in ow-demo_yamcs_1 ow-demo_bridge_1; do
+              podman inspect "$c" --format "{{.Name}} {{.State.Status}}" 2>/dev/null \
+                || { echo "the YAMCS demo did not come up: $c missing" >&2; exit 1; }
+            done
+            # Freshness is statusmon's job (yamcs demo (data age), #436), not a
+            # one-shot check here: the containers being up is exactly what was
+            # true for the whole 16 days it was silent.
+          else
+            echo "no $DEMO/.env - skipping the YAMCS demo"
+          fi
           cd ~/projects/overwatch
           bash deploy/run-tests.sh          # the gate: no candidate on a red suite
           bash deploy/slots.sh stage
