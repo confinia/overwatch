@@ -79,6 +79,35 @@ def test_grafana_hostname_redirects_to_the_canonical_path():
         "the hostname must redirect, not serve — one Grafana origin only"
 
 
+def test_the_demo_hostname_redirects_to_the_canonical_origin():
+    """yamcs.overwatch.confinia.io -> overwatch.confinia.io/demo (#436).
+
+    A 308 for the same reason grafana.* is one (#386), plus one specific to
+    the demo: its panel embeds the yamcs-demo dashboard in an iframe and that
+    page's CSP is frame-ancestors 'self'. From a second origin the browser
+    would refuse the iframe and the demo would show a blank chart."""
+    tmpl = open(TMPL, encoding="utf-8").read()
+    block = tmpl[tmpl.index("http://yamcs.overwatch.confinia.io"):]
+    block = block[:block.index("\n}")]
+    assert "redir * https://overwatch.confinia.io/demo 308" in block
+    assert "reverse_proxy" not in block, \
+        "the demo hostname must redirect, not become a second origin"
+
+
+def test_the_demo_hostname_says_what_the_founder_still_has_to_do():
+    """Deliberately NOT asserted in the edge stub: that file is a MIRROR of the
+    running edge, and writing a hostname into it before it exists is exactly
+    the rot its own header warns about (it once claimed a decommissioned port
+    for two weeks). Until the founder adds the hostname and the DNS record,
+    the vhost above is unreachable config — so the instruction has to travel
+    with it, and the stub gets regenerated FROM the edge afterwards."""
+    tmpl = open(TMPL, encoding="utf-8").read()
+    block = tmpl[tmpl.index("# ---- the public YAMCS demo"):
+                 tmpl.index("http://yamcs.overwatch.confinia.io")]
+    assert "EDGE (founder, rule 19)" in block
+    assert "deploy/caddy/overwatch.caddy" in block and "DNS" in block
+
+
 def test_grafana_hostname_is_in_the_edge_stub():
     # the stub is what the founder applies on the platform edge (rule 19) —
     # a hostname missing here never terminates TLS, and the redirect above
