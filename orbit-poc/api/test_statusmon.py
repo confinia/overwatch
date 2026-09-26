@@ -20,6 +20,15 @@ def _read(*parts):
     return open(os.path.join(ROOT, *parts), encoding="utf-8").read()
 
 
+def _compose_service(path, name):
+    """The YAML block of one compose service, up to the next service key."""
+    body = _read(*path.split("/"))
+    start = body.index(f"\n  {name}:\n") + 1
+    rest = body[start:]
+    nxt = re.search(r"\n  [a-z][a-z0-9_-]*:\n", rest[len(name) + 4:])
+    return rest if not nxt else rest[:len(name) + 4 + nxt.start()]
+
+
 class FakeResp:
     def __init__(self, status, body=None):
         self.status_code = status
@@ -76,6 +85,25 @@ def test_every_target_is_a_service_of_the_prod_compose():
             continue
         name = url.split("//")[1].split(":")[0]
         assert f"\n  {name}:\n" in compose, f"{service}: no compose service {name}"
+
+
+def test_the_monitor_sees_exactly_one_caddy():
+    """#503: a service name is not a unique address on v2net. Prod, sandbox and
+    staging caddies all sit on that shared network and all carry the alias
+    `caddy`, so from there the name resolved to four addresses and the prod
+    probes hit whichever answered. It stayed green for months because sandbox
+    and staging replied with the basic-auth 401 and anything under 500 counts
+    as reachable; the SSO gate (#290) turned the same misrouting red. statusmon
+    must therefore stay on the prod network only — it never needed the other
+    one, because the keycloak probe reaches ovw2 THROUGH caddy."""
+    block = _compose_service("orbit-poc/docker-compose.yml", "statusmon")
+    # directives only: the comment above them explains the absence it guards
+    code = "\n".join(l.split("#", 1)[0] for l in block.splitlines())
+    assert "networks:" in code, "parsed the wrong thing"      # the guard's guard
+    assert "v2net" not in code, \
+        "statusmon on v2net makes `caddy` resolve to three environments"
+    assert any(t[0].startswith("http://caddy:") for t in statusmon.TARGETS.values()), \
+        "the door probes are the ones this protects"
 
 
 def test_disk_latency_is_a_service_and_slow_is_down(tmp_path):
