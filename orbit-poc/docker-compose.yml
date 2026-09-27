@@ -132,6 +132,9 @@ services:
     # It probes /upstream (passive reachability, sends nothing to SatNOGS).
     ports:
       - "127.0.0.1:12080:8088"  # 1PESI: overwatch(2)·prod(0)·satnogs-gateway(8) (#213)
+    networks:
+      - default        # prod's own callers (ingest)
+      - satnogsnet     # staging/sandbox reach ONLY this, never the rest (#523)
     # Resource ceiling so this can never starve the shared, DISK-bound VM. It is
     # a tiny single-process HTTP pacer that serialises requests, so 0.25 CPU /
     # 128 MB is generous. podman-compose maps these to --cpus / --memory; verify
@@ -276,6 +279,12 @@ networks:
   v2net:
     external: true
     name: ovw2_default
+  # The ONE production service other environments may reach (#523). Staging and
+  # sandbox used to join orbit-poc_default wholesale to get at satnogs-gateway,
+  # which also handed them every other production service name — `db` resolved
+  # to BOTH their own database and this one, and half their connections landed
+  # on production. A network with a single member cannot be ambiguous.
+  satnogsnet: {}
 
 volumes:
   pgdata:
