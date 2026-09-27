@@ -334,6 +334,23 @@ def _walk_forms(op, url, html, max_steps=4, user=None, password=None):
     die("login did not complete (still on a Keycloak form)")
 
 
+def _title(html):
+    m = re.search(r"<title[^>]*>(.*?)</title>", html, re.S | re.I)
+    return " ".join(m.group(1).split())[:120] if m else "(no title)"
+
+
+def _form_ids(html):
+    return ", ".join(re.findall(r'<form[^>]*\bid="([^"]+)"', html)[:5])
+
+
+def _page_text(html, limit=300):
+    """The visible words of a page, for a failure message. Keycloak puts the
+    reason in the body — 'Action expired', 'Invalid parameter', 'You are
+    already logged in' all look identical from the URL."""
+    body = re.sub(r"(?is)<(script|style|head)[^>]*>.*?</\1>", " ", html)
+    return " ".join(re.sub(r"(?s)<[^>]+>", " ", body).split())[:limit]
+
+
 def gate_login(op):
     """Walk the internal gate (#290) so this session may reach the stack at all.
 
@@ -347,7 +364,16 @@ def gate_login(op):
         url, html = _walk_forms(op, url, html, user=GATE_EMAIL,
                                 password=GATE_PASS)
     if "/oauth2/" in url or "openid-connect" in url:
-        die(f"gate login did not complete — stuck at {url}")
+        # The URL alone cannot say WHY. Landing on the auth endpoint with no
+        # recognised form means Keycloak served something other than the
+        # username page — an error, an interstitial, or a step of the flow this
+        # walk does not drive (a WebAuthn prompt would have no kc-form-login).
+        # Print what it actually was: this failed once in five runs and the
+        # message left nothing to diagnose it with.
+        die(f"gate login did not complete — stuck at {url}\n"
+            f"  page title: {_title(html)}\n"
+            f"  forms: {_form_ids(html) or 'none'}\n"
+            f"  text: {_page_text(html)}")
     if st >= 400:
         die(f"gate login ended on {st} at {url}")
 
