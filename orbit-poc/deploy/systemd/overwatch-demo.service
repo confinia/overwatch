@@ -1,0 +1,29 @@
+# Reboot survival for the public YAMCS demo (#436). Production returns after a
+# reboot because overwatch-core/blue/green/ovw2 have units; this did not, so a
+# reboot would silently take the demo off overwatch.confinia.io/demo and leave
+# everything else looking healthy. Found by the platform session's audit of
+# what comes back at boot.
+#
+# Ordered AFTER the core: the bridge joins orbit-poc_default and pushes into
+# the api. Wants (not Requires) so a slow core does not fail the demo outright
+# — the bridge retries its subscription, and since #521 a push failure no
+# longer downgrades it to polling.
+#
+# TENANT_KEY lives in that directory's .env (VM-side, never committed);
+# podman-compose reads it from the working directory. No .env, no demo, which
+# is also the self-host default.
+[Unit]
+Description=Overwatch public YAMCS demo: quickstart simulator + bridge
+Wants=network-online.target overwatch-core.service
+After=network-online.target overwatch-core.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=%h/projects/overwatch/orbit-poc/bridge/yamcs/demo
+ExecStart=/usr/bin/podman-compose -p ow-demo -f docker-compose.yml -f docker-compose.internal.yml up -d
+ExecStop=/usr/bin/podman-compose -p ow-demo -f docker-compose.yml -f docker-compose.internal.yml down
+TimeoutStartSec=600
+
+[Install]
+WantedBy=default.target
