@@ -3065,10 +3065,33 @@ def demo_satellite(response: Response, hours: int = Query(2, ge=1, le=48)):
                          AND la.ts > now() - %s * interval '1 hour'
                        ORDER BY la.ts""", (key, sat, hours))
         track = [{"ts": t.isoformat(), "lat": la, "lon": lo} for t, la, lo in cur.fetchall()]
-        # latest value per field
-        cur.execute("""SELECT DISTINCT ON (field) field, value_num, value_txt, ts
-                       FROM tenant_telemetry WHERE tenant = %s::uuid AND satellite = %s
-                       ORDER BY field, ts DESC""", (key, sat))
+        # Latest value per field, over the SAME window as the track (#507).
+        #
+        # This was one DISTINCT ON over the tenant's whole history, and it read
+        # every row to return eight: a sequential scan of 482k rows plus a
+        # 20 MB on-disk merge sort. Idle that is ~1.5 s and easy to miss; on a
+        # loaded VM it was measured at 8m52s, on a PUBLIC endpoint the control
+        # room calls on every page load, against a table the demo grows by
+        # ~250k rows a day. `DISTINCT ON` cannot use the matching index for
+        # this before PG18 — there is no skip scan, so it reads the lot.
+        #
+        # Instead: find the fields sent in the window (an index range), then
+        # one indexed lookup per field for its latest value. Same eight rows,
+        # 11-58 ms under the same load. A field that stopped reporting drops
+        # out of the panel, which is the point — it is a live mission view,
+        # not a history.
+        cur.execute("""SELECT f.field, v.value_num, v.value_txt, v.ts
+                       FROM (SELECT DISTINCT field FROM tenant_telemetry
+                             WHERE tenant = %s::uuid AND satellite = %s
+                               AND ts > now() - %s * interval '1 hour') f
+                       CROSS JOIN LATERAL (
+                             SELECT value_num, value_txt, ts
+                             FROM tenant_telemetry t
+                             WHERE t.tenant = %s::uuid AND t.satellite = %s
+                               AND t.field = f.field
+                             ORDER BY t.ts DESC LIMIT 1) v
+                       ORDER BY f.field""",
+                    (key, sat, hours, key, sat))
         fields = [{"field": f, "value": n if n is not None else t2, "ts": ts.isoformat()}
                   for f, n, t2, ts in cur.fetchall()]
     return {"satellite": sat, "source": "YAMCS", "tenant_name": tname,
