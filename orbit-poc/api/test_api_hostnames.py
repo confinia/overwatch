@@ -79,6 +79,28 @@ def test_grafana_hostname_redirects_to_the_canonical_path():
         "the hostname must redirect, not serve — one Grafana origin only"
 
 
+def test_no_upstream_is_addressed_by_an_ambiguous_bare_name():
+    """#527. This caddy sits on orbit-poc_default AND ovw2_default, and the
+    non-production stacks put their api, caddy and grafana on ovw2_default
+    too. podman answers a name from every network a container is on, so from
+    here `grafana` resolves to three addresses — production, staging and
+    sandbox — and `api` to six.
+
+    Go dials them in order and the local network answers first, so production
+    is served today (measured 20/20 through the live caddy). But "in order
+    until one connects" means the moment production's grafana is restarting,
+    production traffic falls through to STAGING's, silently. Name the
+    container; /auth already did."""
+    tmpl = open(TMPL, encoding="utf-8").read()
+    code = "\n".join(l.split("#", 1)[0] for l in tmpl.splitlines())
+    import re as _re
+    for m in _re.finditer(r"reverse_proxy\s+([a-zA-Z0-9_.-]+):(\d+)", code):
+        host = m.group(1)
+        assert ("_" in host or host.startswith("%")), (
+            f"upstream {host!r} is a bare service name: on a shared network it "
+            f"can resolve to another environment's container")
+
+
 def test_the_demo_hostname_redirects_to_the_canonical_origin():
     """yamcs.overwatch.confinia.io -> overwatch.confinia.io/demo (#436).
 
