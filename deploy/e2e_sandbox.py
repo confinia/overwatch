@@ -334,6 +334,10 @@ def _walk_forms(op, url, html, max_steps=4, user=None, password=None):
     die("login did not complete (still on a Keycloak form)")
 
 
+# A door being replaced answers empty; give it a few seconds (#508).
+GATE_LOGIN_TRIES = int(os.environ.get("GATE_LOGIN_TRIES", 4))
+
+
 def _title(html):
     m = re.search(r"<title[^>]*>(.*?)</title>", html, re.S | re.I)
     return " ".join(m.group(1).split())[:120] if m else "(no title)"
@@ -359,10 +363,24 @@ def gate_login(op):
     /oauth2/callback with a cookie for this host. A person does this once and
     keeps the cookie; a fresh cookie jar does it again, which is why it is here
     and not in main()."""
-    st, url, html = fetch(op, BASE + "/")
-    if "kc-form-login" in html:
-        url, html = _walk_forms(op, url, html, user=GATE_EMAIL,
-                                password=GATE_PASS)
+    # The gate realm is served through the PRODUCTION caddy (/auth ->
+    # ovw2_keycloak_1), and a deploy recreates that caddy while this walk is
+    # running: the e2e chains off the sandbox rebuild, which fires on the same
+    # push as the deploy, so they overlap by design. Mid-recreate the login
+    # page comes back as an empty 200 - no title, no form, no text - which is
+    # not a login failure and must not fail the walk (#508: twice, and both
+    # times the stage was recreating caddy at that exact minute).
+    for attempt in range(GATE_LOGIN_TRIES):
+        st, url, html = fetch(op, BASE + "/")
+        if "kc-form-login" in html:
+            url, html = _walk_forms(op, url, html, user=GATE_EMAIL,
+                                    password=GATE_PASS)
+        if "/oauth2/" not in url and "openid-connect" not in url:
+            break                               # through the gate
+        if attempt < GATE_LOGIN_TRIES - 1 and not _page_text(html):
+            time.sleep(2 * (attempt + 1))       # an empty door is a door being
+            continue                            # replaced, not a refusal
+        break
     if "/oauth2/" in url or "openid-connect" in url:
         # The URL alone cannot say WHY. Landing on the auth endpoint with no
         # recognised form means Keycloak served something other than the

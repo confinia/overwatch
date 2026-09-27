@@ -245,6 +245,29 @@ def test_a_stuck_gate_login_says_what_the_page_was():
         assert helper in w, helper
 
 
+def test_an_empty_door_is_retried_not_treated_as_a_refusal():
+    """#508, diagnosed by the message added for it. The gate realm is served
+    through the PRODUCTION caddy, and a deploy recreates that caddy while this
+    walk runs - the e2e chains off the sandbox rebuild, which fires on the same
+    push as the deploy. Mid-recreate the login page is an empty 200:
+
+        page title: (no title)
+        forms: none
+        text:
+
+    Both recorded failures happened while the stage was recreating caddy in
+    that same minute. An empty door is a door being replaced."""
+    w = _read("deploy", "e2e_sandbox.py")
+    login = w[w.index("def gate_login("):]
+    login = login[:login.index("\ndef ")]
+    assert "for attempt in range(GATE_LOGIN_TRIES)" in login
+    assert "not _page_text(html)" in login, \
+        "retry only an EMPTY page: a real Keycloak error must still fail fast"
+    assert "time.sleep" in login
+    # and it still gives up eventually, with the diagnostics
+    assert "gate login did not complete" in login
+
+
 def test_the_page_text_helper_strips_markup_and_scripts():
     """A Keycloak page is mostly script and style; a raw slice of the HTML
     would be 300 characters of nothing."""
