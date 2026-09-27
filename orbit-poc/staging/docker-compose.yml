@@ -43,7 +43,12 @@ services:
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U orbit"]
       interval: 5s
-      timeout: 3s
+      # 20s, not 3s (#492/#493 again): under the VM's sustained iowait
+      # pg_isready's own start-up can exceed 3s, and orbit-poc_db_1 was
+      # failing this check ~22 times per 5 minutes — three journal lines each
+      # time, and a flapping health state that `depends_on: service_healthy`
+      # reads. The check is cheap; the timeout was the problem.
+      timeout: 20s
       retries: 20
 
   # Clone the public fleet into the sandbox DB (same ingest as prod). Optional:
