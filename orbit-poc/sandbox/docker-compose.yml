@@ -19,6 +19,19 @@
 services:
   db:
     image: docker.io/library/postgres:16
+    # Disposable data, so commits need not wait for the platter (#511 follow-up
+    # from the platform's VM-wide IOPS finding). synchronous_commit=off keeps
+    # the database fully consistent and crash-recoverable; the only loss is the
+    # last ~600ms of committed transactions on a POWER LOSS or kernel panic. A
+    # clean restart, a deploy or an OOM kill lose nothing. This is NOT fsync=off,
+    # which can leave an unrecoverable cluster and is used nowhere.
+    #   PRODUCTION KEEPS THE DEFAULT: losing acknowledged customer commits is a
+    # different category of problem from losing 600ms of sandbox fixtures.
+    #   Measured before claiming anything: WAL fsync across all four instances
+    # is 1.77/s of md3's 325 writes/s (0.54%), and the non-production share is
+    # 0.35/s (0.11%). So this is correctness-of-intent and headroom, NOT the
+    # fix for the disk - the logs were that (#511).
+    command: ["postgres", "-c", "synchronous_commit=off"]
     environment:
       POSTGRES_USER: orbit
       POSTGRES_PASSWORD: orbit
