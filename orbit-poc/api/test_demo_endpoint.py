@@ -87,3 +87,26 @@ def test_the_default_landing_does_not_steal_the_demo():
     branch = branch[:branch.index("{")]
     assert "!activeDemo" in branch and "!wantsDemo()" in branch, \
         "the default landing must stand down when the demo is the destination"
+
+
+def test_the_latest_values_do_not_scan_the_whole_history():
+    """#507: one DISTINCT ON over the tenant's entire history read 482k rows
+    to return eight. Idle that is ~1.5 s; on a loaded VM the same query was
+    measured at 8m52s, on a public endpoint the control room calls on every
+    page load, against a table the demo grows by ~250k rows a day. Postgres
+    has no skip scan before 18, so the matching index does not save it.
+
+    The replacement bounds the field list to the window and does one indexed
+    lookup per field: 11-58 ms under the same load."""
+    fn = _demo_source()
+    latest = fn[fn.index("Latest value per field"):]
+    assert "DISTINCT ON (field)" not in latest, \
+        "DISTINCT ON over the full history is what #507 was"
+    assert "CROSS JOIN LATERAL" in latest, "one indexed lookup per field"
+    assert "ORDER BY t.ts DESC LIMIT 1" in latest
+    # the field list must be bounded, and by the SAME window as the track so
+    # the endpoint has one meaning of "recent"
+    bound = latest[:latest.index("CROSS JOIN LATERAL")]
+    assert "ts > now() - %s * interval '1 hour'" in bound
+    assert "(key, sat, hours, key, sat)" in latest, \
+        "the window must be the endpoint's own hours parameter"
