@@ -16,7 +16,14 @@ cleanup(){ podman rm -f "$PG" >/dev/null 2>&1; podman network rm "$NET" >/dev/nu
 trap cleanup EXIT
 
 podman network create "$NET" >/dev/null 2>&1 || true
+# The data directory lives in RAM. This database is created for one run and
+# destroyed by the trap above, so there is nothing to persist and nothing to
+# lose — and the VM's two 7200rpm disks are IOPS-saturated (25% io pressure)
+# while moving only 1.5 MB/s, so every seek this does not take is one another
+# tenant can. Removes the disk from the equation rather than tuning it away;
+# measured: ready in 2s instead of ~6, and 46 MB of the 512 used by a full run.
 podman run -d --rm --name "$PG" --network "$NET" \
+  --tmpfs /var/lib/postgresql/data:size=512m \
   -e POSTGRES_USER=orbit -e POSTGRES_PASSWORD=orbit -e POSTGRES_DB=orbit \
   docker.io/library/postgres:16 >/dev/null
 for _ in $(seq 1 30); do
