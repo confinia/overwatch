@@ -86,7 +86,7 @@ services:
       - "network.satnogs.org:127.0.0.1"
     networks:
       - default
-      - prodnet         # reach the shared SatNOGS gateway by container name
+      - satnogsnet      # ONLY the shared SatNOGS gateway, nothing else (#523)
     restart: unless-stopped
 
   api:
@@ -276,9 +276,16 @@ volumes:
 
 networks:
   default: {}
-  prodnet:
+  # Was `prodnet: orbit-poc_default` — the WHOLE production network, joined so
+  # the ingest could reach satnogs-gateway by name. It also made every other
+  # production name resolvable here, and podman answers a name from ALL of a
+  # container's networks: `db` returned this stack's database AND production's,
+  # so roughly half of this ingest's connections authenticated against the
+  # production database and failed (1618 times on 2026-09-27). Only the
+  # password mismatch kept them apart (#523, same defect as #503).
+  satnogsnet:
     external: true
-    name: orbit-poc_default  # the production core's network (gateway lives there)
+    name: orbit-poc_satnogsnet  # one member: the gateway. Nothing to collide with.
   v2net:
     external: true
     name: ovw2_default  # the shared Keycloak's network (same pattern as prod)
