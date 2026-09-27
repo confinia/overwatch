@@ -66,15 +66,36 @@ jobs:
           git fetch -q origin
           git checkout -qf "$SHA"   # -f: survive files left by an rsync-era deploy
           printf 'OVERWATCH_VERSION=%s\n' "$(tr -d '[:space:]' < VERSION)" > orbit-poc/version.env
-          # core singletons: created only if absent, never recreated here
-          cd orbit-poc && podman-compose up -d --no-recreate db ingest grafana \
-            otel-collector prometheus caddy >/dev/null
+          # core singletons: created only if absent, never recreated here.
+          # Spelled out per container because podman-compose 1.3.0 does NOT
+          # honour --no-recreate (#515): it recreated caddy, grafana and
+          # prometheus on every deploy — five times on 2026-09-27 alone — and
+          # restarted db underneath everything connected to it. The costs were
+          # real: orbit-poc_caddy_1 is the door in front of production, so each
+          # deploy had a 502 window (it failed a gate login mid-stage); the live
+          # API answered 500 on /healthz until its pool recycled past the dead
+          # connections; and orbit-poc_ingest_1 started 17s before the database
+          # went down, exited 1 on "the database system is shutting down", and
+          # stayed dead for an hour.
+          #   absent -> create, stopped -> start, running -> do not touch.
+          cd orbit-poc
+          for svc in db ingest grafana otel-collector prometheus caddy; do
+            c="orbit-poc_${svc}_1"
+            if ! podman container exists "$c"; then
+              podman-compose up -d --no-deps "$svc" >/dev/null
+            elif [ "$(podman inspect "$c" --format '{{.State.Running}}')" != "true" ]; then
+              echo "core singleton $svc was down — starting it"
+              podman start "$c" >/dev/null
+            fi
+          done
           for c in $(podman ps --format '{{.Names}}' | grep ^orbit-poc); do
             podman update --restart=always "$c" >/dev/null; done
           # Provisioned dashboards live in a read-only mount, and grafana is
-          # started with --no-recreate, so an edited board would otherwise sit
+          # never recreated here (#515), so an edited board would otherwise sit
           # in the repo and never reach production. Ask Grafana to re-read them
-          # (no restart, no downtime for the embeds).
+          # (no restart, no downtime for the embeds). This mattered less while
+          # podman-compose was silently recreating it every deploy; now that it
+          # genuinely is not, this reload is the ONLY path a board has to prod.
           podman exec orbit-poc_grafana_1 sh -c \
             'wget -qO- --post-data="" \
              "http://admin:$GF_SECURITY_ADMIN_PASSWORD@localhost:3000/api/admin/provisioning/dashboards/reload"' \

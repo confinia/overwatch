@@ -151,6 +151,33 @@ def test_the_sandbox_deploy_recreates_caddy_instead_of_reloading_it():
     assert code.index("--no-deps web api") < code.index("--no-deps caddy")
 
 
+def test_the_deploy_never_recreates_a_running_core_singleton():
+    """#515: podman-compose 1.3.0 ignores --no-recreate. It recreated caddy,
+    grafana and prometheus on every deploy — five times on 2026-09-27 — and
+    restarted db underneath everything holding a connection to it.
+
+    Three things broke from that one line. orbit-poc_caddy_1 is the door in
+    front of production, so each deploy had a 502 window (it failed an e2e
+    gate login mid-stage). The live API answered 500 on /healthz until its
+    pool recycled past the dead connections. And orbit-poc_ingest_1 started
+    17 seconds before the database went down, exited 1 on "the database
+    system is shutting down", and stayed dead for an hour.
+
+    So the intent has to be spelled out rather than delegated to a flag that
+    does nothing: absent -> create, stopped -> start, running -> leave it."""
+    s = _wf("deploy.yml")
+    code = "\n".join(l.split("#", 1)[0] for l in s.splitlines())
+    assert "--no-recreate" not in code, \
+        "podman-compose 1.3.0 does not honour it; saying so is not doing it"
+    assert "podman container exists" in code, "create only what is absent"
+    assert "podman start" in code, "start what is stopped"
+    # and the singletons must still all be covered
+    m = re.search(r"for svc in ([a-z\- ]+); do", code)
+    assert m, "the core singletons are handled in one explicit loop"
+    assert set(m.group(1).split()) >= {"db", "grafana", "prometheus", "caddy"}, \
+        m.group(1)
+
+
 def test_sandbox_workflow_runs_on_pull_requests_but_not_for_forks():
     s = _wf("sandbox.yml")
     assert "pull_request" in s

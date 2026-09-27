@@ -355,5 +355,13 @@ def test_every_built_core_service_is_recreated_by_the_deploy():
     for svc in built:
         assert f"podman rm -f orbit-poc_{svc}_1" in deploy, f"{svc} is never recreated on prod"
         assert f"up -d --no-deps {svc} " in deploy, f"{svc} is never started on prod"
-    m = re.search(r"for svc in ([a-z\- ]+); do", deploy)
-    assert m and set(m.group(1).split()) >= set(built), "image freshness is asserted for every built service"
+    # Target the FRESHNESS loop specifically. #515 added a second `for svc in`
+    # loop above it (create-if-absent for the core singletons), and a plain
+    # search finds that one instead — which would quietly compare this
+    # assertion against the wrong list of services.
+    loops = [m for m in re.finditer(r"for svc in ([a-z\- ]+); do\n(.*?)\n\s+done",
+                                    deploy, re.S)
+             if "podman image inspect" in m.group(2)]
+    assert len(loops) == 1, f"expected one image-freshness loop, found {len(loops)}"
+    assert set(loops[0].group(1).split()) >= set(built), \
+        "image freshness is asserted for every built service"
