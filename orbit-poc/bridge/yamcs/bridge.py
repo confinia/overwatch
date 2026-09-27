@@ -212,7 +212,24 @@ def ws_extract(data: dict, mapping: dict) -> list[dict]:
     return out
 
 
-def run_ws(cfg: Config, state: State, progress: "Progress") -> None:
+class Link:
+    """Has a subscription EVER delivered a parameter, across reconnects?
+
+    run_ws cannot report this by returning. When something raises out of an
+    established session the local `established` dies with the frame, and the
+    caller cannot tell a ten-minute-old subscription that dropped from one
+    that never connected — so it downgraded the public demo to polling and
+    left it there (#521). Process-lifetime, deliberately: once the WebSocket
+    has been proven to work, a later failure is a reconnect, never a reason
+    to accept a tenth of the resolution for good.
+    """
+
+    def __init__(self):
+        self.established = False
+
+
+def run_ws(cfg: Config, state: State, progress: "Progress",
+           link: "Link") -> None:
     """One WebSocket session: subscribe, push until the socket drops.
     Returns when an ESTABLISHED session drops (caller reconnects); raises
     when the subscription cannot be established (caller may fall back)."""
@@ -240,17 +257,27 @@ def run_ws(cfg: Config, state: State, progress: "Progress") -> None:
                 if data.get("exception"):
                     raise RuntimeError(f"subscription refused: "
                                        f"{data['exception']}")
-                established = True
+                established = link.established = True
                 continue
             if msg.get("type") != "parameters":
                 continue
-            established = True
+            established = link.established = True
             if data.get("invalid"):
                 print(f"parameters YAMCS does not know: {data['invalid']}",
                       file=sys.stderr, flush=True)
             points = to_points(ws_extract(data, mapping), cfg, state)
             if points:
-                progress.add(push(cfg, points))
+                # A push failure is news about OVERWATCH, not about the
+                # subscription (#521). Letting it out of here threw away a
+                # healthy YAMCS session because the api container was being
+                # recreated mid-deploy — `('Connection aborted.',
+                # ConnectionResetError(104))`, the requests shape, not a
+                # WebSocket one. Keep listening; the next push carries on.
+                try:
+                    progress.add(push(cfg, points))
+                except Exception as exc:
+                    print(f"push failed, subscription kept: {exc}",
+                          file=sys.stderr, flush=True)
     finally:
         try:
             conn.close()
@@ -307,12 +334,11 @@ def main() -> None:
     print(f"yamcs-bridge [{cfg.mode}]: {len(cfg.parameters)} parameters from "
           f"{cfg.yamcs_url} ({cfg.instance}/{cfg.processor}) -> "
           f"{cfg.overwatch_url} as {cfg.satellite!r}", flush=True)
-    mode, ws_proven = cfg.mode, False
+    mode, link = cfg.mode, Link()
     while True:
         if mode in ("auto", "ws"):
             try:
-                run_ws(cfg, state, progress)   # returns only on an established drop
-                ws_proven = True
+                run_ws(cfg, state, progress, link)   # returns on a clean drop
             except Exception as exc:
                 print(f"ws subscription failed: {exc}",
                       file=sys.stderr, flush=True)
@@ -320,7 +346,7 @@ def main() -> None:
                 # while YAMCS does answer polls: once proven, a YAMCS restart
                 # should meet a reconnect, not a permanent downgrade to
                 # polling resolution; a YAMCS still booting is not a refusal.
-                if mode == "auto" and not ws_proven and yamcs_answers(cfg):
+                if mode == "auto" and not link.established and yamcs_answers(cfg):
                     print("falling back to polling (YAMCS_MODE=auto)",
                           flush=True)
                     mode = "poll"
