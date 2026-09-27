@@ -330,3 +330,74 @@ def test_the_internal_overlay_joins_the_stack_network():
     yml = (DEMO / "docker-compose.internal.yml").read_text()
     assert "external: true" in yml
     assert "OVERWATCH_URL: ${OVERWATCH_URL:-http://api:8000}" in yml
+
+
+# --- #521: an established subscription must never downgrade to polling -----
+
+def _drive_auto_with_established_ws(monkeypatch, cycles):
+    """auto mode where the subscription DOES establish and then something
+    raises out of it — the shape that degraded the live demo for real."""
+    out = []
+    env = {"YAMCS_URL": "http://y", "YAMCS_INSTANCE": "i", "TENANT_KEY": "k",
+           "SATELLITE": "S", "YAMCS_PARAMETERS": "/a", "OVERWATCH_URL": "http://o",
+           "YAMCS_MODE": "auto", "POLL_SECONDS": "1"}
+    real_load = bridge.load_config
+    monkeypatch.setattr(bridge, "load_config", lambda *a, **k: real_load(env))
+    monkeypatch.setattr(bridge.signal, "signal", lambda *a: None)
+
+    def run_ws(cfg, state, progress, link):
+        link.established = True              # it worked, for a while
+        raise ConnectionResetError(104, "Connection reset by peer")
+    monkeypatch.setattr(bridge, "run_ws", run_ws)
+    monkeypatch.setattr(bridge, "yamcs_answers", lambda cfg: True)
+    monkeypatch.setattr(bridge, "run_once", lambda *a: 0)
+    n = {"sleeps": 0}
+
+    def sleep(_):
+        n["sleeps"] += 1
+        if n["sleeps"] >= cycles:
+            raise KeyboardInterrupt
+    monkeypatch.setattr(bridge.time, "sleep", sleep)
+    monkeypatch.setattr(bridge, "print",
+                        lambda *a, **k: out.append(" ".join(map(str, a))),
+                        raising=False)
+    with pytest.raises(KeyboardInterrupt):
+        bridge.main()
+    return out
+
+
+def test_a_proven_subscription_reconnects_instead_of_downgrading():
+    """The live failure: the demo ran at 1 Hz over the WebSocket for ten
+    minutes, a push hit a recreated api container, the exception escaped
+    run_ws, and auto mode dropped to 0.1 Hz polling permanently. Establishment
+    has to survive the raise, which a local variable cannot."""
+    monkeypatch = pytest.MonkeyPatch()
+    try:
+        out = _drive_auto_with_established_ws(monkeypatch, cycles=3)
+    finally:
+        monkeypatch.undo()
+    assert not any("falling back" in l for l in out), \
+        "a subscription that has delivered must never downgrade to polling"
+    assert sum("ws subscription failed" in l for l in out) >= 2, \
+        "it should keep retrying the subscription"
+
+
+def test_link_records_establishment_across_calls():
+    link = bridge.Link()
+    assert link.established is False
+    link.established = True
+    assert link.established is True, "process-lifetime, not per-call"
+
+
+def test_a_failed_push_does_not_kill_the_subscription():
+    """`('Connection aborted.', ConnectionResetError(104))` is the requests
+    shape — news about Overwatch, not about YAMCS. Losing a healthy YAMCS
+    session because our own api was mid-recreate is the bug."""
+    src = (Path(__file__).resolve().parents[1]
+           / "bridge" / "yamcs" / "bridge.py").read_text(encoding="utf-8")
+    ws = src[src.index("def run_ws("):src.index("\nclass Progress")]
+    push_bit = ws[ws.index("progress.add(push("):]
+    assert "push failed, subscription kept" in ws, \
+        "a push error must be caught and logged, not raised out of run_ws"
+    # and it must be caught around the push specifically, not the whole loop
+    assert "try:" in ws[ws.index("if points:"):ws.index("progress.add(push(")]
