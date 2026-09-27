@@ -12,6 +12,7 @@ import datetime
 import json
 import logging
 import os
+import time
 
 log = logging.getLogger("metering")
 # Ensure usage events are always visible in container logs (billing audit trail),
@@ -22,6 +23,34 @@ if not log.handlers:
     log.addHandler(_h)
     log.setLevel(logging.INFO)
     log.propagate = False
+
+# Dry-run proves the loop works; it does not need to prove it once a second.
+# A single 1 Hz tenant (the YAMCS demo) made this line 44% of all remaining
+# Overwatch log volume once the health-check noise was gone (#511), on a host
+# whose disks are the bottleneck (#492). The audit property is "you can see it
+# working without credentials", which a first line plus a rolling count keeps;
+# writing 86,400 identical lines a day does not add to it. REAL emissions and
+# every failure are unaffected and still log individually.
+DRY_RUN_LOG_EVERY_S = float(os.environ.get("METER_DRY_RUN_LOG_EVERY_S", "60"))
+_dry = {}          # (customer, event) -> [reported_at, calls, quantity]
+
+
+def _log_dry_run(event, now):
+    """First one at once, then one summary per window per customer+event."""
+    key = (event["external_customer_id"], event["name"])
+    slot = _dry.get(key)
+    if slot is None:
+        _dry[key] = [now, 0, 0]
+        log.info("METER dry-run %s", json.dumps(event))
+        return
+    slot[1] += 1
+    slot[2] += event["metadata"].get("quantity", 0) or 0
+    if now - slot[0] >= DRY_RUN_LOG_EVERY_S:
+        log.info("METER dry-run x%d %s qty=%d over %.0fs for %s",
+                 slot[1], event["name"], slot[2], now - slot[0],
+                 event["external_customer_id"])
+        _dry[key] = [now, 0, 0]
+
 
 # off | sandbox | production. Default off => dry-run (no creds needed).
 POLAR_ENV = os.environ.get("POLAR_ENV", "off").lower()
@@ -50,7 +79,7 @@ def _emit(customer_id, event_name, quantity, metadata):
         "metadata": {**(metadata or {}), "quantity": quantity},
     }
     if POLAR_ENV == "off" or not POLAR_ORG_TOKEN:
-        log.info("METER dry-run %s", json.dumps(event))     # provable without creds
+        _log_dry_run(event, time.monotonic())               # provable without creds
         return
     try:
         import requests
