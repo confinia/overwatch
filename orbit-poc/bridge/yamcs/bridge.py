@@ -33,6 +33,10 @@ Config is environment-only so `docker compose up -d` is the whole install:
     POLL_SECONDS      10                           (default: 10; also the
                                                     reconnect pause in ws mode)
     YAMCS_MODE        auto | ws | poll             (default: auto)
+    LOG_EVERY_S       60                           (default: 60; how often to
+                                                    report pushes. At 1 Hz a
+                                                    line per push is a line
+                                                    per second - #511)
 """
 
 import json
@@ -208,7 +212,7 @@ def ws_extract(data: dict, mapping: dict) -> list[dict]:
     return out
 
 
-def run_ws(cfg: Config, state: State) -> None:
+def run_ws(cfg: Config, state: State, progress: "Progress") -> None:
     """One WebSocket session: subscribe, push until the socket drops.
     Returns when an ESTABLISHED session drops (caller reconnects); raises
     when the subscription cannot be established (caller may fall back)."""
@@ -246,12 +250,50 @@ def run_ws(cfg: Config, state: State) -> None:
                       file=sys.stderr, flush=True)
             points = to_points(ws_extract(data, mapping), cfg, state)
             if points:
-                print(f"pushed {push(cfg, points)} points", flush=True)
+                progress.add(push(cfg, points))
     finally:
         try:
             conn.close()
         except Exception:
             pass
+
+
+class Progress:
+    """Rolling push counter that reports on a timer, not on every push (#511).
+
+    One line per push is one line per second at 1 Hz, and the demo bridge alone
+    was 14% of the whole VM's log volume saying `pushed 8 points` over and
+    over. The useful signal is not each push, it is that pushes are still
+    happening and at what rate, which a periodic line carries just as well and
+    ~60x more cheaply.
+
+    The first push still reports immediately: waiting a minute to find out
+    whether a fresh bridge works at all is a worse trade than the lines saved.
+    """
+
+    def __init__(self, every_s: float, now=time.monotonic, out=None):
+        self.every_s = every_s
+        self._now = now
+        self._out = out or (lambda m: print(m, flush=True))
+        self.points = 0
+        self.batches = 0
+        self._last = None          # None = nothing reported yet
+
+    def add(self, n: int) -> None:
+        self.points += n
+        self.batches += 1
+        t = self._now()
+        if self._last is None:                      # the first push, at once
+            self._out(f"pushed {n} points")
+            self._last = t
+            self.points = self.batches = 0
+            return
+        if t - self._last >= self.every_s:
+            secs = t - self._last
+            self._out(f"pushed {self.points} points in {self.batches} batches "
+                      f"over {secs:.0f}s")
+            self._last = t
+            self.points = self.batches = 0
 
 
 def main() -> None:
@@ -261,6 +303,7 @@ def main() -> None:
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     cfg = load_config()
     state = State()
+    progress = Progress(float(os.environ.get("LOG_EVERY_S", "60")))
     print(f"yamcs-bridge [{cfg.mode}]: {len(cfg.parameters)} parameters from "
           f"{cfg.yamcs_url} ({cfg.instance}/{cfg.processor}) -> "
           f"{cfg.overwatch_url} as {cfg.satellite!r}", flush=True)
@@ -268,7 +311,7 @@ def main() -> None:
     while True:
         if mode in ("auto", "ws"):
             try:
-                run_ws(cfg, state)     # returns only after an established drop
+                run_ws(cfg, state, progress)   # returns only on an established drop
                 ws_proven = True
             except Exception as exc:
                 print(f"ws subscription failed: {exc}",
@@ -287,7 +330,7 @@ def main() -> None:
         try:
             n = run_once(cfg, state)
             if n:
-                print(f"pushed {n} points", flush=True)
+                progress.add(n)
         except Exception as exc:       # a hiccup must not kill the daemon
             print(f"cycle failed, retrying next poll: {exc}",
                   file=sys.stderr, flush=True)

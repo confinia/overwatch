@@ -16,6 +16,7 @@ Free during development; REQUIRE_API_KEY=true flips the beta gate.
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import time
 
@@ -45,6 +46,69 @@ OPEN_PATHS = ("/", "/v1", "/v1/docs", "/v1/openapi.json", "/v1/healthz",
               "/healthz", "/v1/keys")
 
 pool: psycopg2.pool.SimpleConnectionPool | None = None
+
+
+# --------------------------------------------------------------------------
+# Access-log volume (#511)
+# --------------------------------------------------------------------------
+# Overwatch was 57% of the shared VM's log lines at 7.0/s sustained, and 43%
+# of that was this one line, forever:
+#
+#   INFO:  10.89.1.2:55746 - "GET /healthz HTTP/1.1" 200 OK
+#
+# caddy health-checks every 2s from three upstream definitions against BOTH
+# colours, including the standby nobody is routed to. A succeeding health
+# check says nothing that caddy's routing and statusmon's probes do not
+# already say, and the host's two spinning disks are the known bottleneck
+# (#492).
+#
+# So: silence repeated SUCCESS, never failure. A 4xx/5xx on any of these paths
+# is logged as loudly as before - a health check is only ever worth a line on
+# the day it stops passing.
+QUIET_OK_PATHS = tuple(
+    p.strip() for p in os.environ.get(
+        "ACCESS_LOG_QUIET",
+        "/healthz,/v1/healthz,/api/v1/healthz").split(",") if p.strip())
+# Machine ingest, matched by shape rather than by name: the demo tenant alone
+# pushes once a second, and every tenant doing the same would add to it.
+QUIET_OK_PATTERNS = (_re.compile(r"^/(api/)?v1/tenants/[^/]+/telemetry$"),)
+
+
+def _is_quiet_path(path: str) -> bool:
+    path = path.split("?", 1)[0]
+    path = path.rstrip("/") or "/"
+    return (path in QUIET_OK_PATHS
+            or any(p.match(path) for p in QUIET_OK_PATTERNS))
+
+
+class QuietSuccessfulProbes(logging.Filter):
+    """Drop uvicorn access lines for probe traffic that succeeded.
+
+    uvicorn passes an access record's parts as args rather than a formatted
+    string: (client, method, path, http_version, status). Anything that does
+    not have that shape is left alone - a filter that swallows records it does
+    not understand is worse than the noise it removes."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        if not isinstance(args, tuple) or len(args) != 5:
+            return True
+        _client, _method, path, _http, status = args
+        if not isinstance(status, int) or status >= 400:
+            return True                      # failures are the whole point
+        return not _is_quiet_path(str(path))
+
+
+def install_access_log_filter() -> bool:
+    """Install it, and report whether it went in so start-up can say so.
+
+    Silently dropping log lines is how somebody later spends an afternoon
+    wondering why a request left no trace, so this is announced once at
+    start-up, and ACCESS_LOG_QUIET= (empty) turns the path list off."""
+    if not QUIET_OK_PATHS and not QUIET_OK_PATTERNS:
+        return False
+    logging.getLogger("uvicorn.access").addFilter(QuietSuccessfulProbes())
+    return True
 
 KEYS_SQL = """
 -- who-heard-whom rows predate the kind distinction (#97): 'network'
@@ -465,6 +529,13 @@ def _startup_provision(conn) -> None:
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     global pool
+    # First, and out loud: a log that drops lines without saying so is how
+    # someone later loses an afternoon to a request that left no trace (#511).
+    if install_access_log_filter():
+        logging.getLogger("uvicorn.error").info(
+            "access log: successful %s and tenant telemetry pushes are not "
+            "logged (ACCESS_LOG_QUIET to change); failures always are",
+            ", ".join(QUIET_OK_PATHS))
     last_err = None
     for _attempt in range(30):                     # db may start after us
         try:
