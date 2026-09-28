@@ -329,7 +329,9 @@ def test_the_live_proof_asserts_each_deliverable():
 def test_the_internal_overlay_joins_the_stack_network():
     yml = (DEMO / "docker-compose.internal.yml").read_text()
     assert "external: true" in yml
-    assert "OVERWATCH_URL: ${OVERWATCH_URL:-http://api:8000}" in yml
+    # through the production caddy, not a bare `api` that is both colours
+    # (#524) — overridable so a self-host can still point anywhere
+    assert "OVERWATCH_URL: ${OVERWATCH_URL:-http://orbit-poc_caddy_1:80/api}" in yml
 
 
 # --- #521: an established subscription must never downgrade to polling -----
@@ -401,3 +403,48 @@ def test_a_failed_push_does_not_kill_the_subscription():
         "a push error must be caught and logged, not raised out of run_ws"
     # and it must be caught around the push specifically, not the whole loop
     assert "try:" in ws[ws.index("if points:"):ws.index("progress.add(push(")]
+
+
+# --- #524: aim at the live colour, not at whichever colour answers --------
+
+def test_the_demo_pushes_through_caddy_not_at_a_bare_api_name():
+    """On orbit-poc_default `api` resolves to BOTH colours, so half the demo's
+    telemetry went into the standby — and when the candidate is being rebuilt
+    mid-deploy the push dies, which is what downgraded the demo to polling in
+    #521. caddy routes to the LIVE colour with health checks."""
+    overlay = (Path(__file__).resolve().parents[1]
+               / "bridge" / "yamcs" / "demo"
+               / "docker-compose.internal.yml").read_text(encoding="utf-8")
+    code = "\n".join(l.split("#", 1)[0] for l in overlay.splitlines())
+    assert "http://api:8000" not in code, \
+        "a bare `api` resolves to both colours"
+    assert "orbit-poc_caddy_1" in code, "go through the production door"
+    assert "OVERWATCH_HOST" in code, "caddy picks its vhost by Host"
+
+
+def test_the_host_header_is_sent_only_when_configured(monkeypatch):
+    """Every other adapter on the seam must be unaffected."""
+    cfg = bridge.Config(
+        yamcs_url="http://y", instance="i", processor="realtime",
+        parameters=["/a"], field_map={}, overwatch_url="http://o",
+        tenant_key="k", satellite="S")
+    assert cfg.overwatch_host == ""
+    sent = {}
+
+    def fake_push(url, key, sat, points, headers=None):
+        sent["headers"] = headers
+        return len(points)
+    monkeypatch.setattr(bridge, "core_push", fake_push)
+    bridge.push(cfg, [{"ts": "t", "field": "f", "value": 1}])
+    assert sent["headers"] is None, "no Host unless asked for"
+    cfg.overwatch_host = "overwatch.confinia.io"
+    bridge.push(cfg, [{"ts": "t", "field": "f", "value": 1}])
+    assert sent["headers"] == {"Host": "overwatch.confinia.io"}
+
+
+def test_load_config_reads_the_host():
+    env = {"YAMCS_URL": "http://y", "YAMCS_INSTANCE": "i",
+           "YAMCS_PARAMETERS": "/a", "OVERWATCH_URL": "http://o",
+           "TENANT_KEY": "k", "SATELLITE": "S",
+           "OVERWATCH_HOST": " overwatch.confinia.io "}
+    assert bridge.load_config(env).overwatch_host == "overwatch.confinia.io"
