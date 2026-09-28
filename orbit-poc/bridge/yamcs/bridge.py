@@ -33,6 +33,10 @@ Config is environment-only so `docker compose up -d` is the whole install:
     POLL_SECONDS      10                           (default: 10; also the
                                                     reconnect pause in ws mode)
     YAMCS_MODE        auto | ws | poll             (default: auto)
+    OVERWATCH_HOST    overwatch.confinia.io        (optional: Host header for
+                                                    OVERWATCH_URL, needed when
+                                                    that points at a caddy
+                                                    rather than an api - #524)
     LOG_EVERY_S       60                           (default: 60; how often to
                                                     report pushes. At 1 Hz a
                                                     line per push is a line
@@ -72,6 +76,9 @@ class Config:
     satellite: str
     poll_seconds: float = 10.0
     mode: str = "auto"
+    # Host header for OVERWATCH_URL, when that URL points at a caddy rather
+    # than straight at an api container (#524). Empty = send none.
+    overwatch_host: str = ""
 
 
 def load_config(env=os.environ) -> Config:
@@ -102,6 +109,7 @@ def load_config(env=os.environ) -> Config:
         satellite=env["SATELLITE"],
         poll_seconds=float(env.get("POLL_SECONDS", "10")),
         mode=mode,
+        overwatch_host=env.get("OVERWATCH_HOST", "").strip(),
     )
 
 
@@ -142,7 +150,9 @@ def to_points(values: list[dict], cfg: Config, state: State) -> list[dict]:
 
 
 def push(cfg: Config, points: list[dict]) -> int:
-    return core_push(cfg.overwatch_url, cfg.tenant_key, cfg.satellite, points)
+    headers = {"Host": cfg.overwatch_host} if cfg.overwatch_host else None
+    return core_push(cfg.overwatch_url, cfg.tenant_key, cfg.satellite, points,
+                     headers=headers)
 
 
 def fetch(cfg: Config) -> list[dict]:

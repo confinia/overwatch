@@ -10,7 +10,15 @@ services:
   bridge:
     networks: [default, overwatch]
     environment:
-      OVERWATCH_URL: ${OVERWATCH_URL:-http://api:8000}
+      # Through the production caddy, NOT `api` (#524). On this network `api`
+      # resolves to BOTH colours, so half the demo's telemetry went into the
+      # standby — and when the candidate is being rebuilt mid-deploy the push
+      # dies, which is what downgraded the demo to polling in #521. caddy
+      # routes to the LIVE colour with health checks and failover, so it is
+      # the correct front door rather than a workaround. It picks its vhost by
+      # Host, hence OVERWATCH_HOST.
+      OVERWATCH_URL: ${OVERWATCH_URL:-http://orbit-poc_caddy_1:80/api}
+      OVERWATCH_HOST: ${OVERWATCH_HOST:-overwatch.confinia.io}
 
 networks:
   default: {}          # podman-compose wants the implicit one spelled out

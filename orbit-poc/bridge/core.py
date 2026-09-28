@@ -59,14 +59,19 @@ def to_points(samples: list[Sample], field_map: dict[str, str],
 
 
 def push(overwatch_url: str, tenant_key: str, satellite: str,
-         points: list[dict]) -> int:
-    """Chunked pushes into the tenant; returns points accepted."""
+         points: list[dict], headers: dict | None = None) -> int:
+    """Chunked pushes into the tenant; returns points accepted.
+
+    `headers` exists so a caller inside the VM can post THROUGH the production
+    caddy, which needs a Host to pick its vhost (#524). Optional and unused by
+    default, so every other adapter on the seam is unaffected."""
     accepted = 0
     for i in range(0, len(points), PUSH_CHUNK):
         chunk = points[i:i + PUSH_CHUNK]
         r = requests.post(
             f"{overwatch_url}/v1/tenants/{tenant_key}/telemetry",
-            json={"satellite": satellite, "points": chunk}, timeout=30)
+            json={"satellite": satellite, "points": chunk},
+            headers=headers or None, timeout=30)
         r.raise_for_status()
         accepted += r.json().get("accepted", len(chunk))
     return accepted
