@@ -40,6 +40,33 @@ gen_caddy() {  # $1 = live color, $2 = candidate color
   podman exec orbit-poc_caddy_1 caddy reload --config /etc/caddy/Caddyfile
 }
 
+# `restart: unless-stopped` in compose does not survive a reboot here —
+# podman-restart.service is disabled and only acts on `always` (#518) — so the
+# policy is set explicitly. Rootless podman registers each container as a
+# transient systemd user scope *asynchronously*, and `podman update` goes
+# straight to the runtime, which talks to that scope over sd-bus. Called too
+# early it fails with "Unit libpod-<id>.scope not found" and takes the whole
+# stage down with exit 125 (#535) — which is what blocked two promotions.
+# The container is fine by then; only this call is early. So wait for the
+# scope, and still fail loudly if it never shows: reboot survival depends on
+# the policy actually being applied, so skipping it is not an acceptable
+# fallback. 30s is ~3x the window observed at load 7.4 with swap full.
+set_restart_policy() {  # $1 = container name
+  local c=$1 err
+  for _ in $(seq 1 30); do
+    if err=$(podman update --restart=always "$c" 2>&1 >/dev/null); then
+      return 0
+    fi
+    case $err in
+      *"scope not found"*) sleep 1 ;;   # scope not registered yet — wait
+      *) echo "!! $c: podman update failed: $err"; return 1 ;;  # anything else is real
+    esac
+  done
+  echo "!! $c: systemd scope never appeared after 30s — restart policy NOT set,"
+  echo "   so this container would not come back after a reboot (#518). Failing."
+  return 1
+}
+
 healthy() {  # $1 = color
   local c=$1
   for _ in $(seq 1 60); do
@@ -66,7 +93,7 @@ stage)
   podman rm -f "${cand}_web_1" "${cand}_api_1" >/dev/null 2>&1 || true
   podman-compose -p "$cand" -f "docker-compose.$cand.yml" up -d 2>&1 | tail -2
   for c in $(podman ps --format '{{.Names}}' | grep -E "^${cand}_"); do
-    podman update --restart=always "$c" >/dev/null
+    set_restart_policy "$c"
   done
   if ! healthy "$cand"; then
     echo "!! candidate $cand failed its health gate — live ($live) untouched"
