@@ -81,3 +81,34 @@ def test_nothing_addresses_the_ingest_by_its_network_name():
             if re.search(r"://ingest[:/]|\bhost=ingest\b|\bingest:\d{2,}", code):
                 hits.append(os.path.relpath(full, ROOT))
     assert not hits, f"these address the ingest by network name: {hits}"
+
+
+def test_the_restart_policy_survives_a_late_systemd_scope():
+    """The policy above is applied by `podman update --restart=always`, which
+    talks to the container's transient systemd scope over sd-bus. That scope is
+    registered asynchronously, so under host load the call lands before it
+    exists and fails the whole stage with exit 125 (#535) — it blocked two
+    promotions. Setting the policy must tolerate a late scope, and must still
+    fail if it never arrives: a container without it does not come back."""
+    slots = _read("deploy", "slots.sh")
+    body = slots.split("set_restart_policy() {", 1)
+    assert len(body) == 2, "set_restart_policy() is gone — who sets the policy now?"
+    fn = body[1].split("\n}", 1)[0]
+
+    assert "scope not found" in fn, \
+        "nothing waits on the late scope — the stage dies on a loaded host"
+    assert re.search(r"sleep\s+1", fn), "no retry delay: the wait would spin"
+    # Giving up must be loud. A `return 0` on exhaustion would leave a
+    # container that silently stays down after the next reboot. Look at the
+    # exhaustion path only — the in-loop "anything else is real" branch also
+    # returns 1, and splitting on the wait made this assertion vacuous once.
+    done = fn.split("never appeared", 1)
+    assert len(done) == 2, "nothing reports giving up on the scope"
+    assert "return 0" not in done[1] and "return 1" in done[1], \
+        "exhausting the wait must fail the stage, not pass it quietly"
+
+    # And nobody may go back to the bare call that caused this.
+    for line in slots.splitlines():
+        if "podman update --restart" in line and "set_restart_policy" not in line:
+            assert "err=$(" in line, \
+                f"bare `podman update --restart` is the #535 crash: {line.strip()}"
