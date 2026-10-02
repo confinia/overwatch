@@ -35,27 +35,48 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 log = logging.getLogger("satnogs-gateway")
 
 
-_ipv6_forced = False
+_ipv6_hook_installed = False
+_dialling_upstream = threading.local()
 
 
-def _force_ipv6_once():
-    """Dial SatNOGS over IPv6 (#533).
+def _install_ipv6_dialler():
+    """Dial SatNOGS over IPv6 (#533), and only SatNOGS (#537).
 
     SatNOGS blocks our IPv4 address and not our IPv6 one. getaddrinfo returns
     the v4 address first and urllib3 dials addresses in order, so WITHOUT this
     every call pays the full IPv4 connect timeout before it would ever reach
     the address that works. Measured: v4 times out, v6 answers 200 in 2.4s.
 
-    Process-wide, which is safe because this process talks to exactly one
-    upstream. SATNOGS_FORCE_IPV6=0 reverts it in one variable if SatNOGS ever
-    unblocks v4 and v6 becomes the broken leg."""
-    global _ipv6_forced
-    if _ipv6_forced or not FORCE_IPV6:
+    urllib3 picks the address family through `allowed_gai_family`, a single
+    module-level hook shared by EVERY urllib3 user in the process. #533 set it
+    to AF_INET6 outright, on the claim that this process talks to one upstream.
+    It does not: the OTel exporter pushes metrics to otel-collector over
+    requests -> urllib3, that host is on an IPv4-only network with no AAAA
+    record, and the override made its lookups fail outright - the gateway
+    stopped reporting any metrics at all, which is also how we would have
+    judged #533 (228 failures in the first hour).
+
+    So the hook consults a thread-local that only `_http_get` sets, and every
+    other caller falls through to urllib3's own default. Thread-local is the
+    right granularity: the HTTP server is threaded per request and the OTel
+    exporter runs on a background thread of its own.
+
+    SATNOGS_FORCE_IPV6=0 reverts it in one variable if SatNOGS ever unblocks
+    v4 and v6 becomes the broken leg."""
+    global _ipv6_hook_installed
+    if _ipv6_hook_installed or not FORCE_IPV6:
         return
     import socket
     import urllib3.util.connection as uc
-    uc.allowed_gai_family = lambda: socket.AF_INET6
-    _ipv6_forced = True
+    default_family = uc.allowed_gai_family
+
+    def family():
+        if getattr(_dialling_upstream, "on", False):
+            return socket.AF_INET6
+        return default_family()
+
+    uc.allowed_gai_family = family
+    _ipv6_hook_installed = True
     log.info("dialling %s over IPv6 only (SATNOGS_FORCE_IPV6)", UPSTREAM)
 
 
@@ -63,15 +84,31 @@ def _http_get(url, headers, timeout):
     """The real upstream call. `requests` is imported lazily so the module (and
     its unit tests, which inject a fake) import with no third-party deps."""
     import requests
-    _force_ipv6_once()
-    return requests.get(url, headers=headers, timeout=timeout)
+    _install_ipv6_dialler()
+    _dialling_upstream.on = True
+    try:
+        return requests.get(url, headers=headers, timeout=timeout)
+    finally:
+        _dialling_upstream.on = False
 
 UPSTREAM = os.environ.get("SATNOGS_UPSTREAM", "https://db.satnogs.org").rstrip("/")
 TOKEN = os.environ.get("SATNOGS_TOKEN", "").strip()
 MIN_GAP = float(os.environ.get("SATNOGS_MIN_GAP", 11))   # 6/min = one per 10s, + margin
-# Our IPv4 is blocked and our IPv6 is not (#533). Default on; one variable off.
-FORCE_IPV6 = os.environ.get("SATNOGS_FORCE_IPV6", "true").strip().lower() \
-    not in ("0", "false", "no", "off")
+# #533 shipped this on, because our IPv4 was blocked and our IPv6 was not:
+# measured v4 timing out and v6 answering 200 in 2.4s. That stopped being true
+# before #533 was ever promoted — SatNOGS extended the block to our IPv6
+# address once we started using it. Now BOTH families time out on
+# db.satnogs.org and network.satnogs.org from this host, while ICMP to the same
+# addresses answers in 12.8ms and the same URLs return 200 from another IP, so
+# the hosts are up and it is our address that is dropped (#538).
+#
+# Hence default OFF: dialling v6 only cannot reach a blocked v6, and in a
+# container with no IPv6 route it turns every call into an instant
+# ENETUNREACH, which #463 classifies as "blocked" for the wrong reason. The
+# mechanism stays, correctly scoped, for the day the block lifts asymmetrically
+# again — SATNOGS_FORCE_IPV6=1 is the whole switch.
+FORCE_IPV6 = os.environ.get("SATNOGS_FORCE_IPV6", "false").strip().lower() \
+    in ("1", "true", "yes", "on")
 PORT = int(os.environ.get("GATEWAY_PORT", 8088))
 DB_DSN = os.environ.get("DB_DSN", "")
 UA = os.environ.get("HTTP_USER_AGENT",

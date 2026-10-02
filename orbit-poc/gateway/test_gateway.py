@@ -354,40 +354,118 @@ def test_ipv6_is_forced_once_and_only_when_asked(monkeypatch):
     import urllib3.util.connection as uc
     original = uc.allowed_gai_family
     try:
-        monkeypatch.setattr(gateway, "_ipv6_forced", False, raising=False)
+        monkeypatch.setattr(gateway, "_ipv6_hook_installed", False, raising=False)
         monkeypatch.setattr(gateway, "FORCE_IPV6", True, raising=False)
-        gateway._force_ipv6_once()
-        assert uc.allowed_gai_family() == socket.AF_INET6
-        assert gateway._ipv6_forced is True
+        gateway._install_ipv6_dialler()
+        assert gateway._ipv6_hook_installed is True
+        # The hook only answers AF_INET6 while our own call is in flight.
+        gateway._dialling_upstream.on = True
+        try:
+            assert uc.allowed_gai_family() == socket.AF_INET6
+        finally:
+            gateway._dialling_upstream.on = False
         # idempotent: a second call must not re-apply or raise
-        gateway._force_ipv6_once()
+        gateway._install_ipv6_dialler()
     finally:
         uc.allowed_gai_family = original
+        gateway._dialling_upstream.on = False
+
+
+def test_forcing_ipv6_leaves_every_other_caller_alone(monkeypatch):
+    """#533 set `allowed_gai_family` to AF_INET6 outright. That hook is shared
+    by every urllib3 user in the process, so it also rewrote how the OTel
+    exporter dials otel-collector - an IPv4-only host with no AAAA record -
+    and the gateway stopped exporting metrics entirely (#537). Outside our own
+    upstream call the family must be whatever urllib3 would have chosen."""
+    import socket
+    import urllib3.util.connection as uc
+    original = uc.allowed_gai_family
+    want = original()
+    try:
+        monkeypatch.setattr(gateway, "_ipv6_hook_installed", False, raising=False)
+        monkeypatch.setattr(gateway, "FORCE_IPV6", True, raising=False)
+        gateway._install_ipv6_dialler()
+        assert uc.allowed_gai_family() == want, \
+            "a non-upstream caller was pinned to one family — #537 again"
+        assert uc.allowed_gai_family() != socket.AF_INET6 or want == socket.AF_INET6
+    finally:
+        uc.allowed_gai_family = original
+        gateway._dialling_upstream.on = False
+
+
+def test_the_upstream_pin_is_dropped_even_when_the_call_raises(monkeypatch):
+    """A leaked thread-local would pin this worker thread to v6 for every
+    later request it serves, which is #537 again with extra steps."""
+    import urllib3.util.connection as uc
+    original = uc.allowed_gai_family
+    try:
+        monkeypatch.setattr(gateway, "_ipv6_hook_installed", False, raising=False)
+        monkeypatch.setattr(gateway, "FORCE_IPV6", True, raising=False)
+
+        class Boom(Exception):
+            pass
+
+        def explode(*a, **k):
+            raise Boom("upstream refused")
+
+        import sys
+        import types
+        fake = types.ModuleType("requests")
+        fake.get = explode
+        monkeypatch.setitem(sys.modules, "requests", fake)
+
+        try:
+            gateway._http_get("https://db.satnogs.org/x", {}, 5)
+        except Boom:
+            pass
+        else:
+            raise AssertionError("the fake upstream should have raised")
+
+        assert getattr(gateway._dialling_upstream, "on", False) is False, \
+            "the upstream pin outlived the call that set it"
+    finally:
+        uc.allowed_gai_family = original
+        gateway._dialling_upstream.on = False
 
 
 def test_forcing_ipv6_can_be_turned_off_in_one_variable(monkeypatch):
     """If SatNOGS ever unblocks v4 and v6 becomes the broken leg, this must
     not need a code change."""
-    import socket
     import urllib3.util.connection as uc
     original = uc.allowed_gai_family
     try:
-        monkeypatch.setattr(gateway, "_ipv6_forced", False, raising=False)
+        monkeypatch.setattr(gateway, "_ipv6_hook_installed", False, raising=False)
         monkeypatch.setattr(gateway, "FORCE_IPV6", False, raising=False)
-        gateway._force_ipv6_once()
+        gateway._install_ipv6_dialler()
         assert uc.allowed_gai_family is original, "must leave resolution alone"
-        assert gateway._ipv6_forced is False
+        assert gateway._ipv6_hook_installed is False
     finally:
         uc.allowed_gai_family = original
 
 
-def test_the_env_var_parses_the_usual_falsey_spellings():
+def test_the_env_var_defaults_off_and_parses_the_usual_spellings(monkeypatch):
+    """#533 defaulted this ON, because our v4 was blocked and our v6 was not.
+    SatNOGS extended the block to our v6 before #533 ever promoted, so both
+    families now time out while ICMP answers in 12.8ms and the same URLs
+    return 200 from another IP (#538). Forcing v6 cannot reach a blocked v6,
+    and on a container with no v6 route it makes every call an instant
+    ENETUNREACH that #463 reads as a block. Default off; one variable on.
+
+    Reads the real module instead of re-implementing the expression, which is
+    what the previous version of this test did — it would have passed whatever
+    the default became."""
     import importlib
-    for raw, expected in (("0", False), ("false", False), ("no", False),
-                          ("off", False), ("", True), ("true", True),
-                          ("1", True)):
-        got = raw.strip().lower() not in ("0", "false", "no", "off")
-        assert got is expected, raw
+    import os as _os
+    for raw, expected in (("1", True), ("true", True), ("TRUE", True),
+                          ("yes", True), ("on", True), (" on ", True),
+                          ("0", False), ("false", False), ("no", False),
+                          ("off", False), ("", False), ("banana", False)):
+        monkeypatch.setitem(_os.environ, "SATNOGS_FORCE_IPV6", raw)
+        assert importlib.reload(gateway).FORCE_IPV6 is expected, repr(raw)
+
+    monkeypatch.delitem(_os.environ, "SATNOGS_FORCE_IPV6", raising=False)
+    assert importlib.reload(gateway).FORCE_IPV6 is False, \
+        "unset must mean off — v6 is blocked too (#538)"
 
 
 def test_the_gateway_egress_network_carries_ipv6():
