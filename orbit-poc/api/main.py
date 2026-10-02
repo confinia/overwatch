@@ -553,6 +553,7 @@ async def lifespan(_: FastAPI):
         pool.putconn(conn)
     _provision_ops_org_async()                     # Grafana may still be booting
     _push_watch_loop()                             # #373: quiet-station alerts
+    _demo_retention_loop()                         # #531: the demo grows forever
     yield
     pool.closeall()
 
@@ -2161,6 +2162,63 @@ def _provision_ops_alerts(gorg: int) -> None:
     # where it belongs (#330).
     _prune_alerts_outside_ops(gorg)
     _drop_placeholder_contact_point(gorg)
+
+
+# --------------------------------------------------------------------------
+# Demo telemetry retention (#531)
+# --------------------------------------------------------------------------
+# The public YAMCS demo pushes 8 fields at 1 Hz forever: tenant_telemetry
+# reached 1507 MB / 4.4M rows, growing ~250k rows a day, on a host whose disks
+# are the bottleneck (#492). 48 hours because the endpoint's own `hours`
+# parameter is capped at 48 — nothing can ask for older data than that.
+#
+# ONLY the tenant flagged `demo`. Every other tenant's telemetry is their data
+# and is never swept; that is asserted in the SQL itself (the delete joins on
+# `tenant.demo`) and again in the tests, because the blast radius of getting
+# it wrong is a paying customer's history.
+DEMO_RETENTION_HOURS = int(os.environ.get("DEMO_RETENTION_HOURS", 48))
+DEMO_RETENTION_BATCH = int(os.environ.get("DEMO_RETENTION_BATCH", 50_000))
+
+
+def _sweep_demo_telemetry() -> int:
+    """Delete the demo tenant's telemetry older than the retention window.
+
+    Bounded per cycle: one unbounded DELETE of millions of rows would hold
+    locks and hammer a disk every other product shares. Returns rows removed."""
+    removed = 0
+    try:
+        with cursor() as cur:
+            for _ in range(20):                      # at most 1M rows a cycle
+                cur.execute(
+                    """DELETE FROM tenant_telemetry t
+                       WHERE ctid IN (
+                           SELECT tt.ctid FROM tenant_telemetry tt
+                           JOIN tenant ON tenant.key = tt.tenant AND tenant.demo
+                           WHERE tt.ts < now() - %s * interval '1 hour'
+                           LIMIT %s)""",
+                    (DEMO_RETENTION_HOURS, DEMO_RETENTION_BATCH))
+                n = cur.rowcount or 0
+                cur.connection.commit()
+                removed += n
+                if n < DEMO_RETENTION_BATCH:
+                    break
+    except Exception as e:                           # never kill the loop
+        print(f"demo retention sweep failed: {e}", flush=True)
+    if removed:
+        print(f"demo retention: {removed} rows older than "
+              f"{DEMO_RETENTION_HOURS}h removed", flush=True)
+    return removed
+
+
+def _demo_retention_loop() -> None:
+    import threading
+
+    def _loop():
+        while True:
+            _sweep_demo_telemetry()
+            time.sleep(int(os.environ.get("DEMO_RETENTION_INTERVAL", 86400)))
+
+    threading.Thread(target=_loop, daemon=True).start()
 
 
 def _provision_ops_org_async() -> None:
