@@ -35,15 +35,43 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 log = logging.getLogger("satnogs-gateway")
 
 
+_ipv6_forced = False
+
+
+def _force_ipv6_once():
+    """Dial SatNOGS over IPv6 (#533).
+
+    SatNOGS blocks our IPv4 address and not our IPv6 one. getaddrinfo returns
+    the v4 address first and urllib3 dials addresses in order, so WITHOUT this
+    every call pays the full IPv4 connect timeout before it would ever reach
+    the address that works. Measured: v4 times out, v6 answers 200 in 2.4s.
+
+    Process-wide, which is safe because this process talks to exactly one
+    upstream. SATNOGS_FORCE_IPV6=0 reverts it in one variable if SatNOGS ever
+    unblocks v4 and v6 becomes the broken leg."""
+    global _ipv6_forced
+    if _ipv6_forced or not FORCE_IPV6:
+        return
+    import socket
+    import urllib3.util.connection as uc
+    uc.allowed_gai_family = lambda: socket.AF_INET6
+    _ipv6_forced = True
+    log.info("dialling %s over IPv6 only (SATNOGS_FORCE_IPV6)", UPSTREAM)
+
+
 def _http_get(url, headers, timeout):
     """The real upstream call. `requests` is imported lazily so the module (and
     its unit tests, which inject a fake) import with no third-party deps."""
     import requests
+    _force_ipv6_once()
     return requests.get(url, headers=headers, timeout=timeout)
 
 UPSTREAM = os.environ.get("SATNOGS_UPSTREAM", "https://db.satnogs.org").rstrip("/")
 TOKEN = os.environ.get("SATNOGS_TOKEN", "").strip()
 MIN_GAP = float(os.environ.get("SATNOGS_MIN_GAP", 11))   # 6/min = one per 10s, + margin
+# Our IPv4 is blocked and our IPv6 is not (#533). Default on; one variable off.
+FORCE_IPV6 = os.environ.get("SATNOGS_FORCE_IPV6", "true").strip().lower() \
+    not in ("0", "false", "no", "off")
 PORT = int(os.environ.get("GATEWAY_PORT", 8088))
 DB_DSN = os.environ.get("DB_DSN", "")
 UA = os.environ.get("HTTP_USER_AGENT",

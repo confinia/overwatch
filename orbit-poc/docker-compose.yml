@@ -284,7 +284,15 @@ networks:
   # which also handed them every other production service name — `db` resolved
   # to BOTH their own database and this one, and half their connections landed
   # on production. A network with a single member cannot be ambiguous.
-  satnogsnet: {}
+  # IPv6 ENABLED (#533). SatNOGS blocks our IPv4 address and not our IPv6 one,
+  # and the gateway had no v6 route on either of its networks — so every
+  # request failed and we read it as "SatNOGS is blocking us" for weeks.
+  # Measured: IPv4 times out, IPv6 answers 200 in 2.4s with 1.5 MB.
+  #   On THIS network rather than the unused `v6egress`: it is already the
+  # gateway's dedicated egress, so it adds no third attachment and imports no
+  # new service names (the #523 trap).
+  satnogsnet:
+    enable_ipv6: true
 
 volumes:
   pgdata:

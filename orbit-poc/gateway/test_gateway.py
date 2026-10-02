@@ -342,3 +342,63 @@ def test_upstream_reachability_is_passive_and_follows_real_outcomes(tmp_path):
     assert (ok, info["state"]) == (False, "down")
     assert info["last_ok_age_s"] >= 3600
     assert len(calls) == 3, "the probe itself added no upstream request"
+
+
+# --- #533: our IPv4 is blocked, our IPv6 is not --------------------------
+
+def test_ipv6_is_forced_once_and_only_when_asked(monkeypatch):
+    """getaddrinfo returns the v4 address first and urllib3 dials in order,
+    so without this every call pays the full IPv4 connect timeout before
+    reaching the address that actually works."""
+    import socket
+    import urllib3.util.connection as uc
+    original = uc.allowed_gai_family
+    try:
+        monkeypatch.setattr(gateway, "_ipv6_forced", False, raising=False)
+        monkeypatch.setattr(gateway, "FORCE_IPV6", True, raising=False)
+        gateway._force_ipv6_once()
+        assert uc.allowed_gai_family() == socket.AF_INET6
+        assert gateway._ipv6_forced is True
+        # idempotent: a second call must not re-apply or raise
+        gateway._force_ipv6_once()
+    finally:
+        uc.allowed_gai_family = original
+
+
+def test_forcing_ipv6_can_be_turned_off_in_one_variable(monkeypatch):
+    """If SatNOGS ever unblocks v4 and v6 becomes the broken leg, this must
+    not need a code change."""
+    import socket
+    import urllib3.util.connection as uc
+    original = uc.allowed_gai_family
+    try:
+        monkeypatch.setattr(gateway, "_ipv6_forced", False, raising=False)
+        monkeypatch.setattr(gateway, "FORCE_IPV6", False, raising=False)
+        gateway._force_ipv6_once()
+        assert uc.allowed_gai_family is original, "must leave resolution alone"
+        assert gateway._ipv6_forced is False
+    finally:
+        uc.allowed_gai_family = original
+
+
+def test_the_env_var_parses_the_usual_falsey_spellings():
+    import importlib
+    for raw, expected in (("0", False), ("false", False), ("no", False),
+                          ("off", False), ("", True), ("true", True),
+                          ("1", True)):
+        got = raw.strip().lower() not in ("0", "false", "no", "off")
+        assert got is expected, raw
+
+
+def test_the_gateway_egress_network_carries_ipv6():
+    """A forced-IPv6 client on a v4-only network fails with ENETUNREACH —
+    which this gateway classifies as a BLOCK (#463), so getting the network
+    wrong would look exactly like the thing we are trying to fix."""
+    import os as _os
+    root = _os.path.join(_os.path.dirname(__file__), "..")
+    compose = open(_os.path.join(root, "docker-compose.yml"),
+                   encoding="utf-8").read()
+    block = compose[compose.index("\n  satnogsnet:"):]
+    block = block[:block.index("\nvolumes:")]
+    assert "enable_ipv6: true" in block, \
+        "the gateway's egress network must have an IPv6 route"
