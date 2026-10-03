@@ -25,3 +25,13 @@
 .pf-v5-c-login__main {
   border-top: 3px solid var(--ow-warn);
 }
+
+/* The band is fixed, so it takes no space in the flow: on a phone the realm
+ * title started at the very top and sat touching it (seen by render at
+ * 375x667, not at 1280x800 where the page's own top margin hides it). Clear
+ * the band's height — 6px + 12px*1.4 + 6px ≈ 29px — on the body, which is
+ * what the header's box is laid out in; padding on .pf-v5-c-login moved the
+ * title 8px (rendered, measured, rejected). */
+.login-pf body {
+  padding-top: 36px;
+}
