@@ -62,6 +62,12 @@ CREATE TABLE IF NOT EXISTS test_sweep (
     oldest_s int         NOT NULL,
     run      text        NOT NULL
 );
+-- This runs as `orbit` BEFORE the candidate api boots, so on a fresh database
+-- the table would be ours, not the api's — and the api's startup does
+-- `REVOKE ALL ON ALL TABLES IN SCHEMA public`, which a non-owner cannot do:
+-- "permission denied for table test_sweep", candidate dead, promote skipped
+-- (#545). Leave the table exactly as if the api had created it.
+ALTER TABLE test_sweep OWNER TO orbit_app;
 INSERT INTO test_sweep (swept, oldest_s, run) VALUES (:'swept', :'oldest', :'run');
 SQL
 }

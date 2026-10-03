@@ -17,6 +17,12 @@ CREATE TABLE IF NOT EXISTS deploy_event (
     run_id  bigint      NOT NULL,
     run_url text        NOT NULL
 );
+-- Same latent bug as test_sweep (#545): if this bootstrap CREATE ever runs
+-- before an api has created the table, `orbit` owns it and every later api
+-- boot fails at REVOKE ALL ON ALL TABLES. It has only not happened here
+-- because the stage row is written after the candidate booted. Make it
+-- impossible rather than lucky.
+ALTER TABLE deploy_event OWNER TO orbit_app;
 INSERT INTO deploy_event (phase, sha, run_id, run_url)
 VALUES (:'phase', :'sha', :'run_id', :'run_url');
 SQL
