@@ -61,18 +61,24 @@ def test_non_production_realms_are_unmistakable():
         "the marker must be text, on screen, not a colour someone may not notice"
 
 
-def test_no_realm_is_assigned_before_the_mount_exists():
-    """Ordering, made explicit. The deploy applies realm settings at every
-    stage but never recreates Keycloak (#519), so a `loginTheme` merged in the
-    same change as the mount would point a realm at a theme the container
-    cannot see yet — a broken login page on three realms until someone does
-    the recreate. This change ships the theme and the mount; the recreate is
-    a deliberate step; the realm assignments come in their own change after
-    it, staging and sandbox first, the gate next, prod last and alone."""
-    for realm in ("overwatch-staging", "overwatch-sandbox", "overwatch-gate", "overwatch"):
+def test_realms_are_assigned_staging_first():
+    """The mount landed in its own change and the container was recreated
+    with it before any realm pointed at the theme (the order #519 makes
+    necessary: the deploy applies realm settings at every stage but does not
+    recreate Keycloak on purpose). Now the non-production realms and the
+    staff gate take it; prod is assigned last, in a change of its own, after
+    these three have been looked at by render — one shared Keycloak serves
+    every environment, and a broken login theme on the prod realm locks out
+    real users."""
+    want = {"overwatch-staging": "overwatch-nonprod",
+            "overwatch-sandbox": "overwatch-nonprod",
+            "overwatch-gate": "overwatch"}
+    for realm, theme in want.items():
         r = json.loads(_read(CONFIG, realm + ".json"))
-        assert "loginTheme" not in r, \
-            f"{realm}: assigned before the theme is mounted — see the docstring"
+        assert r.get("loginTheme") == theme, f"{realm}: loginTheme must be {theme}"
+    prod = json.loads(_read(CONFIG, "overwatch.json"))
+    assert "loginTheme" not in prod, \
+        "prod is assigned in its own change, after the others are verified by render (#516)"
 
 
 def test_the_themes_are_mounted_read_only_into_the_shared_keycloak():

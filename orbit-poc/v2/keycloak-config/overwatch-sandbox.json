@@ -1,6 +1,7 @@
 {
   "realm": "overwatch-sandbox",
   "enabled": true,
+  "loginTheme": "overwatch-nonprod",
   "verifyEmail": true,
   "smtpServer": {
     "host": "$(env:SMTP_HOST)",

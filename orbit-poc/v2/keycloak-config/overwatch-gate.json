@@ -2,6 +2,7 @@
   "realm": "overwatch-gate",
   "displayName": "Overwatch internal",
   "enabled": true,
+  "loginTheme": "overwatch",
   "registrationAllowed": false,
   "loginWithEmailAllowed": true,
   "duplicateEmailsAllowed": false,
