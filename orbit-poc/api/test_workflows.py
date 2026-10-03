@@ -413,3 +413,22 @@ def test_every_writable_db_fixture_asks_first():   # #359
     for name in ("test_registrations.py", "test_catalog.py", "test_app_role.py"):
         src = open(os.path.join(api, name), encoding="utf-8").read()
         assert "require_test_db()" in src, f"{name} hands out a connection unguarded"
+
+
+def test_the_realm_apply_waits_for_a_recreated_keycloak():   # #553
+    """A keycloak service-block change makes podman-compose recreate the
+    container inside the stage (#519), and Keycloak needs ~2 min 50 s from
+    creation to ready here. keycloak-config-cli waits 120 s and gave up 12 s
+    before Keycloak was up: the stage failed after paying the login outage,
+    and a human had to re-run it. The stage must wait on the CURRENT
+    container's own "started in" line before starting the cli, bounded, and
+    fail with Keycloak's log if it never comes."""
+    d = open(os.path.join(ROOT, ".github", "workflows", "deploy.yml"), encoding="utf-8").read()
+    stage = d.split("bash deploy/slots.sh stage")[1] if "bash deploy/slots.sh stage" in d else d
+    cli = stage.index("podman-compose -p ovw2 up -d --no-deps keycloak-config-cli")
+    before = stage[:cli]
+    assert "podman logs --tail 200 ovw2_keycloak_1" in before and "'started in'" in before, \
+        "the cli must wait for Keycloak's own started line, not race it"
+    assert "seq 1 60" in before and "sleep 5" in before, "bounded at ~5 minutes, polled"
+    assert "did not report started" in before and "exit 1" in before, \
+        "a Keycloak that never starts must fail the stage with its log"
