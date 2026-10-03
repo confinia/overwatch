@@ -188,6 +188,23 @@ jobs:
           # keycloak, which never exit — the step then hangs until the job
           # timeout with the apply already finished. Seen on 2026-09-25: the
           # cli exited 0 at 20:01 and the stage was still attached at 21:54.
+          # If this stage changed the keycloak service block, podman-compose
+          # has just RECREATED ovw2_keycloak_1 (#519) and it takes ~2 min 50 s
+          # from creation to "started" on this host — longer than the cli's
+          # own 120 s connect wait, so the cli gave up 12 s before Keycloak
+          # was ready and the stage failed after paying the outage (#553).
+          # Wait for the "started in" line of the CURRENT container's log:
+          # instant for one that has been up for days, the real wait for a
+          # fresh one. Bounded; a Keycloak that never starts fails here, with
+          # its log, instead of as a cli connection error.
+          for _ in $(seq 1 60); do
+            podman logs --tail 200 ovw2_keycloak_1 2>&1 | grep -q 'started in' && break
+            sleep 5
+          done
+          podman logs --tail 200 ovw2_keycloak_1 2>&1 | grep -q 'started in' || {
+            echo "keycloak did not report started within 5 minutes" >&2
+            podman logs --tail 30 ovw2_keycloak_1 >&2 || true
+            exit 1; }
           podman-compose -p ovw2 up -d --no-deps keycloak-config-cli 2>&1 | tail -3
           timeout 300 podman wait ovw2_keycloak-config-cli_1 >/dev/null || {
             echo "realm config apply did not finish in 5 minutes" >&2
