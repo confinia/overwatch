@@ -1,6 +1,7 @@
 {
   "realm": "overwatch",
   "enabled": true,
+  "loginTheme": "overwatch",
   "verifyEmail": true,
   "smtpServer": {
     "host": "$(env:SMTP_HOST)",

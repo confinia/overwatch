@@ -77,13 +77,16 @@ def test_realms_are_assigned_staging_first():
     real users."""
     want = {"overwatch-staging": "overwatch-nonprod",
             "overwatch-sandbox": "overwatch-nonprod",
-            "overwatch-gate": "overwatch"}
+            "overwatch-gate": "overwatch",
+            # last, in its own change, after the three above were rendered on
+            # the real Keycloak at both sizes and the e2e walks passed (#516)
+            "overwatch": "overwatch"}
     for realm, theme in want.items():
         r = json.loads(_read(CONFIG, realm + ".json"))
         assert r.get("loginTheme") == theme, f"{realm}: loginTheme must be {theme}"
-    prod = json.loads(_read(CONFIG, "overwatch.json"))
-    assert "loginTheme" not in prod, \
-        "prod is assigned in its own change, after the others are verified by render (#516)"
+    # Only the two test realms wear the band: the gate is staff, prod is prod.
+    for realm in ("overwatch-gate", "overwatch"):
+        assert json.loads(_read(CONFIG, realm + ".json"))["loginTheme"] != "overwatch-nonprod"
 
 
 def test_the_themes_are_mounted_read_only_into_the_shared_keycloak():
