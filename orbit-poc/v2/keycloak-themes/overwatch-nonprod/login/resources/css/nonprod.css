@@ -1,0 +1,27 @@
+/* Not production (#516). Same ground as the app, with a marker that cannot be
+ * mistaken for a style choice: an orange band across the top of the page and
+ * a line of text above the card. The realm's display name still says which
+ * test environment this is; this says that it is one. */
+
+:root, .pf-v5-theme-dark {
+  --ow-warn: #f0a33a;
+  --keycloak-card-top-color: var(--ow-warn);
+}
+
+.login-pf body::before {
+  content: "TEST ENVIRONMENT \2014 NOT PRODUCTION";
+  display: block;
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 1000;
+  padding: 6px 16px;
+  background: var(--ow-warn);
+  color: #1a1200;
+  font: 600 12px/1.4 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  letter-spacing: 0.08em;
+  text-align: center;
+}
+
+.pf-v5-c-login__main {
+  border-top: 3px solid var(--ow-warn);
+}

@@ -61,6 +61,13 @@ services:
       - .env
     volumes:
       - ./keycloak:/opt/keycloak/data/import:ro
+      # Login themes (#516), config-as-code like the realms: `overwatch` for
+      # prod and the gate, `overwatch-nonprod` (same + a "not production"
+      # band) for staging and sandbox. Which realm uses which is `loginTheme`
+      # in keycloak-config/*.json, applied by keycloak-config-cli at stage.
+      # Adding this mount recreates the container once (a ~40 s login
+      # outage, done deliberately, never by a routine deploy — #519).
+      - ./keycloak-themes:/opt/keycloak/themes:ro
     ports:
       - "127.0.0.1:12070:8080"  # 1PESI: overwatch(2)·prod(0)·keycloak(7) (#213)
     depends_on:
