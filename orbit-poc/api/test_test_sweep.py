@@ -67,6 +67,17 @@ def test_what_was_swept_is_recorded_and_visible():
     assert "CREATE TABLE IF NOT EXISTS test_sweep" in sh, "bootstrap window, as deploy_event"
     assert "INSERT INTO test_sweep" in sh
     assert "ON_ERROR_STOP" in sh
+    # The bootstrap CREATE runs as `orbit` BEFORE the candidate api boots. The
+    # api's startup REVOKEs on every table in the schema, which only the owner
+    # can do, so a table left owned by `orbit` kills every later api boot:
+    # run 37148562157 died exactly there (#545). Both recorders hand over.
+    for script in ("run-tests.sh", "record-deploy-event.sh"):
+        s = _read("deploy", script)
+        create = s.index("CREATE TABLE IF NOT EXISTS")
+        insert = s.index("INSERT INTO")
+        owner = s.find("OWNER TO orbit_app", create)
+        assert create < owner < insert, \
+            f"{script}: the table must be handed to the api role between CREATE and INSERT"
     # schema truth + the ops grant, or the board renders empty (#320)
     src = _read("orbit-poc", "api", "main.py")
     assert "CREATE TABLE IF NOT EXISTS test_sweep" in src
