@@ -56,6 +56,15 @@ services:
       # load — which looks like a crash, not a config error. 1024m heap + ~400m
       # non-heap fits under 2g. The container mem_limit is only the backstop.
       JAVA_OPTS_KC_HEAP: "-Xms512m -Xmx1024m"
+      # Themes are a bind mount (#516) and production mode caches theme
+      # resources and templates until the process restarts, stamping static
+      # files with a 30-day max-age: a stylesheet change was on disk, inside
+      # the container, and still not served (#551). Two theme directories on
+      # this deployment make the cache worth nothing; off, a change is live at
+      # the next request and never needs a restart again.
+      KC_SPI_THEME_CACHE_THEMES: "false"
+      KC_SPI_THEME_CACHE_TEMPLATES: "false"
+      KC_SPI_THEME_STATIC_MAX_AGE: "-1"
     # KC_DB_PASSWORD + KC_BOOTSTRAP_ADMIN_* via .env (VM-side only).
     env_file:
       - .env
