@@ -1,0 +1,133 @@
+/* Overwatch login theme (#516).
+ *
+ * Tokens are the app's, from orbit-poc/web/static/index.html:
+ *   --bg:#0a0e17  --panel:#121826  --line:#1f2a3d
+ *   --text:#dfe7f5  --accent:#5aa9ff  --live:#39d98a  --dim:#7c8aa5
+ *
+ * keycloak.v2 is PatternFly 5 and reads its colours from CSS variables, so
+ * most of this is re-pointing those variables; the few component rules below
+ * cover what PatternFly hard-codes. The page is dark whatever the OS prefers:
+ * the app is a dark control room, and the login must not flip to a white
+ * card at the moment a user decides whether to trust us with a password.
+ */
+
+:root, .pf-v5-theme-dark {
+  --ow-bg: #0a0e17;
+  --ow-panel: #121826;
+  --ow-line: #1f2a3d;
+  --ow-text: #dfe7f5;
+  --ow-accent: #5aa9ff;
+  --ow-live: #39d98a;
+  --ow-dim: #7c8aa5;
+
+  --pf-v5-global--FontFamily--text: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --pf-v5-global--FontFamily--heading: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+
+  --pf-v5-global--BackgroundColor--100: var(--ow-panel);
+  --pf-v5-global--BackgroundColor--200: var(--ow-bg);
+  --pf-v5-global--BackgroundColor--dark-100: var(--ow-bg);
+  --pf-v5-global--Color--100: var(--ow-text);
+  --pf-v5-global--Color--200: var(--ow-dim);
+  --pf-v5-global--Color--light-100: var(--ow-text);
+  --pf-v5-global--BorderColor--100: var(--ow-line);
+  --pf-v5-global--BorderColor--200: var(--ow-line);
+  --pf-v5-global--BorderColor--300: var(--ow-line);
+
+  --pf-v5-global--primary-color--100: var(--ow-accent);
+  --pf-v5-global--primary-color--200: #3f8fe6;
+  --pf-v5-global--active-color--100: var(--ow-accent);
+  --pf-v5-global--link--Color: var(--ow-accent);
+  --pf-v5-global--link--Color--hover: #8ec5ff;
+  --pf-v5-global--success-color--100: var(--ow-live);
+
+  /* keycloak.v2's own knobs: no background image, no card stripe, no logo box */
+  --keycloak-bg-logo-url: none;
+  --keycloak-logo-url: none;
+  --keycloak-logo-width: 0;
+  --keycloak-logo-height: 0;
+  --keycloak-card-top-color: var(--ow-accent);
+}
+
+html.login-pf, .login-pf body {
+  background: var(--ow-bg) !important;
+  color: var(--ow-text);
+}
+
+/* The card. PatternFly's login main is a white panel by default. */
+.pf-v5-c-login__main {
+  --pf-v5-c-login__main--BackgroundColor: var(--ow-panel);
+  background: var(--ow-panel);
+  border: 1px solid var(--ow-line);
+  border-radius: 10px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+}
+.pf-v5-c-login__main-header, .pf-v5-c-login__main-body, .pf-v5-c-login__main-footer {
+  color: var(--ow-text);
+}
+.pf-v5-c-title {
+  --pf-v5-c-title--Color: var(--ow-text);
+  color: var(--ow-text);
+  letter-spacing: 0.01em;
+}
+.pf-v5-c-login__main-footer-band {
+  --pf-v5-c-login__main-footer-band--BackgroundColor: transparent;
+  background: transparent;
+  border-top: 1px solid var(--ow-line);
+}
+
+/* Inputs: dark field, thin line, accent on focus. */
+.pf-v5-c-form-control {
+  --pf-v5-c-form-control--BackgroundColor: var(--ow-bg);
+  --pf-v5-c-form-control--Color: var(--ow-text);
+  --pf-v5-c-form-control--BorderColor: var(--ow-line);
+  --pf-v5-c-form-control--hover--after--BorderBottomColor: var(--ow-accent);
+  --pf-v5-c-form-control--focus--after--BorderBottomColor: var(--ow-accent);
+  background: var(--ow-bg);
+  color: var(--ow-text);
+}
+.pf-v5-c-form-control > input, .pf-v5-c-form-control input {
+  background: transparent;
+  color: var(--ow-text);
+}
+.pf-v5-c-form__label-text, .pf-v5-c-check__label, .pf-v5-c-helper-text__item-text {
+  color: var(--ow-text);
+}
+
+/* Buttons: the accent as the primary action, a lined secondary. */
+.pf-v5-c-button.pf-m-primary {
+  --pf-v5-c-button--m-primary--BackgroundColor: var(--ow-accent);
+  --pf-v5-c-button--m-primary--hover--BackgroundColor: #8ec5ff;
+  --pf-v5-c-button--m-primary--focus--BackgroundColor: #8ec5ff;
+  --pf-v5-c-button--m-primary--Color: #06101c;
+  font-weight: 600;
+}
+.pf-v5-c-button.pf-m-secondary, .pf-v5-c-button.pf-m-control {
+  --pf-v5-c-button--m-secondary--Color: var(--ow-text);
+  --pf-v5-c-button--m-secondary--BorderColor: var(--ow-line);
+  --pf-v5-c-button--m-control--Color: var(--ow-text);
+  --pf-v5-c-button--m-control--BackgroundColor: var(--ow-bg);
+  color: var(--ow-text);
+}
+.pf-v5-c-button.pf-m-link { color: var(--ow-accent); }
+a { color: var(--ow-accent); }
+
+/* Alerts stay readable on the dark panel. */
+.pf-v5-c-alert {
+  --pf-v5-c-alert--BackgroundColor: var(--ow-bg);
+  --pf-v5-c-alert__title--Color: var(--ow-text);
+  --pf-v5-c-alert__description--Color: var(--ow-text);
+}
+
+/* The passkey (webauthn) selection list and the "try another way" list. */
+.pf-v5-c-data-list__item, .pf-v5-c-tile {
+  --pf-v5-c-data-list__item--BackgroundColor: var(--ow-bg);
+  --pf-v5-c-tile--BackgroundColor: var(--ow-bg);
+  background: var(--ow-bg);
+  border-color: var(--ow-line);
+  color: var(--ow-text);
+}
+
+/* Phone: the card fills the width with the app's 16px gutter. */
+@media (max-width: 480px) {
+  .pf-v5-c-login__main { margin: 0 16px; }
+}
