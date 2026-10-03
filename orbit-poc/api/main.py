@@ -212,6 +212,16 @@ CREATE TABLE IF NOT EXISTS deploy_event (
     run_id  bigint      NOT NULL,
     run_url text        NOT NULL
 );
+-- deploy/run-tests.sh (#542, rule 34): what each test run swept before it
+-- started — containers carrying the runner's own label and older than two
+-- hours, i.e. left behind by a run whose client was killed. Read by the ops
+-- Deploy pipeline board; 0 is the normal value.
+CREATE TABLE IF NOT EXISTS test_sweep (
+    ts       timestamptz NOT NULL DEFAULT now(),
+    swept    int         NOT NULL,
+    oldest_s int         NOT NULL,
+    run      text        NOT NULL
+);
 -- statusmon (#470, rule 34): one probe per service per minute, and the
 -- repo's workflow runs (test / sandbox / staging / prod, with the issue and
 -- PR each change was for) — the ops Deployments and Service health boards.
@@ -1822,6 +1832,9 @@ OPS_TABLES = ("organization", "org_user", "org_token", "api_key",
               # deploys board (#382); granted once the first deploy after
               # this change has created it
               "deploy_event",
+              # written by deploy/run-tests.sh (#542): strays it swept before
+              # each run, for the same board
+              "test_sweep",
               # written by statusmon (#470): per-service probes and the
               # repo's workflow runs, for the Deployments / Service health boards
               "service_health", "pipeline_run",
