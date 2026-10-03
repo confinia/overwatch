@@ -122,8 +122,12 @@
   panels; components with no data are shown as such — never faked.
 </div>
 
-<script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
-<script src="https://unpkg.com/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<!-- Served from our own origin, like MapLibre (RULES.md rule 25, #520): the
+     version lives in /vendor/three/VERSION now that it is not in a URL.
+     OrbitControls is a classic script that expects the THREE global, so the
+     order of these two matters. -->
+<script src="/vendor/three/three.min.js"></script>
+<script src="/vendor/three/OrbitControls.js"></script>
 <script>
 // ---- URL state (control-room window vocabulary, #49) -----------------------
 const params = new URLSearchParams(location.search);

@@ -24,7 +24,9 @@ def test_spacecraft_page_exists():
 
 def test_spacecraft_uses_three_and_telemetry_mapping():
     t = _page()
-    assert "three@0.128" in t, "Three.js not loaded"
+    # vendored since #520 — this line used to REQUIRE the unpkg URL, i.e. a
+    # test enforced the rule-25 violation. The version is in vendor/three/VERSION.
+    assert "/vendor/three/three.min.js" in t, "Three.js not loaded"
     assert "componentMap" in t, "no telemetry->component mapper"
     assert "/api/v1/telemetry/" in t, "not fed by the fields endpoint"
 
