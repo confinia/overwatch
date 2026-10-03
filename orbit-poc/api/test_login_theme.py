@@ -59,6 +59,11 @@ def test_non_production_realms_are_unmistakable():
     css = _read(THEMES, "overwatch-nonprod", "login", "resources", "css", "nonprod.css")
     assert "NOT PRODUCTION" in css and "position: fixed" in css, \
         "the marker must be text, on screen, not a colour someone may not notice"
+    # A fixed band takes no space: without clearance the realm title sat
+    # touching it on a phone (seen by render at 375x667, invisible at desktop
+    # size). Directives only — the comment above the rule names the symptom.
+    rules = "\n".join(l for l in css.splitlines() if not l.strip().startswith(("/*", "*")))
+    assert "padding-top" in rules, "the page must clear the band's height"
 
 
 def test_realms_are_assigned_staging_first():
