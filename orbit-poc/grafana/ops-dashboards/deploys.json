@@ -231,6 +231,103 @@
      }
     }
    ]
+  },
+  {
+   "id": 5,
+   "title": "Stray test containers swept, last run",
+   "type": "stat",
+   "datasource": {
+    "type": "postgres",
+    "uid": "orbitcache-ops"
+   },
+   "gridPos": {
+    "h": 6,
+    "w": 8,
+    "x": 0,
+    "y": 18
+   },
+   "fieldConfig": {
+    "defaults": {
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 1
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "colorMode": "background",
+    "graphMode": "none",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    }
+   },
+   "targets": [
+    {
+     "format": "table",
+     "refId": "A",
+     "rawSql": "SELECT swept AS \"Strays swept\" FROM test_sweep ORDER BY ts DESC LIMIT 1",
+     "datasource": {
+      "type": "postgres",
+      "uid": "orbitcache-ops"
+     }
+    }
+   ],
+   "description": "Containers run-tests.sh found carrying its own label and older than two hours at the start of its latest run, and removed (#542). 0 = every earlier run cleaned up after itself. Anything else means a run was killed mid-way and its database container outlived it."
+  },
+  {
+   "id": 6,
+   "title": "Stray test containers per run",
+   "type": "timeseries",
+   "datasource": {
+    "type": "postgres",
+    "uid": "orbitcache-ops"
+   },
+   "gridPos": {
+    "h": 6,
+    "w": 16,
+    "x": 8,
+    "y": 18
+   },
+   "fieldConfig": {
+    "defaults": {
+     "custom": {
+      "drawStyle": "bars",
+      "fillOpacity": 60
+     },
+     "unit": "short"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    }
+   },
+   "targets": [
+    {
+     "format": "time_series",
+     "refId": "A",
+     "rawSql": "SELECT ts AS time, swept AS \"swept\", oldest_s / 3600.0 AS \"oldest stray, hours\" FROM test_sweep WHERE $__timeFilter(ts) ORDER BY ts",
+     "datasource": {
+      "type": "postgres",
+      "uid": "orbitcache-ops"
+     }
+    }
+   ],
+   "description": "One point per test run (pre-deploy gate and the daily timer). The age of the oldest stray says how long a killed run went unnoticed."
   }
  ]
 }
