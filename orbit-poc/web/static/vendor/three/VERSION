@@ -1,0 +1,6 @@
+three 0.128.0
+Vendored from https://unpkg.com/three@0.128.0/ on 2026-10-03 (#520, RULES.md rule 25).
+Files: three.min.js (build/three.min.js), OrbitControls.js (examples/js/controls/OrbitControls.js), LICENSE (MIT).
+Integrity: byte-identical to https://cdn.jsdelivr.net/npm/three@0.128.0/ at vendoring time.
+sha256 9274bbcec8d96168626c732b5d31c775aa8cfb7eaa0599bec0c175908a2c1ce2  three.min.js
+sha256 02bb4ade710f3e607329e37a21f098bc3ac70eb6e33daf8a65e79f4db785e7b2  OrbitControls.js
