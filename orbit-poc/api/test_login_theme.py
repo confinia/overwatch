@@ -89,6 +89,23 @@ def test_realms_are_assigned_staging_first():
         assert json.loads(_read(CONFIG, realm + ".json"))["loginTheme"] != "overwatch-nonprod"
 
 
+def test_keycloak_does_not_cache_the_mounted_theme():
+    """A stylesheet change was on disk, inside the container's bind mount,
+    and still not served: production mode caches theme resources and
+    templates until restart, with a 30-day max-age on top (#551). The render
+    after #549's promote was byte-identical to the one before it. With two
+    theme directories the cache buys nothing; off, a change is live at the
+    next request and never needs a restart again."""
+    compose = _read(V2, "docker-compose.yml")
+    kc = compose[compose.index("\n  keycloak:"):]
+    kc = kc[:kc.index("\n  keycloak-config-cli:")] if "\n  keycloak-config-cli:" in kc else kc
+    env = "\n".join(l.split("#", 1)[0] for l in kc.splitlines())
+    for k, v in (("KC_SPI_THEME_CACHE_THEMES", '"false"'),
+                 ("KC_SPI_THEME_CACHE_TEMPLATES", '"false"'),
+                 ("KC_SPI_THEME_STATIC_MAX_AGE", '"-1"')):
+        assert f"{k}: {v}" in env, f"{k} must be {v}, or theme changes go live only at restart"
+
+
 def test_the_themes_are_mounted_read_only_into_the_shared_keycloak():
     compose = _read(V2, "docker-compose.yml")
     kc = compose[compose.index("\n  keycloak:"):]
