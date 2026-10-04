@@ -34,7 +34,7 @@
 	@gated {
 		not path /oauth2/* /api/v1/billing/webhook* /v1/billing/webhook* /api/v1/healthz /v1/healthz /api/v1/tenants/* /v1/tenants/*
 	}
-	forward_auth @gated gate:4180 {
+	forward_auth @gated ovw-sandbox_gate_1:4180 {
 		uri /oauth2/auth
 		copy_headers X-Auth-Request-Email
 		# no session: send the browser to log in and come back here. The edge
@@ -47,7 +47,7 @@
 
 	# the gate's own endpoints (login start, OIDC callback, sign-out)
 	handle /oauth2/* {
-		reverse_proxy gate:4180
+		reverse_proxy ovw-sandbox_gate_1:4180
 	}
 
 	header {
