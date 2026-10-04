@@ -220,6 +220,17 @@
   .np-head b { font-weight:700; }
   .np-sub { color:var(--dim); font-size:11px; margin-left:8px; }
   .np-empty { color:var(--dim); font-size:12px; }
+  /* #563: the honest empty state — why the window is empty, and the way to
+     what the satellite does hold. Same panel ground as .np, same tokens. */
+  .empty-window { background:var(--panel); border:1px solid var(--line); border-radius:8px;
+        padding:12px 14px; color:var(--text); font-size:13px; line-height:1.5; }
+  .empty-window p { margin:0 0 8px; }
+  .empty-window p:last-child { margin-bottom:0; }
+  .empty-window b { font-weight:700; }
+  .empty-window .btn { background:var(--accent); color:#06101c; border:0; border-radius:6px;
+        padding:6px 12px; font:600 12px ui-sans-serif,system-ui,sans-serif; cursor:pointer; }
+  .empty-window .btn:hover { background:#8ec5ff; }
+  .empty-window .dim { color:var(--dim); font-size:12px; margin-left:8px; }
   .np-tbl { width:100%; border-collapse:collapse; font-size:12px; }
   .np-tbl td { padding:3px 6px; border-top:1px solid var(--line); white-space:nowrap; }
   .np-when { width:92px; font-weight:600; }
