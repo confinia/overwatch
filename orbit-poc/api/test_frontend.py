@@ -397,3 +397,21 @@ def test_payment_mode_tag_comes_from_the_api(html):   # #256
     api = open(os.path.join(os.path.dirname(__file__), "..", "web", "app.py"),
                encoding="utf-8").read()
     assert "POLAR_ENV" not in api, "web container must not source payment mode itself"
+
+
+def test_an_empty_window_says_why_and_offers_the_last_activity(html):   # #563
+    """CO-65 with the 24 h window rendered "Frames received 0", "No data" and
+    no chart, and nothing said that it was last heard 46 days earlier or that
+    only one satellite in the fleet has frames at all while the SatNOGS door
+    is closed. The panel must say so from what the app already holds, and
+    offer the data it does have through an absolute window around the last
+    frame, chosen by the satellite's all-time measures."""
+    assert "function emptyWindowHTML" in html and "function embedLastActivity" in html
+    for tok in ("No frames from", "Last heard", "tracked satellites has frames in the last 7 days",
+                "SatNOGS data door is closed", "position only: no open decoder",
+                'id="show-last-activity"', "/api/v1/telemetry/coverage?norad=",
+                "from=${from}&to=${to}", "31 * 86400e3"):
+        assert tok in html, f"empty state missing {tok}"
+    # the empty branch must come BEFORE any panel is embedded for a window
+    # with no fields — otherwise the boxes are back
+    assert html.index("if (all.length === 0) {") < html.index("panelCellsHTML(qs, measures, rich")

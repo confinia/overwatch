@@ -1205,16 +1205,38 @@ async function embedDashboards(s){
   // replaced three regexes over field names that mirrored the panels' old
   // regexes by hand (#88) and drifted from them.
   const measures = new Set(richRows.map(f => f.semantic && f.semantic.measure).filter(Boolean));
+  // An empty window used to render as empty boxes — "Frames received 0",
+  // "No data", no charts — and nothing on the page said why (#563). Say it,
+  // from what the app already knows: when this satellite was last heard, how
+  // many of the fleet have ANY frame in the last 7 days (one, while the
+  // SatNOGS door is closed for this host), and offer the data it does hold.
+  if (all.length === 0) {
+    body.innerHTML = `<div class="ggrid">` + passesCell +
+      `<div class="gcell wide auto">${emptyWindowHTML(s)}</div>` + `</div>`;
+    const btn = body.querySelector("#show-last-activity");
+    if (btn) btn.onclick = () => embedLastActivity(s, passesCell);
+    return;
+  }
+  // The "latest decoded fields" table is no longer shown: the raw field dump was
+  // not what the view is for. `all` is still fetched — it decides WHICH charts
+  // are worth embedding below.
+  body.innerHTML = `<div class="ggrid">` + passesCell +
+    panelCellsHTML(qs, measures, rich, all.length > 0) + `</div>`;
+  trackPanelLoading(body, cold);           // count the panels in (#239)
+  if (all.length) wireFieldRows();
+}
+
+// Panel ids from grafana/dashboards/public/orbit-telemetry.json. Panel 12
+// (unknown-to-the-layer fields, the work queue) is intentionally NOT
+// embedded here — debugging in Grafana, too noisy for this curated view.
+// "Latest decoded fields" (panel 4) is a NATIVE table below, not an iframe,
+// so a field click can reach the parent map (#42).
+function panelCellsHTML(qs, measures, rich, anyFrames){
   const has = m => measures.has(m);
-  // Panel ids from grafana/dashboards/public/orbit-telemetry.json. Panel 12
-  // (unknown-to-the-layer fields, the work queue) is intentionally NOT
-  // embedded here — debugging in Grafana, too noisy for this curated view.
-  // "Latest decoded fields" (panel 4) is a NATIVE table below, not an iframe,
-  // so a field click can reach the parent map (#42).
   const panels = [
     // orbit altitude (panel 5) stays in Grafana only — dropped from the app view.
     { id: 14, show: true },            // #86 reception summary (half — pairs with frames/hour)
-    { id: 7, show: all.length > 0 },   // frames per hour (half — pairs with reception summary)
+    { id: 7, show: anyFrames },        // frames per hour (half — pairs with reception summary)
     { id: 13, wide: true, show: true },  // #86 ground-station leaderboard — SatNOGS leads with this
     { id: 1, show: rich.includes("battery_v") || has("voltage") },
     { id: 2, show: has("temperature") },
@@ -1229,16 +1251,60 @@ async function embedDashboards(s){
     ...["signal", "attitude", "position", "charge", "memory", "frequency"].map(m =>
       ({ id: 15, show: has(m), extra: `&var-measure=${m}` })),
   ];
-  const grafanaCells = panels.filter(p => p.show).map(p =>
+  return panels.filter(p => p.show).map(p =>
     `<div class="gcell${p.wide ? " wide" : ""}"><iframe loading="lazy" ` +
     `src="${GRAFANA}/d-solo/${DASH_UID}/orbit-telemetry?${qs}&panelId=${p.id}${p.extra || ""}"></iframe></div>`
   ).join("");
-  // The "latest decoded fields" table is no longer shown: the raw field dump was
-  // not what the view is for. `all` is still fetched — it decides WHICH charts
-  // are worth embedding below.
-  body.innerHTML = `<div class="ggrid">` + passesCell + grafanaCells + `</div>`;
-  trackPanelLoading(body, cold);           // count the panels in (#239)
-  if (all.length) wireFieldRows();
+}
+
+// The honest empty state (#563). `s.last_frame` and the fleet list are what
+// the picker already renders; no new call is needed to say this much.
+function emptyWindowHTML(s){
+  const fleet = Object.values(satsByNorad || {});
+  const week = Date.now() - 7 * 86400e3;
+  const liveCount = fleet.filter(x => x.last_frame && Date.parse(x.last_frame) > week).length;
+  const rangeLabel = rangeHours >= 24 ? `${Math.round(rangeHours / 24)} d` : `${rangeHours} h`;
+  const name = escapeHTML(s.name);
+  let why;
+  if (s.last_frame) {
+    const when = new Date(s.last_frame).toISOString().slice(0, 10);
+    why = `No frames from ${name} in the last ${rangeLabel}. Last heard <b>${when}</b> (${age(s.last_frame)}).`;
+  } else if (s.has_telemetry) {
+    why = `No frames from ${name} yet — it has an open decoder, but nothing has been received.`;
+  } else {
+    why = `${name} is tracked by position only: no open decoder, so there is no telemetry to show.`;
+  }
+  const door = fleet.length
+    ? ` Only <b>${liveCount}</b> of ${fleet.length} tracked satellites has frames in the last 7 days: ` +
+      `the SatNOGS data door is closed for this host at the moment (a timed block that lifts on its own); ` +
+      `stations that report directly stay live.`
+    : "";
+  const action = s.last_frame
+    ? `<p><button id="show-last-activity" class="btn">Show last activity</button> ` +
+      `<span class="dim">the 30 days up to that frame, from what this satellite does report</span></p>`
+    : "";
+  return `<div class="empty-window"><p>${why}${door}</p>${action}</div>`;
+}
+
+// "Show last activity" (#563): the range selector stops at 7 d and the fields
+// call is bounded to 168 h, so the window is set in absolute time around the
+// last frame instead, and the panels are chosen by the satellite's ALL-TIME
+// measures from the coverage report — the same semantic layer, no guessing.
+async function embedLastActivity(s, passesCell){
+  const body = document.getElementById("panelBody");
+  const cov = await fetch(`${API_BASE}/api/v1/telemetry/coverage?norad=${s.norad}`)
+    .then(r => r.ok ? r.json() : null).catch(() => null);
+  if (s.norad !== activeNorad) return;
+  const to = Date.parse(s.last_frame) + 86400e3;
+  const from = to - 31 * 86400e3;
+  const qs = `orgId=1&var-norad=${s.norad}&theme=dark&from=${from}&to=${to}`;
+  const measures = new Set(Object.keys((cov && cov.by_measure) || {}));
+  const note = `<div class="gcell wide auto"><div class="empty-window"><p>` +
+    `Showing <b>${new Date(from).toISOString().slice(0, 10)} → ${new Date(to).toISOString().slice(0, 10)}</b>, ` +
+    `the last activity of ${escapeHTML(s.name)}; the range selector above does not reach it.</p></div></div>`;
+  body.innerHTML = `<div class="ggrid">` + passesCell + note +
+    panelCellsHTML(qs, measures, [], true) + `</div>`;
+  trackPanelLoading(body, !gfReady);
 }
 
 // Native "latest decoded fields" table. Fields are grouped by source category
