@@ -77,13 +77,15 @@ def test_no_workflow_or_walk_needs_a_shared_gate_password():
 def test_both_environments_forward_auth_to_the_gate():
     for env in ENVS:
         c = _caddy(env)
-        assert "forward_auth @gated gate:4180" in c, env
+        # by CONTAINER name since #560: both gates carry the alias `gate` on
+        # ovw2_default, and mid-stage the bare name reached the other one
+        assert f"forward_auth @gated ovw-{env}_gate_1:4180" in c, env
         assert "uri /oauth2/auth" in c, env
         # a session-less visitor must be SENT somewhere, not just refused
         assert "/oauth2/start?rd=" in c, env
         # and the gate's own endpoints must be reachable to get there
         assert "handle /oauth2/*" in c, env
-        assert "reverse_proxy gate:4180" in c, env
+        assert f"reverse_proxy ovw-{env}_gate_1:4180" in c, env
 
 
 def test_the_snippet_that_gates_is_imported_by_every_host():
