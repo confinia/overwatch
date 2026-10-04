@@ -574,7 +574,7 @@
     "x": 0,
     "y": 65
    },
-   "description": "One panel per measure this satellite actually reports (signal, attitude, position, charge, memory, frequency), repeated over the `further measures` variable — a spacecraft with no attitude data gets no attitude panel rather than an empty one (#526).",
+   "description": "One panel per measure this satellite actually reports (signal, attitude, position, charge, memory, frequency), repeated over the `further measures` variable — a spacecraft with no attitude data gets no attitude panel rather than an empty one (#526). The variable is multi-valued, so the SQL uses IN ($measure): Grafana quotes the values itself, and '$measure' rendered as ''signal'' — the panel showed No data with a red triangle on the live board.",
    "fieldConfig": {
     "defaults": {
      "custom": {
@@ -601,7 +601,7 @@
       "type": "postgres",
       "uid": "orbitcache"
      },
-     "rawSql": "SELECT ts AS time, CASE WHEN length(field) > 40 THEN regexp_replace(field, '^.*_([^_]+_[^_]+_[^_]+_[^_]+)$', '\\1') ELSE field END AS metric, value_num AS value FROM telemetry JOIN field_semantic s USING (norad, field) WHERE norad = $norad AND s.measure = '$measure' AND value_num IS NOT NULL AND (s.lo IS NULL OR value_num BETWEEN s.lo AND s.hi) ORDER BY ts"
+     "rawSql": "SELECT ts AS time, CASE WHEN length(field) > 40 THEN regexp_replace(field, '^.*_([^_]+_[^_]+_[^_]+_[^_]+)$', '\\1') ELSE field END AS metric, value_num AS value FROM telemetry JOIN field_semantic s USING (norad, field) WHERE norad = $norad AND s.measure IN ($measure) AND value_num IS NOT NULL AND (s.lo IS NULL OR value_num BETWEEN s.lo AND s.hi) ORDER BY ts"
     }
    ]
   }

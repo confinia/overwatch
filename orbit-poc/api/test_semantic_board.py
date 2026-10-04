@@ -74,5 +74,9 @@ def test_further_measures_repeat_only_over_what_the_satellite_reports():
     rep = next(p for p in d["panels"] if p.get("repeat") == "measure")
     assert rep["title"] == "$measure"
     sql = rep["targets"][0]["rawSql"]
-    assert "s.measure = '$measure'" in sql and "JOIN field_semantic s" in sql
+    # multi-value variable: Grafana quotes the values itself, so the SQL must
+    # use IN ($measure) — '$measure' rendered as ''signal'' and the live panel
+    # showed "No data" under a red triangle
+    assert "s.measure IN ($measure)" in sql and "JOIN field_semantic s" in sql
+    assert "'$measure'" not in sql
     assert rep["datasource"]["uid"] == "orbitcache" and rep["targets"][0]["datasource"]["uid"] == "orbitcache"
