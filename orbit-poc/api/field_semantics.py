@@ -112,6 +112,12 @@ def classify(field: str, decoder: str | None = None) -> dict:
     if any(t in s["state_leaves"] for t in parts[-2:]):
         return measure("state")
 
+    # A one-letter unit leaf decides too: `tlm_vbat_i` is the current OF the
+    # battery rail, not a voltage — `vbat` earlier in the name must not win.
+    unit_leaf = {"i": "current", "v": "voltage", "t": "temperature"}.get(leaf)
+    if unit_leaf:
+        return measure(unit_leaf)
+
     for name, unit, rng, rx in s["measures"]:
         if rx.search(f):
             return {"kind": "measure", "measure": name, "unit": unit, "range": rng,

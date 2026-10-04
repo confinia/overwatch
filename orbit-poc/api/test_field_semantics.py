@@ -237,3 +237,13 @@ def test_the_refresh_materialises_the_classification_for_grafana():
         assert cur.fetchone()[0] == 2, "a second refresh must not duplicate"
         cur.execute("DELETE FROM telemetry WHERE norad = 99901"); cur.execute("DELETE FROM field_semantic WHERE norad = 99901")
         cur.execute("DELETE FROM satellite WHERE norad = 99901"); cur.connection.commit()
+
+
+def test_a_unit_letter_leaf_decides_the_measure():
+    """`tlm_vbat_i` is the current of the battery rail, not a voltage: the
+    `vbat` token earlier in the name used to win. A trailing `_i`, `_v` or
+    `_t` names the unit of what is measured."""
+    assert fs.classify("ax25_frame_payload_data_obc_tlm_vbat_i", "sharjahsat1")["measure"] == "current"
+    assert fs.classify("ax25_frame_payload_data_obc_tlm_vbat_v", "sharjahsat1")["measure"] == "voltage"
+    assert fs.classify("ax25_frame_payload_data_obc_tlm_3v3_periph_i", "sharjahsat1")["measure"] == "current"
+    assert fs.classify("payload_bat_t")["measure"] == "temperature"
