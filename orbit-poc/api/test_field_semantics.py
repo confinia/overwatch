@@ -91,10 +91,57 @@ def test_canonical_names_are_measures_and_flagged():
 
 
 def test_genuinely_unknown_stays_unknown():
-    """A guess is worse than a gap: `analog3` and `misc` get no measure."""
-    for f in ("io86_type_check_ax25_frame_payload_ax25_info_analog3",
-              "ax25_frame_payload_ax25_info_compass_misc", "raw_frame_rt_tlm_ihu_diag_data"):
-        assert fs.classify(f)["kind"] == "unknown", f
+    """A guess is worse than a gap: `analog3`, `misc` and a dosimeter channel
+    get no measure. (`diag_data` moved to scaffolding in step 3: it is a
+    diagnostics blob, not a value.)"""
+    for dec, f in (("io86", "io86_type_check_ax25_frame_payload_ax25_info_analog3"),
+                   ("netsat", "ax25_frame_payload_ax25_info_compass_misc"),
+                   ("lasarsat", "ax25_frame_payload_dos_lppa")):
+        assert fs.classify(f, dec)["kind"] == "unknown", f
+    assert fs.classify("raw_frame_rt_tlm_ihu_diag_data", "fox")["kind"] == "scaffolding"
+
+
+def test_step_three_names_from_the_work_queue():
+    """Decoder by decoder, the names a .ksy makes unambiguous (#526 step 3)."""
+    cases = {
+        ("sharjahsat1", "payload_panels_ibcra3"): "current",
+        ("sharjahsat1", "payload_panels_tbcrb6"): "temperature",
+        ("sharjahsat1", "payload_battery_tbat1"): "temperature",
+        ("sharjahsat1", "payload_eps_i3v3drw"): "current",
+        ("grbbeta", "payload_in_volt1"): "voltage",
+        ("grbbeta", "payload_in_amp2"): "current",
+        ("grbbeta", "payload_in_power3"): "power",
+        ("lasarsat", "payload_diode_xp"): "attitude",
+        ("lasarsat", "payload_vel_x"): "attitude",
+        ("lasarsat", "payload_nav_sats"): "position",
+        ("lasarsat", "payload_bus_vol"): "voltage",
+        ("marina", "payload_psu_battery"): "voltage",
+        ("cubebel2", "payload_rx_datarate"): "frequency",
+        ("cubebel2", "payload_bus_c"): "current",
+        ("cubebel2", "payload_ch1_oc"): "state",
+        ("cubebel2", "payload_background_noise"): "signal",
+        ("catsat", "payload_batt_heater"): "state",
+        ("catsat", "payload_in_eclipse"): "state",
+        ("catsat", "payload_1_brn"): "state",
+        ("catsat", "payload_rx_baud"): "frequency",
+        ("knacksat2", "payload_battery_iout"): "current",
+        ("knacksat2", "payload_isens_4"): "current",
+        ("knacksat2", "payload_lora_ant"): "state",
+        ("frontiersat", "payload_battery_percent"): "charge",
+        ("frontiersat", "payload_fs_mounted"): "state",
+        ("foresail1", "payload_is_authenticated"): "state",
+        ("cp16", "payload_load_5min"): "counter",
+        ("cp16", "payload_rx_bytes"): "memory",
+        ("norbi", "payload_sop_angle_priority1"): "state",
+        ("uwe4", "beacon_payload_vals_out_of_range"): "counter",
+    }
+    for (dec, f), want in cases.items():
+        c = fs.classify(f, dec)
+        assert c["kind"] == "measure" and c["measure"] == want, (f, c)
+    for dec, f in (("cubebel2", "payload_rtc_unixtime"), ("catsat", "payload_obc_clock"),
+                   ("knacksat2", "payload_res_2"), ("fox", "raw_frame_hdr_id"),
+                   ("cp16", "payload_var_byte3"), ("cubebel2", "payload_beacon_id")):
+        assert fs.classify(f, dec)["kind"] == "scaffolding", f
 
 
 # --- 3. the JSON decides, not the code ----------------------------------------
