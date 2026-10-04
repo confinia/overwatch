@@ -164,3 +164,29 @@ def test_the_coverage_endpoint_answers_on_an_empty_fleet():
         assert body["fleet"]["fields"] == 0 and body["fleet"]["unknown_pct"] == 0.0
         assert "cached_seconds" in body and body["ttl_seconds"] >= 1
         assert c.get("/v1/telemetry/coverage?norad=46494").status_code == 404
+
+
+def test_the_refresh_materialises_the_classification_for_grafana():
+    """Step 2 (#526): on the test database, two decoded fields for one
+    satellite become two rows in field_semantic with the layer's verdict,
+    and a re-run after the verdict changes overwrites rather than duplicates."""
+    import main
+    from fastapi.testclient import TestClient
+    with TestClient(main.app) as c, main.cursor() as cur:
+        cur.execute("INSERT INTO satellite (norad, name, decoder) VALUES (99901, 'SEMTEST', 'norbi') "
+                    "ON CONFLICT (norad) DO UPDATE SET decoder = EXCLUDED.decoder")
+        cur.execute("INSERT INTO telemetry (norad, ts, field, value_num) VALUES "
+                    "(99901, now(), 'payload_ses_median_pdm_temp', 21.5), "
+                    "(99901, now(), 'header_length', 42) ON CONFLICT DO NOTHING")
+        cur.connection.commit()
+        assert c.get("/v1/telemetry/coverage?refresh=true").status_code == 200
+        cur.execute("SELECT field, kind, measure, unit, lo, hi FROM field_semantic WHERE norad = 99901 ORDER BY field")
+        rows = {f: (k, m, u, lo, hi) for f, k, m, u, lo, hi in cur.fetchall()}
+        assert rows["payload_ses_median_pdm_temp"][:3] == ("measure", "temperature", "degC")
+        assert rows["payload_ses_median_pdm_temp"][3:] == (-60.0, 120.0), "the plausible range travels with it"
+        assert rows["header_length"][0] == "scaffolding"
+        assert c.get("/v1/telemetry/coverage?refresh=true").status_code == 200
+        cur.execute("SELECT count(*) FROM field_semantic WHERE norad = 99901")
+        assert cur.fetchone()[0] == 2, "a second refresh must not duplicate"
+        cur.execute("DELETE FROM telemetry WHERE norad = 99901"); cur.execute("DELETE FROM field_semantic WHERE norad = 99901")
+        cur.execute("DELETE FROM satellite WHERE norad = 99901"); cur.connection.commit()

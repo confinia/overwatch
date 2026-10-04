@@ -280,14 +280,20 @@ def test_auto_grouped_telemetry_panels(html):          # #88
     ids = {p["id"] for p in d["panels"]}
     for pid in (9, 10, 11, 12):
         assert pid in ids, f"dashboard missing auto-group panel {pid}"
-    # panel 12 is the honest catch-all: it must negate the specific filters so
-    # it never double-charts a field another panel already owns
+    # panel 12 is the honest catch-all. It used to negate every other panel's
+    # regex by hand; since #526 it is the fields the semantic layer could not
+    # name — nothing another panel owns, and never scaffolding.
     other = next(p for p in d["panels"] if p["id"] == 12)
     sql = other["targets"][0]["rawSql"]
-    assert "!~*" in sql and "value_num IS NOT NULL" in sql
-    # frontend shows each new panel conditionally, mirroring the SQL filters
-    for tok in ("COUNT_RE", "POWER_RE", "MODE_RE", "{ id: 9,"):
+    assert "s.kind = 'unknown'" in sql and "value_num IS NOT NULL" in sql
+    # the frontend gates each embed on the SAME layer the SQL joins (the
+    # fields endpoint attaches `semantic` per field), not on regexes of its
+    # own that mirrored the SQL by hand and drifted from it
+    for tok in ('f.semantic.measure', 'has("counter")', 'has("power")', 'has("state")',
+                'has("temperature")', "{ id: 9,", "var-measure="):
         assert tok in html, f"embed missing {tok}"
+    for stale in ("COUNT_RE", "POWER_RE", "MODE_RE"):
+        assert stale not in html, f"{stale}: a field-name regex is back in the app"
     # the panel-12 catch-all stays in the dashboard JSON (debug in Grafana) but
     # is intentionally NOT embedded in the curated view (too noisy)
     assert "{ id: 12," not in html
