@@ -1,561 +1,643 @@
 {
-  "uid": "orbit-telemetry",
-  "title": "Orbit Telemetry",
-  "tags": [
-    "orbit-poc"
-  ],
-  "timezone": "utc",
-  "schemaVersion": 39,
-  "version": 8,
-  "refresh": "30s",
-  "time": {
-    "from": "now-7d",
-    "to": "now"
-  },
-  "templating": {
-    "list": [
-      {
-        "name": "norad",
-        "type": "query",
-        "datasource": {
-          "type": "postgres",
-          "uid": "orbitcache"
-        },
-        "query": "SELECT norad::text FROM satellite ORDER BY norad",
-        "refresh": 1,
-        "includeAll": false,
-        "current": {}
-      }
-    ]
-  },
-  "panels": [
-    {
-      "id": 5,
-      "title": "Orbit altitude (from position cache \u2014 live for every satellite)",
-      "type": "timeseries",
-      "gridPos": {
-        "h": 6,
-        "w": 24,
-        "x": 0,
-        "y": 0
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "lengthkm"
-        }
-      },
-      "targets": [
-        {
-          "format": "time_series",
-          "rawSql": "SELECT ts AS time, alt_km AS altitude FROM position WHERE norad = $norad ORDER BY ts",
-          "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "orbitcache"
-          }
-        }
-      ],
-      "datasource": {
-        "type": "grafana-postgresql-datasource",
-        "uid": "orbitcache"
-      }
+ "uid": "orbit-telemetry",
+ "title": "Orbit Telemetry",
+ "tags": [
+  "orbit-poc"
+ ],
+ "timezone": "utc",
+ "schemaVersion": 39,
+ "version": 8,
+ "refresh": "30s",
+ "time": {
+  "from": "now-7d",
+  "to": "now"
+ },
+ "templating": {
+  "list": [
+   {
+    "name": "norad",
+    "type": "query",
+    "datasource": {
+     "type": "postgres",
+     "uid": "orbitcache"
     },
-    {
-      "id": 1,
-      "title": "Battery voltage",
-      "type": "timeseries",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 6
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "volt"
-        }
-      },
-      "targets": [
-        {
-          "format": "time_series",
-          "rawSql": "SELECT ts AS time, CASE WHEN length(field) > 40 THEN regexp_replace(field, '^.*_([^_]+_[^_]+_[^_]+_[^_]+)$', '\\1') ELSE field END AS metric, value_num AS value FROM telemetry WHERE norad = $norad AND (field = 'battery_v' OR field ~* '(volt|vbat|v_bat|bat[a-z_]*_v$|panel_v$)') AND value_num BETWEEN 0 AND 60 ORDER BY ts",
-          "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "orbitcache"
-          }
-        }
-      ],
-      "datasource": {
-        "type": "grafana-postgresql-datasource",
-        "uid": "orbitcache"
-      }
+    "query": "SELECT norad::text FROM satellite ORDER BY norad",
+    "refresh": 1,
+    "includeAll": false,
+    "current": {}
+   },
+   {
+    "name": "measure",
+    "type": "query",
+    "label": "further measures",
+    "datasource": {
+     "type": "postgres",
+     "uid": "orbitcache"
     },
-    {
-      "id": 2,
-      "title": "Temperatures",
-      "type": "timeseries",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 6
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "celsius"
-        }
-      },
-      "targets": [
-        {
-          "format": "time_series",
-          "rawSql": "SELECT ts AS time, CASE WHEN length(field) > 40 THEN regexp_replace(field, '^.*_([^_]+_[^_]+_[^_]+_[^_]+)$', '\\1') ELSE field END AS metric, value_num AS value FROM telemetry WHERE norad = $norad AND field ~* '(temp|bat[a-z_]*_t$)' AND value_num IS NOT NULL ORDER BY ts",
-          "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "orbitcache"
-          }
-        }
-      ],
-      "datasource": {
-        "type": "grafana-postgresql-datasource",
-        "uid": "orbitcache"
-      }
+    "query": "SELECT DISTINCT measure FROM field_semantic WHERE norad = $norad AND measure IN ('signal','attitude','position','charge','memory','frequency') ORDER BY 1",
+    "definition": "measures this satellite reports beyond the panels above",
+    "refresh": 2,
+    "multi": true,
+    "includeAll": true,
+    "hide": 0,
+    "sort": 1,
+    "current": {
+     "selected": true,
+     "text": [
+      "All"
+     ],
+     "value": [
+      "$__all"
+     ]
     },
-    {
-      "id": 3,
-      "title": "Current consumption",
-      "type": "timeseries",
-      "gridPos": {
-        "h": 7,
-        "w": 12,
-        "x": 0,
-        "y": 14
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "amp"
-        }
-      },
-      "targets": [
-        {
-          "format": "time_series",
-          "rawSql": "SELECT ts AS time, CASE WHEN length(field) > 40 THEN regexp_replace(field, '^.*_([^_]+_[^_]+_[^_]+_[^_]+)$', '\\1') ELSE field END AS metric, value_num AS value FROM telemetry WHERE norad = $norad AND (field = 'battery_i' OR field ~* '(current|curr|_i_|amp)') AND value_num BETWEEN -20 AND 20 ORDER BY ts",
-          "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "orbitcache"
-          }
-        }
-      ],
-      "datasource": {
-        "type": "grafana-postgresql-datasource",
-        "uid": "orbitcache"
-      }
-    },
-    {
-      "id": 4,
-      "title": "Latest decoded fields",
-      "type": "table",
-      "gridPos": {
-        "h": 7,
-        "w": 12,
-        "x": 12,
-        "y": 14
-      },
-      "targets": [
-        {
-          "format": "table",
-          "rawSql": "SELECT DISTINCT ON (field) field, COALESCE(value_num::text, value_txt) AS value, ts FROM telemetry WHERE norad = $norad ORDER BY field, ts DESC",
-          "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "orbitcache"
-          }
-        }
-      ],
-      "datasource": {
-        "type": "grafana-postgresql-datasource",
-        "uid": "orbitcache"
-      }
-    },
-    {
-      "id": 6,
-      "title": "Battery charge",
-      "type": "timeseries",
-      "gridPos": {
-        "h": 6,
-        "w": 12,
-        "x": 0,
-        "y": 21
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percent",
-          "min": 0,
-          "max": 100
-        }
-      },
-      "targets": [
-        {
-          "format": "time_series",
-          "rawSql": "SELECT ts AS time, value_num AS value FROM telemetry WHERE norad = $norad AND field = 'battery_pct' ORDER BY ts",
-          "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "orbitcache"
-          }
-        }
-      ],
-      "datasource": {
-        "type": "grafana-postgresql-datasource",
-        "uid": "orbitcache"
-      }
-    },
-    {
-      "id": 8,
-      "title": "Battery vs orbital sunlight \u2014 position+telemetry fusion",
-      "type": "timeseries",
-      "gridPos": {
-        "h": 7,
-        "w": 24,
-        "x": 0,
-        "y": 27
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "volt"
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "sunlight"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "none"
-              },
-              {
-                "id": "max",
-                "value": 1
-              },
-              {
-                "id": "min",
-                "value": 0
-              },
-              {
-                "id": "custom.axisPlacement",
-                "value": "right"
-              },
-              {
-                "id": "custom.lineInterpolation",
-                "value": "stepAfter"
-              },
-              {
-                "id": "custom.fillOpacity",
-                "value": 18
-              },
-              {
-                "id": "custom.lineWidth",
-                "value": 0
-              },
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "yellow"
-                }
-              }
-            ]
-          }
-        ]
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "format": "time_series",
-          "rawSql": "SELECT ts AS time, value_num AS battery_v FROM telemetry WHERE norad = $norad AND field = 'battery_v' ORDER BY ts",
-          "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "orbitcache"
-          }
-        },
-        {
-          "refId": "B",
-          "format": "time_series",
-          "rawSql": "SELECT ts AS time, (CASE WHEN sunlit THEN 1 ELSE 0 END)::float AS sunlight FROM position WHERE norad = $norad AND sunlit IS NOT NULL ORDER BY ts",
-          "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "orbitcache"
-          }
-        }
-      ],
-      "datasource": {
-        "type": "grafana-postgresql-datasource",
-        "uid": "orbitcache"
-      }
-    },
-    {
-      "id": 7,
-      "title": "Frames received per hour (link activity)",
-      "type": "timeseries",
-      "gridPos": {
-        "h": 6,
-        "w": 12,
-        "x": 12,
-        "y": 21
-      },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "drawStyle": "bars",
-            "fillOpacity": 60
-          }
-        }
-      },
-      "targets": [
-        {
-          "format": "time_series",
-          "rawSql": "SELECT date_trunc('hour', ts) AS time, count(DISTINCT ts)::float AS frames FROM telemetry WHERE norad = $norad GROUP BY 1 ORDER BY 1",
-          "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "orbitcache"
-          }
-        }
-      ],
-      "datasource": {
-        "type": "grafana-postgresql-datasource",
-        "uid": "orbitcache"
-      }
-    },
-    {
-      "id": 9,
-      "title": "Counters & uptime",
-      "type": "timeseries",
-      "gridPos": {
-        "h": 7,
-        "w": 12,
-        "x": 0,
-        "y": 34
-      },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "lineInterpolation": "stepAfter"
-          }
-        }
-      },
-      "targets": [
-        {
-          "format": "time_series",
-          "rawSql": "SELECT ts AS time, CASE WHEN length(field) > 40 THEN regexp_replace(field, '^.*_([^_]+_[^_]+_[^_]+_[^_]+)$', '\\1') ELSE field END AS metric, value_num AS value FROM telemetry WHERE norad = $norad AND field ~* '(count|cnt|seqnum|uptime|reset|boot|reboot|packets|errors)' AND value_num IS NOT NULL ORDER BY ts",
-          "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "orbitcache"
-          }
-        }
-      ],
-      "datasource": {
-        "type": "grafana-postgresql-datasource",
-        "uid": "orbitcache"
-      }
-    },
-    {
-      "id": 10,
-      "title": "Power",
-      "type": "timeseries",
-      "gridPos": {
-        "h": 7,
-        "w": 12,
-        "x": 12,
-        "y": 34
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "watt"
-        }
-      },
-      "targets": [
-        {
-          "format": "time_series",
-          "rawSql": "SELECT ts AS time, CASE WHEN length(field) > 40 THEN regexp_replace(field, '^.*_([^_]+_[^_]+_[^_]+_[^_]+)$', '\\1') ELSE field END AS metric, value_num AS value FROM telemetry WHERE norad = $norad AND field ~* '(pwr|power|watt|_w$|charge)' AND field <> 'battery_pct' AND value_num IS NOT NULL ORDER BY ts",
-          "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "orbitcache"
-          }
-        }
-      ],
-      "datasource": {
-        "type": "grafana-postgresql-datasource",
-        "uid": "orbitcache"
-      }
-    },
-    {
-      "id": 11,
-      "title": "Modes & states",
-      "type": "timeseries",
-      "gridPos": {
-        "h": 7,
-        "w": 12,
-        "x": 0,
-        "y": 41
-      },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "lineInterpolation": "stepAfter",
-            "fillOpacity": 12
-          }
-        }
-      },
-      "targets": [
-        {
-          "format": "time_series",
-          "rawSql": "SELECT ts AS time, CASE WHEN length(field) > 40 THEN regexp_replace(field, '^.*_([^_]+_[^_]+_[^_]+_[^_]+)$', '\\1') ELSE field END AS metric, value_num AS value FROM telemetry WHERE norad = $norad AND field ~* '(mode|state|status|flag|enabled|armed|active)' AND value_num IS NOT NULL ORDER BY ts",
-          "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "orbitcache"
-          }
-        }
-      ],
-      "datasource": {
-        "type": "grafana-postgresql-datasource",
-        "uid": "orbitcache"
-      }
-    },
-    {
-      "id": 13,
-      "title": "Ground stations \u2014 frames received (this satellite, selected window)",
-      "type": "bargauge",
-      "gridPos": {
-        "h": 9,
-        "w": 24,
-        "x": 0,
-        "y": 56
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "continuous-GrYlRd"
-          }
-        }
-      },
-      "options": {
-        "orientation": "horizontal",
-        "displayMode": "gradient",
-        "showUnfilled": true,
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": true
-        }
-      },
-      "targets": [
-        {
-          "format": "table",
-          "rawSql": "SELECT split_part(observer, '-', 1) AS station, count(*) AS frames FROM reception WHERE norad = $norad AND $__timeFilter(ts) GROUP BY 1 ORDER BY frames DESC LIMIT 15",
-          "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "orbitcache"
-          }
-        }
-      ],
-      "datasource": {
-        "type": "grafana-postgresql-datasource",
-        "uid": "orbitcache"
-      }
-    },
-    {
-      "id": 14,
-      "title": "Reception summary (selected window)",
-      "type": "stat",
-      "gridPos": {
-        "h": 6,
-        "w": 12,
-        "x": 12,
-        "y": 21
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "value_and_name",
-        "colorMode": "value"
-      },
-      "targets": [
-        {
-          "format": "table",
-          "rawSql": "SELECT count(*) AS \"Frames received\", count(DISTINCT observer) AS \"Ground stations\", max(ts) AS \"Last heard\" FROM reception WHERE norad = $norad AND $__timeFilter(ts)",
-          "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "orbitcache"
-          }
-        }
-      ],
-      "datasource": {
-        "type": "grafana-postgresql-datasource",
-        "uid": "orbitcache"
-      }
-    },
-    {
-      "id": 12,
-      "title": "Other numeric telemetry (auto \u2014 every decoded field not charted above)",
-      "type": "timeseries",
-      "gridPos": {
-        "h": 8,
-        "w": 24,
-        "x": 0,
-        "y": 48
-      },
-      "targets": [
-        {
-          "format": "time_series",
-          "rawSql": "SELECT ts AS time, CASE WHEN length(field) > 40 THEN regexp_replace(field, '^.*_([^_]+_[^_]+_[^_]+_[^_]+)$', '\\1') ELSE field END AS metric, value_num AS value FROM telemetry WHERE norad = $norad AND value_num IS NOT NULL AND field NOT IN ('battery_v','battery_i','battery_pct') AND field !~* '(volt|vbat|v_bat|_v$|temp|current|curr|_i_|amp|count|cnt|seqnum|uptime|reset|boot|reboot|packets|errors|pwr|power|watt|_w$|charge|mode|state|status|flag|enabled|armed|active|pct)' ORDER BY ts",
-          "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "orbitcache"
-          }
-        }
-      ],
-      "datasource": {
-        "type": "grafana-postgresql-datasource",
-        "uid": "orbitcache"
-      }
+    "options": []
+   }
+  ]
+ },
+ "panels": [
+  {
+   "id": 5,
+   "title": "Orbit altitude (from position cache — live for every satellite)",
+   "type": "timeseries",
+   "gridPos": {
+    "h": 6,
+    "w": 24,
+    "x": 0,
+    "y": 0
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "lengthkm"
     }
-  ],
-  "annotations": {
-    "list": [
-      {
-        "builtIn": 1,
-        "datasource": {
-          "type": "grafana",
-          "uid": "-- Grafana --"
-        },
-        "enable": true,
-        "hide": true,
-        "iconColor": "rgba(0, 211, 255, 1)",
-        "name": "Annotations & Alerts",
-        "type": "dashboard"
+   },
+   "targets": [
+    {
+     "format": "time_series",
+     "rawSql": "SELECT ts AS time, alt_km AS altitude FROM position WHERE norad = $norad ORDER BY ts",
+     "datasource": {
+      "type": "grafana-postgresql-datasource",
+      "uid": "orbitcache"
+     }
+    }
+   ],
+   "datasource": {
+    "type": "grafana-postgresql-datasource",
+    "uid": "orbitcache"
+   }
+  },
+  {
+   "id": 1,
+   "title": "Battery voltage",
+   "type": "timeseries",
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 0,
+    "y": 6
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "volt"
+    }
+   },
+   "targets": [
+    {
+     "format": "time_series",
+     "rawSql": "SELECT ts AS time, CASE WHEN length(field) > 40 THEN regexp_replace(field, '^.*_([^_]+_[^_]+_[^_]+_[^_]+)$', '\\1') ELSE field END AS metric, value_num AS value FROM telemetry JOIN field_semantic s USING (norad, field) WHERE norad = $norad AND s.measure = 'voltage' AND value_num IS NOT NULL AND (s.lo IS NULL OR value_num BETWEEN s.lo AND s.hi) ORDER BY ts",
+     "datasource": {
+      "type": "grafana-postgresql-datasource",
+      "uid": "orbitcache"
+     }
+    }
+   ],
+   "datasource": {
+    "type": "grafana-postgresql-datasource",
+    "uid": "orbitcache"
+   },
+   "description": "Fields are chosen by the semantic layer (field_semantic, #526): what this spacecraft's decoder calls them stays in the legend, what they ARE decides the panel. Values outside the measure's plausible range are left out."
+  },
+  {
+   "id": 2,
+   "title": "Temperatures",
+   "type": "timeseries",
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 12,
+    "y": 6
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "celsius"
+    }
+   },
+   "targets": [
+    {
+     "format": "time_series",
+     "rawSql": "SELECT ts AS time, CASE WHEN length(field) > 40 THEN regexp_replace(field, '^.*_([^_]+_[^_]+_[^_]+_[^_]+)$', '\\1') ELSE field END AS metric, value_num AS value FROM telemetry JOIN field_semantic s USING (norad, field) WHERE norad = $norad AND s.measure = 'temperature' AND value_num IS NOT NULL AND (s.lo IS NULL OR value_num BETWEEN s.lo AND s.hi) ORDER BY ts",
+     "datasource": {
+      "type": "grafana-postgresql-datasource",
+      "uid": "orbitcache"
+     }
+    }
+   ],
+   "datasource": {
+    "type": "grafana-postgresql-datasource",
+    "uid": "orbitcache"
+   },
+   "description": "Fields are chosen by the semantic layer (field_semantic, #526): what this spacecraft's decoder calls them stays in the legend, what they ARE decides the panel. Values outside the measure's plausible range are left out."
+  },
+  {
+   "id": 3,
+   "title": "Current consumption",
+   "type": "timeseries",
+   "gridPos": {
+    "h": 7,
+    "w": 12,
+    "x": 0,
+    "y": 14
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "amp"
+    }
+   },
+   "targets": [
+    {
+     "format": "time_series",
+     "rawSql": "SELECT ts AS time, CASE WHEN length(field) > 40 THEN regexp_replace(field, '^.*_([^_]+_[^_]+_[^_]+_[^_]+)$', '\\1') ELSE field END AS metric, value_num AS value FROM telemetry JOIN field_semantic s USING (norad, field) WHERE norad = $norad AND s.measure = 'current' AND value_num IS NOT NULL AND (s.lo IS NULL OR value_num BETWEEN s.lo AND s.hi) ORDER BY ts",
+     "datasource": {
+      "type": "grafana-postgresql-datasource",
+      "uid": "orbitcache"
+     }
+    }
+   ],
+   "datasource": {
+    "type": "grafana-postgresql-datasource",
+    "uid": "orbitcache"
+   },
+   "description": "Fields are chosen by the semantic layer (field_semantic, #526): what this spacecraft's decoder calls them stays in the legend, what they ARE decides the panel. Values outside the measure's plausible range are left out."
+  },
+  {
+   "id": 4,
+   "title": "Latest decoded fields (scaffolding hidden)",
+   "type": "table",
+   "gridPos": {
+    "h": 7,
+    "w": 12,
+    "x": 12,
+    "y": 14
+   },
+   "targets": [
+    {
+     "format": "table",
+     "rawSql": "SELECT DISTINCT ON (field) field, s.measure, s.unit, COALESCE(value_num::text, value_txt) AS value, ts FROM telemetry JOIN field_semantic s USING (norad, field) WHERE norad = $norad AND s.kind <> 'scaffolding' ORDER BY field, ts DESC",
+     "datasource": {
+      "type": "grafana-postgresql-datasource",
+      "uid": "orbitcache"
+     }
+    }
+   ],
+   "datasource": {
+    "type": "grafana-postgresql-datasource",
+    "uid": "orbitcache"
+   }
+  },
+  {
+   "id": 6,
+   "title": "Battery charge",
+   "type": "timeseries",
+   "gridPos": {
+    "h": 6,
+    "w": 12,
+    "x": 0,
+    "y": 21
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percent",
+     "min": 0,
+     "max": 100
+    }
+   },
+   "targets": [
+    {
+     "format": "time_series",
+     "rawSql": "SELECT ts AS time, value_num AS value FROM telemetry WHERE norad = $norad AND field = 'battery_pct' ORDER BY ts",
+     "datasource": {
+      "type": "grafana-postgresql-datasource",
+      "uid": "orbitcache"
+     }
+    }
+   ],
+   "datasource": {
+    "type": "grafana-postgresql-datasource",
+    "uid": "orbitcache"
+   }
+  },
+  {
+   "id": 8,
+   "title": "Battery vs orbital sunlight — position+telemetry fusion",
+   "type": "timeseries",
+   "gridPos": {
+    "h": 7,
+    "w": 24,
+    "x": 0,
+    "y": 27
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "volt"
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "sunlight"
       },
-      {
-        "datasource": {
-          "type": "grafana-postgresql-datasource",
-          "uid": "orbitcache"
-        },
-        "enable": true,
-        "hide": false,
-        "iconColor": "#E02F44",
-        "name": "Upstream cut (#452)",
-        "target": {
-          "editorMode": "code",
-          "format": "table",
-          "rawQuery": true,
-          "rawSql": "SELECT started AS time, coalesce(ended, now()) AS timeend, coalesce(note, 'No answer from the ' || source || ' API: the control room ran on stale data' || CASE WHEN ended IS NULL THEN ' (ongoing)' ELSE '' END) AS text, 'upstream-cut' AS tags FROM provider_outage WHERE started <= $__timeTo() AND coalesce(ended, now()) >= $__timeFrom() ORDER BY started",
-          "refId": "Anno"
+      "properties": [
+       {
+        "id": "unit",
+        "value": "none"
+       },
+       {
+        "id": "max",
+        "value": 1
+       },
+       {
+        "id": "min",
+        "value": 0
+       },
+       {
+        "id": "custom.axisPlacement",
+        "value": "right"
+       },
+       {
+        "id": "custom.lineInterpolation",
+        "value": "stepAfter"
+       },
+       {
+        "id": "custom.fillOpacity",
+        "value": 18
+       },
+       {
+        "id": "custom.lineWidth",
+        "value": 0
+       },
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "yellow"
         }
-      }
+       }
+      ]
+     }
     ]
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "format": "time_series",
+     "rawSql": "SELECT ts AS time, value_num AS battery_v FROM telemetry WHERE norad = $norad AND field = 'battery_v' ORDER BY ts",
+     "datasource": {
+      "type": "grafana-postgresql-datasource",
+      "uid": "orbitcache"
+     }
+    },
+    {
+     "refId": "B",
+     "format": "time_series",
+     "rawSql": "SELECT ts AS time, (CASE WHEN sunlit THEN 1 ELSE 0 END)::float AS sunlight FROM position WHERE norad = $norad AND sunlit IS NOT NULL ORDER BY ts",
+     "datasource": {
+      "type": "grafana-postgresql-datasource",
+      "uid": "orbitcache"
+     }
+    }
+   ],
+   "datasource": {
+    "type": "grafana-postgresql-datasource",
+    "uid": "orbitcache"
+   }
+  },
+  {
+   "id": 7,
+   "title": "Frames received per hour (link activity)",
+   "type": "timeseries",
+   "gridPos": {
+    "h": 6,
+    "w": 12,
+    "x": 12,
+    "y": 21
+   },
+   "fieldConfig": {
+    "defaults": {
+     "custom": {
+      "drawStyle": "bars",
+      "fillOpacity": 60
+     }
+    }
+   },
+   "targets": [
+    {
+     "format": "time_series",
+     "rawSql": "SELECT date_trunc('hour', ts) AS time, count(DISTINCT ts)::float AS frames FROM telemetry WHERE norad = $norad GROUP BY 1 ORDER BY 1",
+     "datasource": {
+      "type": "grafana-postgresql-datasource",
+      "uid": "orbitcache"
+     }
+    }
+   ],
+   "datasource": {
+    "type": "grafana-postgresql-datasource",
+    "uid": "orbitcache"
+   }
+  },
+  {
+   "id": 9,
+   "title": "Counters & uptime",
+   "type": "timeseries",
+   "gridPos": {
+    "h": 7,
+    "w": 12,
+    "x": 0,
+    "y": 34
+   },
+   "fieldConfig": {
+    "defaults": {
+     "custom": {
+      "lineInterpolation": "stepAfter"
+     }
+    }
+   },
+   "targets": [
+    {
+     "format": "time_series",
+     "rawSql": "SELECT ts AS time, CASE WHEN length(field) > 40 THEN regexp_replace(field, '^.*_([^_]+_[^_]+_[^_]+_[^_]+)$', '\\1') ELSE field END AS metric, value_num AS value FROM telemetry JOIN field_semantic s USING (norad, field) WHERE norad = $norad AND s.measure = 'counter' AND value_num IS NOT NULL AND (s.lo IS NULL OR value_num BETWEEN s.lo AND s.hi) ORDER BY ts",
+     "datasource": {
+      "type": "grafana-postgresql-datasource",
+      "uid": "orbitcache"
+     }
+    }
+   ],
+   "datasource": {
+    "type": "grafana-postgresql-datasource",
+    "uid": "orbitcache"
+   },
+   "description": "Fields are chosen by the semantic layer (field_semantic, #526): what this spacecraft's decoder calls them stays in the legend, what they ARE decides the panel. Values outside the measure's plausible range are left out."
+  },
+  {
+   "id": 10,
+   "title": "Power",
+   "type": "timeseries",
+   "gridPos": {
+    "h": 7,
+    "w": 12,
+    "x": 12,
+    "y": 34
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "watt"
+    }
+   },
+   "targets": [
+    {
+     "format": "time_series",
+     "rawSql": "SELECT ts AS time, CASE WHEN length(field) > 40 THEN regexp_replace(field, '^.*_([^_]+_[^_]+_[^_]+_[^_]+)$', '\\1') ELSE field END AS metric, value_num AS value FROM telemetry JOIN field_semantic s USING (norad, field) WHERE norad = $norad AND s.measure = 'power' AND value_num IS NOT NULL AND (s.lo IS NULL OR value_num BETWEEN s.lo AND s.hi) ORDER BY ts",
+     "datasource": {
+      "type": "grafana-postgresql-datasource",
+      "uid": "orbitcache"
+     }
+    }
+   ],
+   "datasource": {
+    "type": "grafana-postgresql-datasource",
+    "uid": "orbitcache"
+   },
+   "description": "Fields are chosen by the semantic layer (field_semantic, #526): what this spacecraft's decoder calls them stays in the legend, what they ARE decides the panel. Values outside the measure's plausible range are left out."
+  },
+  {
+   "id": 11,
+   "title": "Modes & states",
+   "type": "timeseries",
+   "gridPos": {
+    "h": 7,
+    "w": 12,
+    "x": 0,
+    "y": 41
+   },
+   "fieldConfig": {
+    "defaults": {
+     "custom": {
+      "lineInterpolation": "stepAfter",
+      "fillOpacity": 12
+     }
+    }
+   },
+   "targets": [
+    {
+     "format": "time_series",
+     "rawSql": "SELECT ts AS time, CASE WHEN length(field) > 40 THEN regexp_replace(field, '^.*_([^_]+_[^_]+_[^_]+_[^_]+)$', '\\1') ELSE field END AS metric, value_num AS value FROM telemetry JOIN field_semantic s USING (norad, field) WHERE norad = $norad AND s.measure = 'state' AND value_num IS NOT NULL AND (s.lo IS NULL OR value_num BETWEEN s.lo AND s.hi) ORDER BY ts",
+     "datasource": {
+      "type": "grafana-postgresql-datasource",
+      "uid": "orbitcache"
+     }
+    }
+   ],
+   "datasource": {
+    "type": "grafana-postgresql-datasource",
+    "uid": "orbitcache"
+   },
+   "description": "Fields are chosen by the semantic layer (field_semantic, #526): what this spacecraft's decoder calls them stays in the legend, what they ARE decides the panel. Values outside the measure's plausible range are left out."
+  },
+  {
+   "id": 13,
+   "title": "Ground stations — frames received (this satellite, selected window)",
+   "type": "bargauge",
+   "gridPos": {
+    "h": 9,
+    "w": 24,
+    "x": 0,
+    "y": 56
+   },
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "mode": "continuous-GrYlRd"
+     }
+    }
+   },
+   "options": {
+    "orientation": "horizontal",
+    "displayMode": "gradient",
+    "showUnfilled": true,
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": true
+    }
+   },
+   "targets": [
+    {
+     "format": "table",
+     "rawSql": "SELECT split_part(observer, '-', 1) AS station, count(*) AS frames FROM reception WHERE norad = $norad AND $__timeFilter(ts) GROUP BY 1 ORDER BY frames DESC LIMIT 15",
+     "datasource": {
+      "type": "grafana-postgresql-datasource",
+      "uid": "orbitcache"
+     }
+    }
+   ],
+   "datasource": {
+    "type": "grafana-postgresql-datasource",
+    "uid": "orbitcache"
+   }
+  },
+  {
+   "id": 14,
+   "title": "Reception summary (selected window)",
+   "type": "stat",
+   "gridPos": {
+    "h": 6,
+    "w": 12,
+    "x": 12,
+    "y": 21
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "textMode": "value_and_name",
+    "colorMode": "value"
+   },
+   "targets": [
+    {
+     "format": "table",
+     "rawSql": "SELECT count(*) AS \"Frames received\", count(DISTINCT observer) AS \"Ground stations\", max(ts) AS \"Last heard\" FROM reception WHERE norad = $norad AND $__timeFilter(ts)",
+     "datasource": {
+      "type": "grafana-postgresql-datasource",
+      "uid": "orbitcache"
+     }
+    }
+   ],
+   "datasource": {
+    "type": "grafana-postgresql-datasource",
+    "uid": "orbitcache"
+   }
+  },
+  {
+   "id": 12,
+   "title": "Unclassified numeric telemetry (unknown to the semantic layer — the work queue)",
+   "type": "timeseries",
+   "gridPos": {
+    "h": 8,
+    "w": 24,
+    "x": 0,
+    "y": 48
+   },
+   "targets": [
+    {
+     "format": "time_series",
+     "rawSql": "SELECT ts AS time, CASE WHEN length(field) > 40 THEN regexp_replace(field, '^.*_([^_]+_[^_]+_[^_]+_[^_]+)$', '\\1') ELSE field END AS metric, value_num AS value FROM telemetry JOIN field_semantic s USING (norad, field) WHERE norad = $norad AND s.kind = 'unknown' AND value_num IS NOT NULL ORDER BY ts",
+     "datasource": {
+      "type": "grafana-postgresql-datasource",
+      "uid": "orbitcache"
+     }
+    }
+   ],
+   "datasource": {
+    "type": "grafana-postgresql-datasource",
+    "uid": "orbitcache"
+   },
+   "description": "Numeric fields the semantic layer could not name — neither frame scaffolding nor a known measure. Each is a one-line edit in field_semantics.json. Scaffolding is never plotted anywhere on this board."
+  },
+  {
+   "id": 15,
+   "type": "timeseries",
+   "title": "$measure",
+   "repeat": "measure",
+   "repeatDirection": "h",
+   "maxPerRow": 2,
+   "datasource": {
+    "type": "postgres",
+    "uid": "orbitcache"
+   },
+   "gridPos": {
+    "h": 7,
+    "w": 12,
+    "x": 0,
+    "y": 65
+   },
+   "description": "One panel per measure this satellite actually reports (signal, attitude, position, charge, memory, frequency), repeated over the `further measures` variable — a spacecraft with no attitude data gets no attitude panel rather than an empty one (#526).",
+   "fieldConfig": {
+    "defaults": {
+     "custom": {
+      "drawStyle": "line",
+      "spanNulls": false
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   },
+   "targets": [
+    {
+     "format": "time_series",
+     "refId": "A",
+     "datasource": {
+      "type": "postgres",
+      "uid": "orbitcache"
+     },
+     "rawSql": "SELECT ts AS time, CASE WHEN length(field) > 40 THEN regexp_replace(field, '^.*_([^_]+_[^_]+_[^_]+_[^_]+)$', '\\1') ELSE field END AS metric, value_num AS value FROM telemetry JOIN field_semantic s USING (norad, field) WHERE norad = $norad AND s.measure = '$measure' AND value_num IS NOT NULL AND (s.lo IS NULL OR value_num BETWEEN s.lo AND s.hi) ORDER BY ts"
+    }
+   ]
   }
+ ],
+ "annotations": {
+  "list": [
+   {
+    "builtIn": 1,
+    "datasource": {
+     "type": "grafana",
+     "uid": "-- Grafana --"
+    },
+    "enable": true,
+    "hide": true,
+    "iconColor": "rgba(0, 211, 255, 1)",
+    "name": "Annotations & Alerts",
+    "type": "dashboard"
+   },
+   {
+    "datasource": {
+     "type": "grafana-postgresql-datasource",
+     "uid": "orbitcache"
+    },
+    "enable": true,
+    "hide": false,
+    "iconColor": "#E02F44",
+    "name": "Upstream cut (#452)",
+    "target": {
+     "editorMode": "code",
+     "format": "table",
+     "rawQuery": true,
+     "rawSql": "SELECT started AS time, coalesce(ended, now()) AS timeend, coalesce(note, 'No answer from the ' || source || ' API: the control room ran on stale data' || CASE WHEN ended IS NULL THEN ' (ongoing)' ELSE '' END) AS text, 'upstream-cut' AS tags FROM provider_outage WHERE started <= $__timeTo() AND coalesce(ended, now()) >= $__timeFrom() ORDER BY started",
+     "refId": "Anno"
+    }
+   }
+  ]
+ },
+ "description": "Panels pick fields through the semantic layer (field_semantic, #526): scaffolding is never plotted, each measure panel shows what this spacecraft's decoder maps to it, and further measures appear only when the satellite reports them."
 }

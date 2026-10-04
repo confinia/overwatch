@@ -1196,38 +1196,42 @@ async function embedDashboards(s){
   }
   // A field only justifies a chart if it can draw a line: >= 3 points in
   // the 7-day window. One or two lone dots reads as an empty panel.
-  const rich = all.filter(f => f.points >= 3).map(f => f.field);
-  const has = re => rich.some(f => re.test(f));
-  // Auto-grouped category panels (#88): decoded fields land in meaningful
-  // category charts (voltages, temps, currents, power, counters, modes) with no
-  // per-sat curation. The panel-12 "Other numeric" catch-all is intentionally
-  // NOT embedded here — it dumps every remaining field unlabelled (fine for
-  // debugging in Grafana, too noisy for this curated view).
-  const COUNT_RE = /count|cnt|seqnum|uptime|reset|boot|reboot|packets|errors/i;
-  const POWER_RE = /pwr|power|watt|_w$|charge/i;
-  const MODE_RE  = /mode|state|status|flag|enabled|armed|active/i;
-  // Panel ids from grafana/dashboards/public/orbit-telemetry.json; each
-  // `show` mirrors that panel's SQL field filter.
-  // "Latest decoded fields" (panel 4) is now a NATIVE table below, not a
-  // Grafana iframe — so a field click can reach the parent map (#42) and each
-  // field can be coloured by its source category (#46).
+  const richRows = all.filter(f => f.points >= 3);
+  const rich = richRows.map(f => f.field);
+  // What this satellite's fields ARE, from the semantic layer the api attaches
+  // to each field (#526): a panel is embedded when the layer says the
+  // satellite reports that measure — the same table the board's SQL joins,
+  // so the app and Grafana can never disagree on which chart has data. This
+  // replaced three regexes over field names that mirrored the panels' old
+  // regexes by hand (#88) and drifted from them.
+  const measures = new Set(richRows.map(f => f.semantic && f.semantic.measure).filter(Boolean));
+  const has = m => measures.has(m);
+  // Panel ids from grafana/dashboards/public/orbit-telemetry.json. Panel 12
+  // (unknown-to-the-layer fields, the work queue) is intentionally NOT
+  // embedded here — debugging in Grafana, too noisy for this curated view.
+  // "Latest decoded fields" (panel 4) is a NATIVE table below, not an iframe,
+  // so a field click can reach the parent map (#42).
   const panels = [
     // orbit altitude (panel 5) stays in Grafana only — dropped from the app view.
     { id: 14, show: true },            // #86 reception summary (half — pairs with frames/hour)
     { id: 7, show: all.length > 0 },   // frames per hour (half — pairs with reception summary)
     { id: 13, wide: true, show: true },  // #86 ground-station leaderboard — SatNOGS leads with this
-    { id: 1, show: rich.includes("battery_v") || has(/volt|vbat|v_bat|bat[a-z_]*_v$|panel_v$/i) },
-    { id: 2, show: has(/temp|bat[a-z_]*_t$/i) },
-    { id: 3, show: rich.includes("battery_i") || has(/current|curr|_i_|amp/i) },
+    { id: 1, show: rich.includes("battery_v") || has("voltage") },
+    { id: 2, show: has("temperature") },
+    { id: 3, show: rich.includes("battery_i") || has("current") },
     { id: 6, show: rich.includes("battery_pct") },
-    { id: 10, show: has(POWER_RE) },   // #88 power (W)
-    { id: 9, show: has(COUNT_RE) },    // #88 counters & uptime
-    { id: 11, show: has(MODE_RE) },    // #88 modes & states (stepped)
+    { id: 10, show: has("power") },    // #88 power (W)
+    { id: 9, show: has("counter") },   // #88 counters & uptime
+    { id: 11, show: has("state") },    // #88 modes & states (stepped)
     { id: 8, wide: true, show: rich.includes("battery_v") },  // battery vs sunlight fusion
+    // Further measures (#526): the board repeats panel 15 over the measures
+    // the satellite reports; the app embeds exactly those instances.
+    ...["signal", "attitude", "position", "charge", "memory", "frequency"].map(m =>
+      ({ id: 15, show: has(m), extra: `&var-measure=${m}` })),
   ];
   const grafanaCells = panels.filter(p => p.show).map(p =>
     `<div class="gcell${p.wide ? " wide" : ""}"><iframe loading="lazy" ` +
-    `src="${GRAFANA}/d-solo/${DASH_UID}/orbit-telemetry?${qs}&panelId=${p.id}"></iframe></div>`
+    `src="${GRAFANA}/d-solo/${DASH_UID}/orbit-telemetry?${qs}&panelId=${p.id}${p.extra || ""}"></iframe></div>`
   ).join("");
   // The "latest decoded fields" table is no longer shown: the raw field dump was
   // not what the view is for. `all` is still fetched — it decides WHICH charts

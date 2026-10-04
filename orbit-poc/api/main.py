@@ -222,6 +222,23 @@ CREATE TABLE IF NOT EXISTS test_sweep (
     oldest_s int         NOT NULL,
     run      text        NOT NULL
 );
+-- The semantic layer, materialised (#526): what each decoded field of each
+-- satellite IS, so Grafana can join it instead of guessing from the name
+-- with a regex per panel. Written by the api from field_semantics.json at
+-- boot and every COVERAGE_TTL; read by the public boards through grafana_ro.
+-- kind: scaffolding | measure | unknown; measure/unit/lo/hi when a measure.
+CREATE TABLE IF NOT EXISTS field_semantic (
+    norad    integer NOT NULL,
+    field    text    NOT NULL,
+    kind     text    NOT NULL,
+    measure  text,
+    unit     text,
+    lo       double precision,
+    hi       double precision,
+    updated  timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (norad, field)
+);
+CREATE INDEX IF NOT EXISTS field_semantic_measure_idx ON field_semantic (norad, measure);
 -- statusmon (#470, rule 34): one probe per service per minute, and the
 -- repo's workflow runs (test / sandbox / staging / prod, with the issue and
 -- PR each change was for) — the ops Deployments and Service health boards.
@@ -564,6 +581,7 @@ async def lifespan(_: FastAPI):
     _provision_ops_org_async()                     # Grafana may still be booting
     _push_watch_loop()                             # #373: quiet-station alerts
     _demo_retention_loop()                         # #531: the demo grows forever
+    _field_semantics_loop()                        # #526: what each field IS, for Grafana
     yield
     pool.closeall()
 
@@ -872,6 +890,60 @@ _COVERAGE_CACHE = {"at": 0.0, "report": None}
 COVERAGE_TTL = int(os.environ.get("COVERAGE_TTL", 600))
 
 
+def _compute_coverage() -> dict:
+    """One pass over every distinct (satellite, field): the coverage report
+    for the endpoint, and the same classification written to field_semantic
+    so Grafana can join it (#526). The per-satellite board used to guess each
+    panel's fields with a regex on the name — plotting the packet header —
+    and no panel could know what a satellite does not have."""
+    import time as _time
+    with cursor() as cur:
+        cur.execute("SELECT DISTINCT norad, field FROM telemetry")
+        by_sat: dict = {}
+        for n, f in cur.fetchall():
+            by_sat.setdefault(n, []).append(f)
+        cur.execute("SELECT norad, decoder FROM satellite")
+        decoders = {n: d for n, d in cur.fetchall()}
+        rows = []
+        for n, fields in by_sat.items():
+            for f in set(fields):
+                c = field_semantics.classify(f, decoders.get(n))
+                lo, hi = (c["range"] or (None, None))
+                rows.append((n, f, c["kind"], c["measure"], c["unit"], lo, hi))
+        if rows:
+            # upsert: a field's class can change with field_semantics.json; a
+            # field never leaves history, so nothing is deleted
+            from psycopg2.extras import execute_values
+            execute_values(cur, """
+                INSERT INTO field_semantic (norad, field, kind, measure, unit, lo, hi, updated)
+                VALUES %s
+                ON CONFLICT (norad, field) DO UPDATE SET
+                    kind = EXCLUDED.kind, measure = EXCLUDED.measure, unit = EXCLUDED.unit,
+                    lo = EXCLUDED.lo, hi = EXCLUDED.hi, updated = now()""",
+                rows, template="(%s, %s, %s, %s, %s, %s, %s, now())", page_size=2000)
+        cur.connection.commit()
+    _COVERAGE_CACHE["report"] = field_semantics.coverage(by_sat, decoders)
+    _COVERAGE_CACHE["at"] = _time.time()
+    return _COVERAGE_CACHE["report"]
+
+
+def _field_semantics_loop() -> None:
+    """Keep field_semantic current without anyone opening the report: at boot
+    (so a fresh database has the table filled before the boards are looked
+    at) and every COVERAGE_TTL after. Rule 34 for the layer itself."""
+    import threading
+
+    def _loop():
+        while True:
+            try:
+                _compute_coverage()
+            except Exception as e:                      # noqa: BLE001 — keep the loop alive
+                print(f"field_semantic refresh failed: {e}", flush=True)
+            time.sleep(COVERAGE_TTL)
+
+    threading.Thread(target=_loop, daemon=True).start()
+
+
 @app.get("/v1/telemetry/coverage")
 def telemetry_coverage(norad: int | None = Query(None, description="One satellite's report"),
                        refresh: bool = Query(False, description="Recompute now instead of the cached copy")):
@@ -890,15 +962,7 @@ def telemetry_coverage(norad: int | None = Query(None, description="One satellit
     now = _time.time()
     stale = now - _COVERAGE_CACHE["at"] > COVERAGE_TTL
     if refresh or _COVERAGE_CACHE["report"] is None or stale:
-        with cursor() as cur:
-            cur.execute("SELECT DISTINCT norad, field FROM telemetry")
-            by_sat: dict = {}
-            for n, f in cur.fetchall():
-                by_sat.setdefault(n, []).append(f)
-            cur.execute("SELECT norad, decoder FROM satellite")
-            decoders = {n: d for n, d in cur.fetchall()}
-        _COVERAGE_CACHE["report"] = field_semantics.coverage(by_sat, decoders)
-        _COVERAGE_CACHE["at"] = now
+        _compute_coverage()
     rep = _COVERAGE_CACHE["report"]
     age = int(now - _COVERAGE_CACHE["at"])
     if norad is not None:
@@ -1814,6 +1878,9 @@ def _org_role(org_id: str) -> tuple[str, str]:
 # (anonymous Viewer — required for the public embeds) run arbitrary SQL, so the
 # database role IS the security boundary, not the dashboard JSON (#129).
 GRAFANA_PUBLIC_TABLES = ("satellite", "position", "telemetry", "reception", "pass",
+                         # what each field IS (#526): the per-satellite board
+                         # joins it instead of regexing field names
+                         "field_semantic",
                          # upstream cut intervals only, drawn as annotations
                          # (#452); the request log itself stays ops-only
                          "provider_outage",
