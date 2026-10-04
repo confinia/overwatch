@@ -148,3 +148,20 @@ def test_the_pattern_catches_the_bare_name_and_spares_the_paths():
                "satnogs-api:8000", "/api/v1/satellites", "  api:",
                "ovw.api.requests"):
         assert not BARE_API.search(ok), ok
+
+
+# --- #560: both gates carry the alias `gate` on ovw2_default -------------------
+
+def test_each_environment_addresses_its_own_gate_by_container_name():
+    """Both gates and both caddies join ovw2_default to reach Keycloak, and
+    both gates carry the service alias `gate` there. While a stage recreates
+    the sandbox gate, the sandbox caddy's `gate` resolves through ovw2_default
+    to the STAGING gate, which signs sandbox callbacks with its own client —
+    102 refused logins in one evening. A container name resolves to exactly
+    one container on any network (the #523 fix for the SatNOGS gateway)."""
+    for env in NONPROD:
+        body = _read("orbit-poc", env, "Caddyfile")
+        code = "\n".join(l.split("#", 1)[0] for l in body.splitlines())
+        assert f"ovw-{env}_gate_1:4180" in code, f"{env}: the gate must be addressed by container name"
+        assert not re.search(r"(?<![\w-])gate:4180", code), \
+            f"{env}: a bare `gate:` upstream resolves to the other environment's gate mid-stage (#560)"
