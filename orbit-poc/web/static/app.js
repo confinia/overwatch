@@ -1260,7 +1260,9 @@ function panelCellsHTML(qs, measures, rich, anyFrames){
 // The honest empty state (#563). `s.last_frame` and the fleet list are what
 // the picker already renders; no new call is needed to say this much.
 function emptyWindowHTML(s){
-  const fleet = Object.values(satsByNorad || {});
+  // the decoded fleet only: the picker also holds the open catalogue, which is
+  // tracked by position and could never have frames (154 vs 25, live)
+  const fleet = Object.values(satsByNorad || {}).filter(x => x.has_telemetry);
   const week = Date.now() - 7 * 86400e3;
   const liveCount = fleet.filter(x => x.last_frame && Date.parse(x.last_frame) > week).length;
   const rangeLabel = rangeHours >= 24 ? `${Math.round(rangeHours / 24)} d` : `${rangeHours} h`;

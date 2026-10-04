@@ -410,7 +410,9 @@ def test_an_empty_window_says_why_and_offers_the_last_activity(html):   # #563
     for tok in ("No frames from", "Last heard", "tracked satellites has frames in the last 7 days",
                 "SatNOGS data door is closed", "position only: no open decoder",
                 'id="show-last-activity"', "/api/v1/telemetry/coverage?norad=",
-                "from=${from}&to=${to}", "31 * 86400e3"):
+                "from=${from}&to=${to}", "31 * 86400e3",
+                # the fleet count must exclude position-only catalogue entries
+                "filter(x => x.has_telemetry)"):
         assert tok in html, f"empty state missing {tok}"
     # the empty branch must come BEFORE any panel is embedded for a window
     # with no fields — otherwise the boxes are back
