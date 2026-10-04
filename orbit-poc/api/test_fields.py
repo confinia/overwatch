@@ -31,3 +31,13 @@ def test_payload_telemetry_is_default():
 def test_categorizer_is_case_insensitive():
     assert main.field_source("Battery_V") == "canonical"
     assert main.field_source("CSP_HEADER_DEST") == "transport"
+
+
+def test_a_payload_under_an_ax25_frame_is_telemetry():   # #526
+    """`ax25` in the PATH is where most decoders put the payload, not a sign
+    of framing: 767 of the fleet's 1315 fields live under `ax25_frame_...`.
+    The old substring test ranked the ISS's only real field as transport."""
+    for f in ("ax25_frame_payload_info_temp", "id1_id2_id3_id4_ax25_frame_psu_battery",
+              "ax25_frame_payload_ax25_info_beacon_payload_beacon_payload_obc_temp"):
+        assert main.field_source(f) == "telemetry", f
+    assert main.field_source("ax25_header_dest_callsign") == "transport"

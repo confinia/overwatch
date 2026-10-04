@@ -846,29 +846,68 @@ def receptions(norad: int, hours: int = Query(24, ge=1, le=168)):
                 for ts, obs, lat, lon in cur.fetchall()]
 
 
+import field_semantics  # the semantic layer (#526): what a decoded field IS, as data
+
+
 def field_source(name: str) -> str:
     """Classify a decoded telemetry field by origin, so the UI can separate real
-    satellite health from link-layer framing (#46). Pattern-based, derived at
-    read time — no schema change.
+    satellite health from link-layer framing (#46).
 
       canonical : the normalized health fields our ingest derives
       transport : AX.25 / CSP / framing metadata — not satellite health
       telemetry : everything else — the raw decoded satellite values
-    """
+
+    Since #526 the transport decision is the semantic layer's, from
+    field_semantics.json. The substring test it replaces called anything
+    containing `ax25` framing — and 767 of the fleet's 1315 fields carry
+    `ax25_frame_...` as a PATH PREFIX, so the ISS's one real field
+    (`ax25_frame_payload_info_temp`) ranked below the packet header."""
     n = name.lower()
     if n in ("battery_v", "battery_i", "battery_pct"):
         return "canonical"
-    if any(b in n for b in ("csp_header", "ax25", "packet_header",
-                            "primary_header", "secondary_header",
-                            "frame_header", "transfer_frame")):
-        return "transport"
-    if n in ("frame_length", "length", "crc", "crc16", "checksum", "fcs",
-             "syncword", "sync_word", "callsign", "dest_callsign",
-             "src_callsign", "source_callsign", "destination_callsign",
-             "frame_id", "packet_id", "sequence_count", "seq_count",
-             "spacecraft_id", "sat_id", "norad"):
-        return "transport"
-    return "telemetry"
+    return "transport" if field_semantics.is_transport(n) else "telemetry"
+
+
+_COVERAGE_CACHE = {"at": 0.0, "report": None}
+COVERAGE_TTL = int(os.environ.get("COVERAGE_TTL", 600))
+
+
+@app.get("/v1/telemetry/coverage")
+def telemetry_coverage(norad: int | None = Query(None, description="One satellite's report"),
+                       refresh: bool = Query(False, description="Recompute now instead of the cached copy")):
+    """How much of what we decode is a measurement we can name (#526).
+
+    Over every distinct field the fleet has ever produced: the share that is
+    frame scaffolding (never to be plotted), the share mapped to a canonical
+    measure (temperature, voltage, ...) with how many satellites each measure
+    reaches, and the names still unknown — per satellite, with a sample of the
+    unknown ones, which is the work queue for field_semantics.json. The
+    distinct scan is index-only but the table is millions of rows, so the
+    report is computed at most every COVERAGE_TTL seconds and says how old it
+    is. No dashboard reads this yet; it exists so the layer's quality is
+    visible before anything depends on it."""
+    import time as _time
+    now = _time.time()
+    stale = now - _COVERAGE_CACHE["at"] > COVERAGE_TTL
+    if refresh or _COVERAGE_CACHE["report"] is None or stale:
+        with cursor() as cur:
+            cur.execute("SELECT DISTINCT norad, field FROM telemetry")
+            by_sat: dict = {}
+            for n, f in cur.fetchall():
+                by_sat.setdefault(n, []).append(f)
+            cur.execute("SELECT norad, decoder FROM satellite")
+            decoders = {n: d for n, d in cur.fetchall()}
+        _COVERAGE_CACHE["report"] = field_semantics.coverage(by_sat, decoders)
+        _COVERAGE_CACHE["at"] = now
+    rep = _COVERAGE_CACHE["report"]
+    age = int(now - _COVERAGE_CACHE["at"])
+    if norad is not None:
+        sat = rep["satellites"].get(norad)
+        if sat is None:
+            raise HTTPException(404, f"No decoded fields for NORAD {norad} (see /v1/satellites).")
+        return {"norad": norad, "cached_seconds": age, **sat}
+    return {"cached_seconds": age, "ttl_seconds": COVERAGE_TTL, "fleet": rep["fleet"],
+            "satellites": rep["satellites"]}
 
 
 @app.get("/v1/telemetry/{norad}/fields")
@@ -884,6 +923,9 @@ def telemetry_fields(norad: int,
     with cursor() as cur:
         if not known_norad(cur, norad):
             raise HTTPException(404, f"Unknown NORAD id {norad} (see /v1/satellites).")
+        cur.execute("SELECT decoder FROM satellite WHERE norad = %s", (norad,))
+        row = cur.fetchone()
+        decoder = row[0] if row else None
         cur.execute("""
             SELECT field, count(*) AS points, max(ts) AS last_seen,
                    (array_agg(value_num ORDER BY ts DESC))[1] AS last_num,
@@ -891,8 +933,12 @@ def telemetry_fields(norad: int,
             FROM telemetry
             WHERE norad = %s AND ts > now() - %s * interval '1 hour'
             GROUP BY field ORDER BY field""", (norad, hours))
+        # `semantic` (#526): what the field IS — kind, measure, unit, plausible
+        # range — from the same data the coverage report is built on, so a UI
+        # can group a satellite's fields by measure instead of listing 253.
         return [{"field": f, "points": n, "last_seen": ts.isoformat(),
                  "source": field_source(f),
+                 "semantic": field_semantics.classify(f, decoder),
                  "last_value": (num if num is not None else txt)}
                 for f, n, ts, num, txt in cur.fetchall()]
 

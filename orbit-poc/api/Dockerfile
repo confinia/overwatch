@@ -6,6 +6,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY main.py .
 COPY telemetry_sink.py .
+COPY field_semantics.py field_semantics.json .
 COPY oem.py .
 COPY metering.py .
 COPY polar.py .
