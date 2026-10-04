@@ -47,7 +47,7 @@ def test_sandbox_api_host_declared():
 def test_sandbox_api_host_is_gated_but_webhook_stays_open():
     caddy = open(SANDBOX_CADDY).read()
     # the SSO gate (#290), not a basic-auth line with an unrotatable hash
-    assert "forward_auth @gated gate:4180" in caddy
+    assert "forward_auth @gated ovw-sandbox_gate_1:4180" in caddy   # by container name (#560)
     # the exemption must cover both host spellings of the webhook path
     assert "/api/v1/billing/webhook*" in caddy
     assert "/v1/billing/webhook*" in caddy
