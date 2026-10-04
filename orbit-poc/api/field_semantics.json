@@ -6,69 +6,351 @@
     "   `scaffolding_segments`. Segments are matched whole: `ax25_header` is framing,",
     "   `ax25_frame` is the container most decoders put the payload in (767 of the",
     "   fleet's 1315 fields sit under it), so it is NOT a marker.",
-    "2. measure — the first entry of `measures` whose `match` regex hits the lowercase",
-    "   field wins; `unit` and `range` describe what a plausible value looks like.",
-    "   Order matters: `temperature` sits before `current` so `..._temp_i` is a temperature.",
-    "`overrides` correct the guess per decoder, by leaf: a value of a measure name,",
-    "\"scaffolding\" or \"unknown\". A wrong guess is a one-line edit here, not new SQL."
+    "2. measure — a field whose last two segments carry a `state_leaves` token is a",
+    "   state; otherwise the first entry of `measures` whose `match` regex hits the",
+    "   lowercase field wins; `unit` and `range` describe what a plausible value looks",
+    "   like. Order matters: `temperature` sits before `current` so `..._temp_i` is a",
+    "   temperature.",
+    "`overrides` correct the guess per decoder, by trailing path (1..n segments): a",
+    "value of a measure name, \"scaffolding\" or \"unknown\". A wrong guess is a",
+    "one-line edit here, not new SQL. Step 3 (#526) worked the unknown list decoder",
+    "by decoder: 244 names, of which the ones a .ksy makes unambiguous are mapped",
+    "below and the rest (analog1..5, compass_misc, dosimeter channels) stay unknown",
+    "on purpose — a guess is worse than a gap."
   ],
   "scaffolding_segments": [
-    "csp_header", "ax25_header", "packet_header", "primary_header", "secondary_header",
-    "frame_header", "transfer_frame", "header",
-    "not_used", "reserved", "spare", "unused", "pad", "padding"
-  ],
-  "state_leaves": [
-    "mode", "state", "status", "flag", "flags", "enable", "enabled", "ok", "valid",
-    "error", "fault", "alarm", "bootcause", "resetcause", "inited", "ind", "permission",
-    "dmode", "deployed", "deployment", "depl", "armed", "switch", "lock", "locked"
+    "csp_header",
+    "ax25_header",
+    "packet_header",
+    "primary_header",
+    "secondary_header",
+    "frame_header",
+    "transfer_frame",
+    "header",
+    "not_used",
+    "reserved",
+    "spare",
+    "unused",
+    "pad",
+    "padding"
   ],
   "scaffolding_leaves": [
-    "length", "frame_length", "header_length", "len",
-    "crc", "crc16", "crc32", "checksum", "check", "fcs", "type_check",
-    "callsign", "dest_callsign", "src_callsign", "source_callsign", "destination_callsign",
-    "ssid", "dest_ssid", "src_ssid", "pid", "ctl", "control",
-    "receiver_address", "transmitter_address", "transaction_number", "address", "dest", "src",
-    "destination", "source", "source_port", "dest_port", "destination_port", "port", "priority",
-    "seq", "seq_count", "sequence", "sequence_count", "sequence_number",
-    "frame_number", "frame_count", "frame_id", "packet_id", "packet_number", "frame_definition",
-    "frame_generation_time", "beacon_type", "type", "version", "firmware_version", "sw_version",
-    "syncword", "sync_word", "spacecraft_id", "sat_id", "norad", "apid",
-    "year", "month", "day", "hour", "hours", "minute", "minutes", "second", "seconds",
-    "millis", "milliseconds", "timestamp", "time", "unix_time", "epoch", "date", "datetime",
-    "magic", "preamble", "postamble",
-    "hmac", "xtea", "rdp", "crc32c", "typeandlength", "command", "seqnum", "options", "flags_raw"
+    "length",
+    "frame_length",
+    "header_length",
+    "len",
+    "datalen",
+    "len_extension",
+    "crc",
+    "crc16",
+    "crc32",
+    "crc32c",
+    "checksum",
+    "check",
+    "fcs",
+    "type_check",
+    "callsign",
+    "dest_callsign",
+    "src_callsign",
+    "source_callsign",
+    "destination_callsign",
+    "ssid",
+    "dest_ssid",
+    "src_ssid",
+    "pid",
+    "ctl",
+    "control",
+    "receiver_address",
+    "transmitter_address",
+    "transaction_number",
+    "address",
+    "dest",
+    "src",
+    "destination",
+    "source",
+    "source_port",
+    "dest_port",
+    "destination_port",
+    "port",
+    "priority",
+    "seq",
+    "seq_num",
+    "seqnum",
+    "seq_count",
+    "sequence",
+    "sequence_count",
+    "sequence_number",
+    "frame_number",
+    "frame_count",
+    "frame_id",
+    "packet_id",
+    "packet_number",
+    "frame_definition",
+    "frame_generation_time",
+    "beacon_type",
+    "beacon_id",
+    "type",
+    "version",
+    "firmware_version",
+    "sw_version",
+    "syncword",
+    "sync_word",
+    "spacecraft_id",
+    "sat_id",
+    "norad",
+    "apid",
+    "year",
+    "month",
+    "day",
+    "hour",
+    "hours",
+    "minute",
+    "minutes",
+    "second",
+    "seconds",
+    "millis",
+    "milliseconds",
+    "timestamp",
+    "time",
+    "unix_time",
+    "unixtime",
+    "unixtime_previous",
+    "pps_unix",
+    "epoch",
+    "date",
+    "datetime",
+    "obc_clock",
+    "clock",
+    "jdat",
+    "ephem_jdat",
+    "last_contact",
+    "telem_rtc",
+    "stamp_rtc",
+    "rtc_unixtime",
+    "ax5043_timer",
+    "timer",
+    "magic",
+    "preamble",
+    "postamble",
+    "hmac",
+    "xtea",
+    "rdp",
+    "typeandlength",
+    "command",
+    "action_cmd",
+    "options",
+    "flags_raw",
+    "id_cdm",
+    "id_modem",
+    "key_idx",
+    "rx_settings",
+    "tx_settings",
+    "radio_cfg",
+    "payload_mcusr",
+    "rcc_csr",
+    "sign_value",
+    "var_id",
+    "hdr_id",
+    "diag_data",
+    "var_byte1",
+    "var_byte2",
+    "var_byte3",
+    "var_byte4",
+    "free_value",
+    "skylink_vc",
+    "res_1",
+    "res_2",
+    "res_3"
+  ],
+  "state_leaves": [
+    "mode",
+    "state",
+    "status",
+    "flag",
+    "flags",
+    "enable",
+    "enabled",
+    "ok",
+    "valid",
+    "error",
+    "fault",
+    "alarm",
+    "bootcause",
+    "resetcause",
+    "inited",
+    "ind",
+    "permission",
+    "dmode",
+    "deployed",
+    "deployment",
+    "depl",
+    "armed",
+    "switch",
+    "lock",
+    "locked",
+    "heater",
+    "detumble",
+    "mnted",
+    "mounted",
+    "eclipse",
+    "inhibit",
+    "conf",
+    "choice",
+    "brn",
+    "rel",
+    "ant",
+    "monitor",
+    "enum",
+    "authenticated",
+    "oc"
   ],
   "measures": [
-    {"measure": "temperature", "unit": "degC", "range": [-60, 120],
-     "match": "(^|_)(temp|temperature|thermistor|therm|tmp[0-9]*|temp[0-9]+|t|tbrd|tpcb|tmcu)(_|$)|_temp_"},
-    {"measure": "voltage", "unit": "V", "range": [0, 60],
-     "match": "(^|_)(v|vbat|vbatt|volt|volts|voltage|vbus|vcc|vdd|vin|vout|bus_v|battery_v|v[0-9]+(_[0-9]+)?|vpcm[0-9a-z]*)(_|$)|_v[0-9]*$|voltage"},
-    {"measure": "current", "unit": "A", "range": [-20, 20],
-     "match": "(^|_)(i|cur|curr|current|amp|amps|ma|battery_i|charging_current|ipcm[0-9a-z]*)(_|$)|_i[0-9]*$|current"},
-    {"measure": "power", "unit": "W", "range": [-100, 200],
-     "match": "(^|_)(power|pwr|watt|watts)(_|$)|_power(_|$)"},
-    {"measure": "charge", "unit": "% or mAh", "range": [0, 100000],
-     "match": "(^|_)(soc|state_of_charge|battery_pct|charge_level|charge|capacity|energy)(_|$)|charge_level|m_ah$"},
-    {"measure": "signal", "unit": "dB", "range": [-160, 60],
-     "match": "(^|_)(rssi|snr|signal|lqi|agc|afc|s_meter)(_|$)|s_meter"},
-    {"measure": "memory", "unit": "bytes", "range": [0, 4294967295],
-     "match": "(^|_)(freemem|heap|ram|rom|flash|mem|memory|stack)(_|$)"},
-    {"measure": "frequency", "unit": "Hz", "range": [0, 100000000000],
-     "match": "(^|_)(freq|frequency|hz|khz|mhz)(_|$)"},
-    {"measure": "position", "unit": "deg / km", "range": [-180, 40000],
-     "match": "(^|_)(lat|latitude|lon|longitude|alt|altitude|height|gps|glonass|position|pos)(_|$)|latitude|longitude"},
-    {"measure": "attitude", "unit": "deg, deg/s, nT",
-     "range": [-100000, 100000],
-     "match": "(^|_)(gyro|gyr|mag|magnetometer|magnetic|quaternion|q[0-3]|omega|rate|sun_sensor|sun|angle|attitude|adcs|accel|acc|vcty|velocity|spin)(_|$)"},
-    {"measure": "counter", "unit": "n", "range": [0, 4294967295],
-     "match": "(^|_)(uptime|boot|boots|reboot|reboots|reset|resets|restart|restarts|rsts|wdt|count|counter|counts|cnt|errors|retries|packets|frames|tx_count|rx_count|number|pointer|index|total|looptime)(_|$)|_count(_|$)|_counter(_|$)|_number(_|$)"},
-    {"measure": "state", "unit": "enum", "range": null,
-     "match": "(^|_)(mode|state|status|flag|flags|enable|enabled|on|off|armed|deployed|deployment|depl|deploy|switch|lock|locked|valid|ok|error|fault|alarm|bootcause|resetcause|inited|ind|permission|dmode)(_|$)|_state(_|$)|_mode(_|$)|_status(_|$)|ant_deploy"}
+    {
+      "measure": "temperature",
+      "unit": "degC",
+      "range": [
+        -60,
+        120
+      ],
+      "match": "(^|_)(temp|temperature|thermistor|therm|tmp[0-9]*|temp[0-9]+|t|tbrd|tpcb|tmcu|tbat[0-9]*|tbcr[ab][0-9]+)(_|$)|_temp_"
+    },
+    {
+      "measure": "voltage",
+      "unit": "V",
+      "range": [
+        0,
+        60
+      ],
+      "match": "(^|_)(v|vbat|vbatt|volt|volts|volt[0-9]+|voltage|vbus|vcc|vdd|vin|vout|bus_v|bus_vol|battery_v|v[0-9]+(_[0-9]+)?|vpcm[0-9a-z]*|psu_battery|obc_bat|rtc_bat)(_|$)|_v[0-9]*$|voltage"
+    },
+    {
+      "measure": "current",
+      "unit": "A",
+      "range": [
+        -20,
+        20
+      ],
+      "match": "(^|_)(i|cur|curr|current|amp|amps|amp[0-9]+|ma|battery_i|charging_current|ipcm[0-9a-z]*|ibat|iin|iout|isens|ibcr[ab][0-9]+|iidiodeout|i[0-9]v[0-9a-z]+drw|bus_c|uc_c)(_|$)|_i[0-9]*$|current"
+    },
+    {
+      "measure": "power",
+      "unit": "W",
+      "range": [
+        -100,
+        200
+      ],
+      "match": "(^|_)(power|pwr|watt|watts|power[0-9]+)(_|$)|_power(_|$)"
+    },
+    {
+      "measure": "charge",
+      "unit": "% or mAh",
+      "range": [
+        0,
+        100000
+      ],
+      "match": "(^|_)(soc|state_of_charge|battery_pct|battery_percent|percent|pct|charge_level|charge|capacity|energy)(_|$)|charge_level|m_ah$"
+    },
+    {
+      "measure": "signal",
+      "unit": "dB",
+      "range": [
+        -160,
+        60
+      ],
+      "match": "(^|_)(rssi|snr|signal|lqi|agc|afc|s_meter|background_noise|noise)(_|$)|s_meter"
+    },
+    {
+      "measure": "frequency",
+      "unit": "Hz / bit/s",
+      "range": [
+        0,
+        100000000000
+      ],
+      "match": "(^|_)(freq|frequency|hz|khz|mhz|baud|datarate|rx_baud|tx_baud)(_|$)|datarate"
+    },
+    {
+      "measure": "position",
+      "unit": "deg / km",
+      "range": [
+        -180,
+        40000
+      ],
+      "match": "(^|_)(lat|latitude|lon|longitude|alt|altitude|height|gps|glonass|position|pos|nav|dop|sats|week)(_|$)|latitude|longitude"
+    },
+    {
+      "measure": "memory",
+      "unit": "bytes",
+      "range": [
+        0,
+        4294967295
+      ],
+      "match": "(^|_)(freemem|heap|ram|rom|flash|mem|memory|stack|bytes|rx_bytes|tx_bytes|lo_bytes|vmalloc_used)(_|$)"
+    },
+    {
+      "measure": "attitude",
+      "unit": "deg, deg/s, nT",
+      "range": [
+        -100000,
+        100000
+      ],
+      "match": "(^|_)(gyro|gyr|mag|magnetometer|magnetic|quaternion|q[0-3]|omega|rate|sun_sensor|sun|angle|attitude|adcs|accel|acc|vcty|velocity|vel|spin|diode|bdot)(_|$)"
+    },
+    {
+      "measure": "counter",
+      "unit": "n",
+      "range": [
+        0,
+        4294967295
+      ],
+      "match": "(^|_)(uptime|boot|boots|reboot|reboots|reset|resets|restart|restarts|rsts|wdt|count|counter|counts|cnt|errors|retries|packets|frames|tx_count|rx_count|number|pointer|index|total|looptime|load|procs|processes|erasures|of_range|ms|time_ms|uplink_ms|duty)(_|$)|_count(_|$)|_counter(_|$)|_number(_|$)|load_[0-9]+min"
+    },
+    {
+      "measure": "state",
+      "unit": "enum",
+      "range": null,
+      "match": "(^|_)(mode|state|status|flag|flags|enable|enabled|on|off|armed|deployed|deployment|depl|deploy|switch|lock|locked|valid|ok|error|fault|alarm|bootcause|resetcause|inited|ind|permission|dmode|has|is)(_|$)|_state(_|$)|_mode(_|$)|_status(_|$)|ant_deploy|^has_|^is_|_has_|_is_"
+    }
   ],
   "overrides": {
-    "_about": "decoder -> {leaf (1-4 trailing segments): measure | scaffolding | unknown}",
-    "netsat": {"p": "power", "u": "voltage"},
-    "co65": {"v3_3": "voltage", "v5": "voltage"},
-    "catsat": {"ax25_frame_psu_battery": "voltage"}
+    "_about": "decoder -> {trailing path (1..n segments): measure | scaffolding | unknown}",
+    "netsat": {
+      "p": "power",
+      "u": "voltage"
+    },
+    "co65": {
+      "v3_3": "voltage",
+      "v5": "voltage"
+    },
+    "catsat": {
+      "ax25_frame_psu_battery": "voltage",
+      "batt_chrg": "current",
+      "batt_dchrg": "current",
+      "batt_dcharge": "current",
+      "batt_c": "unknown",
+      "last_rferr": "counter",
+      "tx_duty": "counter"
+    },
+    "norbi": {
+      "angle_priority1": "state",
+      "angle_priority2": "state"
+    },
+    "cubebel2": {
+      "bus_c": "current",
+      "uc_c": "current",
+      "rtc_bat": "voltage"
+    },
+    "lasarsat": {
+      "dos_dozi": "unknown",
+      "dos_lppa": "unknown",
+      "dos_phd": "unknown",
+      "dos_plasma": "unknown"
+    },
+    "io86": {
+      "info_analog1": "unknown",
+      "info_analog2": "unknown",
+      "info_analog3": "unknown",
+      "info_analog4": "unknown",
+      "info_analog5": "unknown"
+    }
   }
 }
