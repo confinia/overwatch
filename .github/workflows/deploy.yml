@@ -197,11 +197,26 @@ jobs:
           # instant for one that has been up for days, the real wait for a
           # fresh one. Bounded; a Keycloak that never starts fails here, with
           # its log, instead of as a cli connection error.
-          for _ in $(seq 1 60); do
-            podman logs --tail 200 ovw2_keycloak_1 2>&1 | grep -q 'started in' && break
-            sleep 5
-          done
-          podman logs --tail 200 ovw2_keycloak_1 2>&1 | grep -q 'started in' || {
+          # Ready = the container has been running for a while, OR its full
+          # log (this container's lifetime only) carries the started line.
+          # The first version did `podman logs --tail 200 | grep -q`: on the
+          # very next stage the line WAS in the tail and the wait still gave
+          # up after 5 minutes and failed the stage — `grep -q` exits on the
+          # first match, `podman logs` takes SIGPIPE, and under pipefail the
+          # pipeline reports failure although it matched. run-tests.sh had
+          # documented that exact trap (#557). So: count to EOF, never -q, and
+          # a container running for minutes is ready without reading any log.
+          kc_ready() {
+            local started age n
+            started=$(podman inspect ovw2_keycloak_1 --format '{{.State.StartedAt}}' 2>/dev/null) || return 1
+            age=$(( $(date +%s) - $(date -d "$started" +%s 2>/dev/null || echo 0) ))
+            [ "$(podman inspect ovw2_keycloak_1 --format '{{.State.Running}}')" = "true" ] || return 1
+            [ "$age" -gt 300 ] && return 0
+            n=$(podman logs ovw2_keycloak_1 2>&1 | grep -c 'started in')
+            [ "${n:-0}" -gt 0 ]
+          }
+          for _ in $(seq 1 60); do kc_ready && break; sleep 5; done
+          kc_ready || {
             echo "keycloak did not report started within 5 minutes" >&2
             podman logs --tail 30 ovw2_keycloak_1 >&2 || true
             exit 1; }

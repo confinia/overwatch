@@ -427,8 +427,21 @@ def test_the_realm_apply_waits_for_a_recreated_keycloak():   # #553
     stage = d.split("bash deploy/slots.sh stage")[1] if "bash deploy/slots.sh stage" in d else d
     cli = stage.index("podman-compose -p ovw2 up -d --no-deps keycloak-config-cli")
     before = stage[:cli]
-    assert "podman logs --tail 200 ovw2_keycloak_1" in before and "'started in'" in before, \
-        "the cli must wait for Keycloak's own started line, not race it"
+    assert "kc_ready()" in before and "'started in'" in before, \
+        "the cli must wait for Keycloak's own readiness, not race it"
+    # The readiness check must not read a TAIL of the log: on a Keycloak up
+    # for hours the started line has scrolled out of any window, the first
+    # version gave up after 5 minutes and failed every stage (#557). Either
+    # the container has been running long enough, or the full log says so.
+    ready = before[before.index("kc_ready() {"):]
+    ready = ready[:ready.index("\n          }")]
+    assert "--tail" not in ready, "a tail window loses the started line on a long-running container"
+    assert "StartedAt" in ready and "-gt 300" in ready, "a container up for minutes is ready without any log"
+    # `grep -q` exits on the first match, the producer takes SIGPIPE, and under
+    # pipefail the pipeline fails although it matched — run-tests.sh documents
+    # this; the first #553 wait fell into it anyway (#557). Read to EOF.
+    assert "grep -q" not in ready, "grep -q on a pipeline under pipefail: SIGPIPE reads as failure"
+    assert "grep -c 'started in'" in ready
     assert "seq 1 60" in before and "sleep 5" in before, "bounded at ~5 minutes, polled"
     assert "did not report started" in before and "exit 1" in before, \
         "a Keycloak that never starts must fail the stage with its log"
