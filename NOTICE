@@ -1,0 +1,35 @@
+Overwatch
+Copyright (c) 2026 Clément Igonet <contact@confinia.io>
+
+All original source code in this repository is the copyright of Clément
+Igonet, sole author and rights holder. See AUTHORS for the git identities
+used across the history, all belonging to the same person.
+
+DUAL LICENSING
+--------------
+
+Overwatch is released under the GNU Affero General Public License v3.0
+(see LICENSE). The AGPL requires that anyone who runs a modified version
+as a network service makes the corresponding source available to its
+users.
+
+If that obligation does not fit your intended use — for example if you
+want to embed Overwatch in a proprietary product, ship it to customers,
+or operate a modified version as a service without publishing your
+changes — a commercial licence is available.
+
+Because Clément Igonet holds the copyright to the whole of this work, he
+can grant licence terms that differ from the AGPL. This is the same
+model used by MySQL, Qt and Sirius/Capella.
+
+Commercial licensing, OEM terms and sovereign private tenants:
+contact@confinia.io
+
+THIRD-PARTY MATERIAL
+--------------------
+
+This product includes data and components from third parties, each under
+its own licence. See the "Data sources & licenses" section of README.md
+for the authoritative list (SatNOGS DB, satnogs-decoders, CelesTrak,
+EOX Sentinel-2 cloudless, DB-IP Country Lite). Those licences are not
+altered by, and are not sublicensed under, the terms above.
