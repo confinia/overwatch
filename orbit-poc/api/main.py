@@ -3643,3 +3643,70 @@ LANDING = LANDING.replace("__VERSION__", PRODUCT_VERSION)
 def landing():
     from fastapi.responses import HTMLResponse
     return HTMLResponse(LANDING)
+
+# --- POLAR WEBHOOK INTEGRATION (Issue #16) ---
+from fastapi import HTTPException, status
+import json
+import polar 
+import logging
+
+logger = logging.getLogger(__name__)
+
+@app.post("/v1/billing/polar/webhook")
+async def polar_webhook(request: Request):
+    """
+    Handles Polar Merchant of Record webhooks for v2 self-serve tier.
+    Provides zero-manual-action provisioning and suspension.
+    """
+    _cloud_only()
+    payload_bytes = await request.body()
+    headers = {k.lower(): v for k, v in request.headers.items()}
+
+    # 1. Verify signature (handles both sandbox and production automatically via polar.py)
+    if not polar.verify_webhook(payload_bytes, headers):
+        logger.error("Polar webhook verification failed")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, 
+            detail="Invalid webhook signature"
+        )
+
+    # 2. Parse the Polar Standard Webhook payload
+    try:
+        event = json.loads(payload_bytes)
+        event_type = event.get("type")
+        data = event.get("data", {})
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
+
+    # The organization UUID is typically passed through the Polar checkout metadata
+    metadata = data.get("metadata", {})
+    org_id = metadata.get("org_id") or data.get("customer_id")
+    
+    if not org_id:
+        logger.warning(f"Polar webhook {event_type} missing org_id/customer_id in metadata")
+        return {"status": "ignored", "reason": "no org_id"}
+
+    # 3. Handle 'subscription.active' -> Provisioning
+    if event_type == "subscription.active":
+        logger.info(f"Provisioning activated for org: {org_id} via Polar subscription")
+        with cursor() as cur:
+            # First apply the billing status update
+            _apply_billing_event(cur, event)
+            # Provision the Postgres RLS read role
+            _provision_org_db(cur, org_id)
+            # Provision the private Grafana organization and dashboards
+            _provision_grafana_org(cur, org_id, f"org-{org_id[:8]}")
+            cur.connection.commit()
+            
+    # 4. Handle 'past_due' or 'revoked' -> Suspension
+    elif event_type in ["subscription.canceled", "subscription.past_due", "subscription.revoked"]:
+        logger.info(f"Suspending org: {org_id} due to Polar event: {event_type}")
+        with cursor() as cur:
+            _apply_billing_event(cur, event)
+            cur.connection.commit()
+        # The maintainer specified past_due/revoked -> org suspended (data retained N days)
+        # Using the internal purge/tombstone function
+        if event_type == "subscription.revoked":
+            _purge_org(org_id)
+
+    return {"status": "success", "event": event_type}
